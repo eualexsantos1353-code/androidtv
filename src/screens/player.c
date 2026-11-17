@@ -1445,7 +1445,7 @@ static void swatch_draw(int which, int v, float cx, float cy, float r) {
 #define TAB_GAP 14.0f
 #define SRC_RW (SRC_W - 62)  /* a row */
 #define SRC_LH 630.0f        /* the list's window at most (the tray stays clear of the clock) */
-#define SRC_VH (fminf(SRC_LH, fmaxf(150.0f, SR.tot - 10))) /* the list's window: as tall as what is in it (groups folded, it shrinks), up to SRC_LH */
+#define SRC_VH SRC_LH /* the list window: always the same height, so the tray keeps one size on every tab */
 static int src_tray(void) { int ak = P.tray.kind < 0 ? -P.tray.kind : P.tray.kind; return ak == 2 || ak == 5; }
 static void srcs_free(void) { for (int i = 0; i < P.srcs.ng; i++) { free(P.srcs.g[i].items); free(P.srcs.g[i].f); } memset(&P.srcs, 0, sizeof P.srcs); P.srcs.bg = P.srcs.bi = -1; free(SR.r); SR.r = NULL; SR.n = SR.cap = 0; SR.idx = -1; }
 static void src_rows(void);
