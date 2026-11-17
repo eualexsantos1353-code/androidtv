@@ -3049,7 +3049,7 @@ static void draw_tray(void) {
   x = SB_W - 72 - W; y = SB_H - 178 - H;
   PG.tray = P.tray.kind > 0 && P.tray.openA.v > 0.5f; PG.x = x; PG.y = y; PG.w = W; PG.h = H;
   float sc = P.tray.open.v; gfx_opacity_push(P.tray.openA.v); gfx_scale_push(sc, sc, P.tray.ox, P.tray.oy);
-  gfx_rrect(x, y, W, H, 28, RGBA(18, 16, 28, 204)); gfx_rrect_v(x, y, W, H, 28, WHITE_A(20), WHITE_A(5)); gfx_ring(x, y, W, H, 28, 1, WHITE_A(31));
+  gfx_rrect(x, y, W, H, 28, RGBA(18, 16, 28, 250)); /* (nearly opaque: on some TVs the 204 let a bright picture through and the white rows vanished) */ gfx_rrect_v(x, y, W, H, 28, WHITE_A(20), WHITE_A(5)); gfx_ring(x, y, W, H, 28, 1, WHITE_A(31));
   gfx_offset_push(nudge_x(&P.nudge) * (P.mode == 2), nudge_y(&P.nudge) * (P.mode == 2));
   float ix = x + 1, cy = y + 1 + 22;
   if (P.tray.ntabs) { if (ak == 5 || ak == 2) { text_draw(P.tray.title, ix + 30, cy, 24, 800, WHITE_A(209), 0, W - 62, ALIGN_LEFT); cy += L24 + 14; }

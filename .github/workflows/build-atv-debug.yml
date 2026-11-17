@@ -1,0 +1,84 @@
+name: Build Android TV debug
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      ORIGIN_BUILD: ${{ github.workspace }}/../origin-build
+      NDK_VER: 27.2.12479018
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Android SDK pieces
+        run: |
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKM" --licenses >/dev/null || true
+          "$SDKM" "ndk;$NDK_VER" "platforms;android-36" "build-tools;35.0.0" >/dev/null
+          ls "$ANDROID_HOME/ndk"
+
+      - name: Sources of the native libraries
+        run: |
+          mkdir -p "$ORIGIN_BUILD/src" "$ORIGIN_BUILD/mac"
+          curl -fsSL -o "$ORIGIN_BUILD/src/mbedtls-3.6.2.tar.bz2" https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.2/mbedtls-3.6.2.tar.bz2
+          curl -fsSL -o "$ORIGIN_BUILD/src/curl-8.11.1.tar.xz" https://curl.se/download/curl-8.11.1.tar.xz
+          curl -fsSL -o /tmp/sdl2.tar.gz https://github.com/libsdl-org/SDL/releases/download/release-2.30.12/SDL2-2.30.12.tar.gz
+          tar -xzf /tmp/sdl2.tar.gz -C "$ORIGIN_BUILD/mac"
+          ls "$ORIGIN_BUILD/src" "$ORIGIN_BUILD/mac"
+
+      - name: Build the native app (both processors)
+        run: |
+          export NDK="$ANDROID_HOME/ndk/$NDK_VER"
+          sed -i 's/darwin-x86_64/linux-x86_64/g' tools/build.sh
+          for ABI in arm64-v8a armeabi-v7a; do tools/androidtv/build-deps.sh "$ABI"; done
+          tools/build.sh atv-arm64
+          tools/build.sh atv-armv7
+
+      - name: Libraries from the official release (torrent engine, converter, previews)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/rel && cd /tmp/rel
+          gh release download v1.1.1 -R stremio-origin/androidtv -p '*.apk' || true
+          APK="$(ls /tmp/rel/*.apk | head -n1)"
+          echo "official APK: $APK"
+          mkdir -p x && cd x && unzip -q "$APK" 'lib/*'
+          cd "$GITHUB_WORKSPACE"
+          JNI=androidtv/app/src/main/jniLibs
+          for ABI in arm64-v8a armeabi-v7a; do
+            mkdir -p "$JNI/$ABI"
+            B="build/atv-$ABI"
+            cp "$B/deps/lib/libSDL2.so" "$B/deps/lib/libcurl.so" "$B/libmain.so" "$JNI/$ABI/"
+            for L in libsbengine.so libsbdts.so libsbprev.so; do
+              [ -f "/tmp/rel/x/lib/$ABI/$L" ] && cp "/tmp/rel/x/lib/$ABI/$L" "$JNI/$ABI/" || echo "no $L for $ABI"
+            done
+            ls -l "$JNI/$ABI"
+          done
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+
+      - name: Assemble the debug APK
+        run: |
+          printf 'sdk.dir=%s\n' "$ANDROID_HOME" > androidtv/local.properties
+          gradle -p androidtv assembleDebug --console=plain
+          ls -l androidtv/app/build/outputs/apk/debug/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: origin-apk
+          path: androidtv/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7

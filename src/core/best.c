@@ -519,11 +519,12 @@ static void speed_landed(int ok, double mbps) {
 /* The player's title art comes up at once and stays while the addons answer. All answered: chosen at once; some
    still answering: up to 10 s for them all (most answer in 1-3 s), then the best of what came; with nothing usable
    by then, the first usable one that comes, up to 30 s. One quiet line says what it waits for. */
+#define BEST_GRACE 1.5 /* seconds after the first streams arrive */
 static unsigned long long skipped[24]; static int nSkipped;
 static unsigned long long url_hash(const char *u) { unsigned long long h = 1469598103934665603ull; for (; *u; u++) { h ^= (unsigned char)*u; h *= 1099511628211ull; } return h; }
 void best_skip(const char *url) { if (url && *url) skipped[nSkipped++ % 24] = url_hash(url); }
 static int was_skipped(const Stream *s) { unsigned long long h = url_hash(s->url); for (int i = 0; i < nSkipped && i < 24; i++) if (skipped[i] == h) return 1; return 0; }
-static struct { unsigned tok; int on, done, fin, wait, said3, t12, t30, dur; double t0; char type[16], vid[80]; Stream *all; int n, cap; BestStatusCb status; BestDoneCb cb; void *ud; } F;
+static struct { unsigned tok; int on, done, fin, wait, said3, t12, t30, dur, gr; double t0, t1; char type[16], vid[80]; Stream *all; int n, cap; BestStatusCb status; BestDoneCb cb; void *ud; } F;
 static void flow_end(void) { F.on = 0; free(F.all); F.all = NULL; F.n = F.cap = 0; }
 static void say(void) {
   if (!F.on || F.fin || !F.status) return; int slow = F.wait > 0 && app_now() - F.t0 > 2.8; char t[256], n[16]; /* only when it takes a while: some addons are slow */
@@ -547,7 +548,7 @@ static void on_part(StreamGroup *g, int gi, void *ud) {
   (void)gi;
   if (F.on && !F.fin && (unsigned)(uintptr_t)ud == F.tok) {
     if (F.n + g->n > F.cap) { F.cap = (F.n + g->n) * 2; F.all = realloc(F.all, F.cap * sizeof *F.all); }
-    memcpy(F.all + F.n, g->items, g->n * sizeof *g->items); F.n += g->n; say(); decide(0);
+    memcpy(F.all + F.n, g->items, g->n * sizeof *g->items); F.n += g->n; if (g->n && !F.t1) F.t1 = app_now(); F.gr = 0; say(); decide(0);
   }
   free(g->items); /* the part's streams belong to whoever receives them */
 }
@@ -573,6 +574,7 @@ void best_tick(void) {
   if (sr) speed_landed(sok, mb);
   if (F.on) { double el = app_now() - F.t0;
     if (!F.said3 && el >= 3) { F.said3 = 1; say(); }
+    if (F.on && F.t1 && !F.gr && !F.fin && app_now() - F.t1 >= BEST_GRACE) { F.gr = 1; decide(2); } /* the first streams came: the best of what is here, without waiting for the slowest addon */
     if (F.on && !F.t12 && el >= 10.1) { F.t12 = 1; decide(0); }
     if (F.on && !F.t30 && el >= 30.1) { F.t30 = 1; decide(1); } }
 }
