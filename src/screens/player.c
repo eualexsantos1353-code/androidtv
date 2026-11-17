@@ -1483,11 +1483,35 @@ static void srcs_begin(const char *vid) {
 static int src_count(int g) { int n = 0; for (int i = 0; i < P.srcs.g[g].n; i++) if (P.srcs.g[g].items[i].url[0]) n++; return n; }
 static int srcTabG[40]; /* tab -> addon (tab 0 = All): an addon with nothing to show has no tab */
 static char srcLast[96]; static int srcRestored; /* the addon tab last used (kept while the app runs); restored once per opening */
-static void src_tabs(void) { int tot = 0, cur = P.tray.tab > 0 ? srcTabG[P.tray.tab] : -1, ord[16], no = 0; P.tray.ntabs = 0;
+/* how much each addon is used (a play of one of its streams): "count<TAB>name" lines in the store, so the favourite goes first */
+#define SU_MAX 24
+static void su_clean(char *d, const char *s) { snprintf(d, 96, "%s", s); for (char *q = d; *q; q++) if (*q == '\t' || *q == '\n') *q = ' '; }
+static int su_load(char (*nm)[96], int *ct) { int n = 0; const char *p = store_get("srcUse", "");
+  while (*p && n < SU_MAX) { int c = 0; if (sscanf(p, "%d", &c) != 1) break; const char *t = strchr(p, '\t'); if (!t) break; t++; const char *e = strchr(t, '\n'); size_t l = e ? (size_t)(e - t) : strlen(t); if (l > 95) l = 95;
+    memcpy(nm[n], t, l); nm[n][l] = 0; ct[n++] = c; p = e ? e + 1 : t + strlen(t); }
+  return n; }
+static int src_use_of(const char *name) { char nm[SU_MAX][96], c[96]; int ct[SU_MAX], n = su_load(nm, ct); su_clean(c, name); for (int i = 0; i < n; i++) if (!strcmp(nm[i], c)) return ct[i]; return 0; }
+static void src_use_add(const char *name) { if (!name || !*name) return; char nm[SU_MAX + 1][96], c[96]; int ct[SU_MAX + 1], n = su_load(nm, ct), f = -1; su_clean(c, name);
+  for (int i = 0; i < n; i++) if (!strcmp(nm[i], c)) f = i;
+  if (f < 0) { if (n >= SU_MAX) { int lo = 0; for (int i = 1; i < n; i++) if (ct[i] < ct[lo]) lo = i; f = lo; } else f = n++; snprintf(nm[f], 96, "%s", c); ct[f] = 0; }
+  ct[f]++; char buf[SU_MAX * 110 + 8]; size_t o = 0; buf[0] = 0;
+  for (int i = 0; i < n && o + 110 < sizeof buf; i++) o += (size_t)snprintf(buf + o, sizeof buf - o, "%d\t%s\n", ct[i], nm[i]);
+  store_set("srcUse", buf); }
+static int has_ci(const char *h, const char *n) { size_t ln = strlen(n); for (; *h; h++) if (!strncasecmp(h, n, ln)) return 1; return 0; }
+static int pt_tok(const char *f) { for (const char *p = f; *p; p++) if ((p[0] == 'P' || p[0] == 'p') && (p[1] == 'T' || p[1] == 't') && (p == f || !isalnum((unsigned char)p[-1])) && !isalnum((unsigned char)p[2])) return 1; return 0; }
+/* an addon with a stream that is both 4K and dubbed (Portuguese audio): its tab goes first */
+static int src_dub4k(int g) { __typeof__(P.srcs.g[0]) *x = &P.srcs.g[g]; if (!x->f) return 0;
+  for (int i = 0; i < x->n && i < x->nf; i++) { const Stream *st = &x->items[i]; if (!st->url[0]) continue; char info[700]; sb_stream_info(st, info, sizeof info);
+    int k4 = has_ci(x->f[i].facts, "4K") || has_ci(info, "2160p") || has_ci(info, "4k");
+    int dub = pt_tok(x->f[i].facts) || has_ci(info, "dublado") || has_ci(info, "dubbed") || has_ci(info, "pt-br") || has_ci(info, "dual");
+    if (k4 && dub) return 1; }
+  return 0; }
+static void src_tabs(void) { int tot = 0, cur = P.tray.tab > 0 ? srcTabG[P.tray.tab] : -1, ord[16], no = 0, key[16][3]; P.tray.ntabs = 0;
   for (int g = 0; g < P.srcs.ng; g++) tot += src_count(g);
-  for (int g = 0; g < P.srcs.ng && no < 16; g++) { if (P.srcs.g[g].st == 3) continue; /* answered with nothing: no tab */
-    int k = P.srcs.g[g].st >= 2 ? src_count(g) : -1, j = no++; /* most streams first, the ones still asked last (stable) */
-    while (j > 0 && (P.srcs.g[ord[j - 1]].st >= 2 ? src_count(ord[j - 1]) : -1) < k) { ord[j] = ord[j - 1]; j--; } ord[j] = g; }
+  for (int g = 0; g < P.srcs.ng && g < 16; g++) { if (P.srcs.g[g].st == 3) continue; /* answered with nothing: no tab */
+    int a = P.srcs.g[g].st >= 2; key[g][0] = a ? src_dub4k(g) : -1; key[g][1] = a || P.srcs.g[g].st == 1 ? src_use_of(P.srcs.g[g].name) : 0; key[g][2] = a ? src_count(g) : -1;
+    int j = no++; /* 4K dubbed first, else the addon you use most, then the most streams; the ones still asked last (stable) */
+    while (j > 0 && (key[ord[j - 1]][0] < key[g][0] || (key[ord[j - 1]][0] == key[g][0] && (key[ord[j - 1]][1] < key[g][1] || (key[ord[j - 1]][1] == key[g][1] && key[ord[j - 1]][2] < key[g][2]))))) { ord[j] = ord[j - 1]; j--; } ord[j] = g; }
   { char n[12]; snprintf(n, sizeof n, "%d", tot); srcTabG[P.tray.ntabs] = -1; snprintf(P.tray.tabs[P.tray.ntabs++], 48, "%s  %s", T("All"), tot ? n : "\xc2\xb7"); }
   for (int o = 0; o < no && P.tray.ntabs < 40; o++) { int g = ord[o]; char n[12];
     if (P.srcs.g[g].st >= 2) snprintf(n, sizeof n, "%d", src_count(g)); else snprintf(n, sizeof n, "\xc2\xb7");
@@ -2069,6 +2093,7 @@ static void zap_shade(void) {
   zapF += zapOn ? dt / 0.15f : -dt / 0.3f; /* (down quickly at the switch, up as soon as the new picture runs) */ zapF = zapF < 0 ? 0 : zapF > 1 ? 1 : zapF;
   if (zapF > 0.003f) { float k = zapF * zapF * (3 - 2 * zapF); gfx_rect(0, 0, SB_W, SB_H, BLACK_A((int)(255 * k))); } }
 static void play_stream(const Stream *s, const char *vid, double startAt) {
+  src_use_add(s->addon); /* (one more play for this addon: the favourite goes first in Sources) */
   { extern int app_behind(void); if (app_behind()) awayHold = 0; } /* (a play started while behind, a phone's: it plays on) */
   if (!s->url[0]) { if (s->ext[0]) app_open_external(s->ext, s->name); return; } /* a page to open elsewhere: never played here */
   if (!can_play(s)) { toast(T("Couldn’t start the torrent engine"), 2500, NULL); return; }
