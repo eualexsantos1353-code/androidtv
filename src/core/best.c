@@ -519,7 +519,7 @@ static void speed_landed(int ok, double mbps) {
 /* The player's title art comes up at once and stays while the addons answer. All answered: chosen at once; some
    still answering: up to 10 s for them all (most answer in 1-3 s), then the best of what came; with nothing usable
    by then, the first usable one that comes, up to 30 s. One quiet line says what it waits for. */
-#define BEST_GRACE 1.5 /* seconds after the first streams arrive */
+#define BEST_GRACE 0.5 /* seconds after the first streams arrive */
 static unsigned long long skipped[24]; static int nSkipped;
 static unsigned long long url_hash(const char *u) { unsigned long long h = 1469598103934665603ull; for (; *u; u++) { h ^= (unsigned char)*u; h *= 1099511628211ull; } return h; }
 void best_skip(const char *url) { if (url && *url) skipped[nSkipped++ % 24] = url_hash(url); }

@@ -1482,12 +1482,17 @@ static void srcs_begin(const char *vid) {
 /* the tabs: All, then each addon with how many it has (a dot while it is asked) */
 static int src_count(int g) { int n = 0; for (int i = 0; i < P.srcs.g[g].n; i++) if (P.srcs.g[g].items[i].url[0]) n++; return n; }
 static int srcTabG[40]; /* tab -> addon (tab 0 = All): an addon with nothing to show has no tab */
-static void src_tabs(void) { int tot = 0, cur = P.tray.tab > 0 ? srcTabG[P.tray.tab] : -1; P.tray.ntabs = 0;
+static char srcLast[96]; static int srcRestored; /* the addon tab last used (kept while the app runs); restored once per opening */
+static void src_tabs(void) { int tot = 0, cur = P.tray.tab > 0 ? srcTabG[P.tray.tab] : -1, ord[16], no = 0; P.tray.ntabs = 0;
   for (int g = 0; g < P.srcs.ng; g++) tot += src_count(g);
+  for (int g = 0; g < P.srcs.ng && no < 16; g++) { if (P.srcs.g[g].st == 3) continue; /* answered with nothing: no tab */
+    int k = P.srcs.g[g].st >= 2 ? src_count(g) : -1, j = no++; /* most streams first, the ones still asked last (stable) */
+    while (j > 0 && (P.srcs.g[ord[j - 1]].st >= 2 ? src_count(ord[j - 1]) : -1) < k) { ord[j] = ord[j - 1]; j--; } ord[j] = g; }
   { char n[12]; snprintf(n, sizeof n, "%d", tot); srcTabG[P.tray.ntabs] = -1; snprintf(P.tray.tabs[P.tray.ntabs++], 48, "%s  %s", T("All"), tot ? n : "\xc2\xb7"); }
-  for (int g = 0; g < P.srcs.ng && P.tray.ntabs < 40; g++) { char n[12]; if (P.srcs.g[g].st == 3) continue; /* answered with nothing: no tab */
+  for (int o = 0; o < no && P.tray.ntabs < 40; o++) { int g = ord[o]; char n[12];
     if (P.srcs.g[g].st >= 2) snprintf(n, sizeof n, "%d", src_count(g)); else snprintf(n, sizeof n, "\xc2\xb7");
     srcTabG[P.tray.ntabs] = g; snprintf(P.tray.tabs[P.tray.ntabs++], 48, "%.36s  %s", P.srcs.g[g].name, n); }
+  if (!srcRestored && srcLast[0]) for (int i = 1; i < P.tray.ntabs; i++) if (!strcmp(P.srcs.g[srcTabG[i]].name, srcLast)) { cur = srcTabG[i]; srcRestored = 1; break; } /* the last addon you used, once it has answered */
   { int t = 0; if (cur >= 0) for (int i = 1; i < P.tray.ntabs; i++) if (srcTabG[i] == cur) { t = i; break; } P.tray.tab = t; } }
 /* the rows' heights: a stream two lines (three with its note), a pinned one the same, an addon's name a short line */
 #define SN_PX 27      /* a stream's facts: 27 px on 34 */
@@ -1510,6 +1515,7 @@ static void src_add_group(int g) { int all = P.tray.tab == 0; /* (on All, what i
     if (all && ((g == srcPG && i == srcPI) || (g == P.srcs.bg && i == P.srcs.bi))) continue; sr_add(3, g, i); } }
 static void src_rows(void) {
   int fk = -1, fg = -1, fi = -1; if (SR.moved && src_focusable(SR.idx)) { fk = SR.r[SR.idx].k; fg = SR.r[SR.idx].g; fi = SR.r[SR.idx].i; }
+  if (P.tray.tab > 0 && P.tray.tab < P.tray.ntabs) { snprintf(srcLast, sizeof srcLast, "%s", P.srcs.g[srcTabG[P.tray.tab]].name); srcRestored = 1; } else if (srcRestored) srcLast[0] = 0; /* remember the tab you chose (All too) */
   SR.n = 0; int tab = P.tray.tab, pg = -1, pi = -1, playing = src_playing(&pg, &pi); srcPG = playing ? pg : -1; srcPI = playing ? pi : -1;
   if (tab == 0) { /* All: what plays now, the best fit, then every addon under its name */
     if (playing) sr_add(6, pg, pi);
@@ -1664,7 +1670,7 @@ static void render_tray(int fresh) {
 }
 static int subTab; /* the subtitle tab last used (kept while the app runs) */
 static void open_tray(int kind) {
-  if (kind != 2 && kind != 5) srcs_free(); else { mo_set(&SR.y, 0); mo_set(&SR.plA, 0); P.tray.tab = 0; SR.moved = 0; }
+  if (kind != 2 && kind != 5) srcs_free(); else { mo_set(&SR.y, 0); mo_set(&SR.plA, 0); P.tray.tab = 0; SR.moved = 0; srcRestored = 0; }
   P.mode = 2; memset(&P.tray.row, 0, sizeof P.tray.row); P.tray.kind = kind; P.tray.idx = -1; P.tray.zone = 0; P.tray.onBtn = 0; P.tray.n = 0; P.tray.ntabs = 0;
   if (kind == 1) P.tray.season = season_of(P.vid);
   if (kind == 4) { load_emb_tracks(); P.tray.tab = subTab; P.tray.zone = 1; } /* the subtitles open on their tabs (kept when there are any) */
