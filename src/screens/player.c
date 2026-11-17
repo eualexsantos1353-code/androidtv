@@ -1481,12 +1481,14 @@ static void srcs_begin(const char *vid) {
 }
 /* the tabs: All, then each addon with how many it has (a dot while it is asked) */
 static int src_count(int g) { int n = 0; for (int i = 0; i < P.srcs.g[g].n; i++) if (P.srcs.g[g].items[i].url[0]) n++; return n; }
-static void src_tabs(void) { int tot = 0; P.tray.ntabs = 0;
+static int srcTabG[40]; /* tab -> addon (tab 0 = All): an addon with nothing to show has no tab */
+static void src_tabs(void) { int tot = 0, cur = P.tray.tab > 0 ? srcTabG[P.tray.tab] : -1; P.tray.ntabs = 0;
   for (int g = 0; g < P.srcs.ng; g++) tot += src_count(g);
-  { char n[12]; snprintf(n, sizeof n, "%d", tot); snprintf(P.tray.tabs[P.tray.ntabs++], 48, "%s  %s", T("All"), tot ? n : "\xc2\xb7"); }
-  for (int g = 0; g < P.srcs.ng && P.tray.ntabs < 40; g++) { char n[12]; if (P.srcs.g[g].st >= 2) snprintf(n, sizeof n, "%d", src_count(g)); else snprintf(n, sizeof n, "\xc2\xb7");
-    snprintf(P.tray.tabs[P.tray.ntabs++], 48, "%.36s  %s", P.srcs.g[g].name, n); }
-  if (P.tray.tab >= P.tray.ntabs) P.tray.tab = 0; }
+  { char n[12]; snprintf(n, sizeof n, "%d", tot); srcTabG[P.tray.ntabs] = -1; snprintf(P.tray.tabs[P.tray.ntabs++], 48, "%s  %s", T("All"), tot ? n : "\xc2\xb7"); }
+  for (int g = 0; g < P.srcs.ng && P.tray.ntabs < 40; g++) { char n[12]; if (P.srcs.g[g].st == 3) continue; /* answered with nothing: no tab */
+    if (P.srcs.g[g].st >= 2) snprintf(n, sizeof n, "%d", src_count(g)); else snprintf(n, sizeof n, "\xc2\xb7");
+    srcTabG[P.tray.ntabs] = g; snprintf(P.tray.tabs[P.tray.ntabs++], 48, "%.36s  %s", P.srcs.g[g].name, n); }
+  { int t = 0; if (cur >= 0) for (int i = 1; i < P.tray.ntabs; i++) if (srcTabG[i] == cur) { t = i; break; } P.tray.tab = t; } }
 /* the rows' heights: a stream two lines (three with its note), a pinned one the same, an addon's name a short line */
 #define SN_PX 27      /* a stream's facts: 27 px on 34 */
 #define SN_LH 34.0f
@@ -1515,7 +1517,7 @@ static void src_rows(void) {
     for (int g = 0; g < P.srcs.ng; g++) { int st = P.srcs.g[g].st; if (st == 3) continue; sr_add(5, g, -1);
       if (st <= 1) { sr_add(1, g, 0); sr_add(1, g, 1); } else src_add_group(g); }
     int any = 0; for (int i = 0; i < SR.n; i++) if (SR.r[i].k != 0) any = 1; if (!any) sr_add(0, -1, 0); }
-  else { int g = tab - 1; if (g < P.srcs.ng) { int st = P.srcs.g[g].st;
+  else { int g = tab < P.tray.ntabs ? srcTabG[tab] : -1; if (g >= 0 && g < P.srcs.ng) { int st = P.srcs.g[g].st;
       if (st <= 1) { sr_add(1, g, 0); sr_add(1, g, 1); sr_add(1, g, 2); } else if (st == 3) sr_add(0, g, 0); else src_add_group(g); } }
   float y = 0;
   for (int i = 0; i < SR.n; i++) { SRow *r = &SR.r[i];
