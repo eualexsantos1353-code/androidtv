@@ -34,6 +34,12 @@ android {
     }
 
     signingConfigs {
+        debug {   /* one fixed key committed with the fork: every debug build installs over the last one */
+            storeFile file('origin-debug.keystore')
+            storePassword 'android'
+            keyAlias 'origin'
+            keyPassword 'android'
+        }
         if (hasKeys) {
             release {
                 storeFile file(keyProps.getProperty('storeFile'))
@@ -45,7 +51,7 @@ android {
     }
 
     buildTypes {
-        debug { resValue 'bool', 'dev_hooks', 'true' }
+        debug { resValue 'bool', 'dev_hooks', 'true'; signingConfig signingConfigs.debug }
         release {
             minifyEnabled false
             resValue 'bool', 'dev_hooks', System.getenv('SB_DEVHOOKS') == '1' ? 'true' : 'false'   /* SB_DEVHOOKS=1: a release-signed TEST build that takes test settings (never published) */
