@@ -3043,7 +3043,7 @@ static void draw_tray(void) {
   if (ak == 4) { CP = P.tray.ncols && P.tray.ncols <= 2 ? 340 : 282; CPW = CP - 50; }
   float colH = 6 + (6 + L18 + 14) + COL_LH + 4, listH = ak == 4 ? colH : srcs ? SRC_VH : rowH;
   float W = ak == 4 ? 56 + (P.tray.ncols ? P.tray.ncols : 4) * CP - 10 /* the last column as far from the edge as the first */ : srcs ? SRC_W : fminf(SB_W * 0.6f, 2 + 60 + fmaxf(rowW, hdW)), H = 2 + 22 + hdH + 8 + listH + 8 + 20, x = SB_W - 72 - W, y;
-  if (P.tray.ntabs && W < tabsW - TAB_GAP + 62) W = tabsW - TAB_GAP + 62; /* the tabs all in view: never cut */
+  if (P.tray.ntabs && W < tabsW - TAB_GAP + 62) W = fminf(tabsW - TAB_GAP + 62, srcs ? SRC_W : SB_W - 144); /* the tabs all in view: never cut (with many addons the tabs scroll: the tray never grows past the screen, its list would be left off it) */
   /* every tray takes the size of what is in it, and glides there when that changes (a group folded, a tab switched) */
   { static Mo tH, tW; static int tk; if (tk != ak || P.tray.openA.v < 0.02f) { mo_set(&tH, H); mo_set(&tW, W); tk = ak; } else { if (fabsf(tH.to - H) > 0.5f) mo_to(&tH, H, .26f, C_OUT, 0); if (fabsf(tW.to - W) > 0.5f) mo_to(&tW, W, .26f, C_OUT, 0); } static double lt; double nw = now_(); float fdt = lt ? (float)(nw - lt) : 0; lt = nw; if (fdt > 0.05f) fdt = 0.05f; mo_tick(&tH, fdt); mo_tick(&tW, fdt); H = tH.v; W = tW.v; }
   x = SB_W - 72 - W; y = SB_H - 178 - H;
