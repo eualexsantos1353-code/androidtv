@@ -2,6 +2,8 @@
 #include "core/net.h"
 #include "core/json.h"
 #include "core/best.h"
+#include "core/tmdb.h"
+#include "core/i18n.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -95,7 +97,7 @@ typedef struct Job {
   int got; cJSON *imdbList, *caps;   /* IMDb and the captioned YouTube cuts, asked side by side */
   int imdbTry; double imdbRetryAt;
   int capsLeft, capsFired; double capsCapAt;
-  int cineTi;
+  int cineTi; char ytIn[200]; int ytFirst; /* the meta's YouTube ids; ytFirst: a trailer in the app's language from TMDB, tried before IMDb's */
   struct Job *next;
 } Job;
 static Job *jobs; static unsigned nextTok = 1;
@@ -445,6 +447,44 @@ static void cinemeta_yt(Job *j) {
   cine_next(j);
 }
 
+/* ---- a trailer in the app's language: TMDB's videos (YouTube) in "pt" and the like, before IMDb's (English) ---- */
+static void tm_go(Job *j) { /* the usual way: the meta's YouTube ids, else Cinemeta's, then IMDb */
+  char buf[200]; cpy(buf, sizeof buf, j->ytIn); j->nyt = 0;
+  for (char *s = strtok(buf, ","); s && j->nyt < 8; s = strtok(NULL, ",")) if (valid_yt(s)) cpy(j->yt[j->nyt++], sizeof j->yt[0], s);
+  if (j->nyt || !j->imdb[0]) with_yt(j); else cinemeta_yt(j);
+}
+static void on_yt_first(Job *j, const char *url, const char *err) {
+  if (!*url) { fprintf(stderr, "[trailer] %s: the trailer in your language did not resolve, the usual way\n", j->imdb); j->ytFirst = 0; tm_go(j); return; }
+  on_yt_url(j, url, err);
+}
+static void on_tm_videos(int st, const unsigned char *body, size_t len, void *ud) {
+  Job *j = ud; cJSON *r = st > 0 ? net_json(body) : NULL; char ll[4]; snprintf(ll, sizeof ll, "%.2s", i18n_lang()); const cJSON *v; int n = 0; char ids[8][20];
+  for (int pass = 0; pass < 2; pass++) cJSON_ArrayForEach(v, js_arr(r, "results")) {
+    if (n >= 5 || strcasecmp(js_str(v, "site", ""), "YouTube") || strcasecmp(js_str(v, "type", ""), "Trailer") || strcmp(js_str(v, "iso_639_1", ""), ll)) continue;
+    if (pass == 0 && !js_bool(v, "official", 0)) continue; /* the official ones first */
+    const char *k = js_str(v, "key", ""); if (!valid_yt(k)) continue; int dup = 0; for (int i = 0; i < n; i++) if (!strcmp(ids[i], k)) dup = 1;
+    if (!dup) cpy(ids[n++], sizeof ids[0], k); }
+  cJSON_Delete(r);
+  fprintf(stderr, "[trailer] %s: %d trailer(s) in %s from TMDB\n", j->imdb, n, ll);
+  if (!n) tm_go(j);
+  else { j->nyt = 0; for (int i = 0; i < n; i++) cpy(j->yt[j->nyt++], sizeof j->yt[0], ids[i]); j->ytFirst = 1; yt_resolve(j, j->yt[0], on_yt_first); }
+  job_unref(j);
+}
+static void on_tm_find(int st, const unsigned char *body, size_t len, void *ud) {
+  Job *j = ud; cJSON *r = st > 0 ? net_json(body) : NULL;
+  const cJSON *mv = cJSON_GetArrayItem(js_arr(r, "movie_results"), 0), *tv = cJSON_GetArrayItem(js_arr(r, "tv_results"), 0), *x = mv ? mv : tv; int id = x ? (int)js_num(x, "id", 0) : 0;
+  char p[200], url[1100], hdr[480]; snprintf(p, sizeof p, "/%s/%d/videos?language=%s&include_video_language=%.2s,en", mv ? "movie" : "tv", id, i18n_lang(), i18n_lang());
+  cJSON_Delete(r);
+  if (!id || !tmdb_call(p, url, sizeof url, hdr, sizeof hdr)) { tm_go(j); job_unref(j); return; }
+  j->refs++; net_get_hdr(url, hdr[0] ? hdr : NULL, on_tm_videos, j);
+  job_unref(j);
+}
+static void tm_start(Job *j) {
+  char p[100], url[1100], hdr[480]; snprintf(p, sizeof p, "/find/%s?external_source=imdb_id", j->imdb);
+  if (!tmdb_call(p, url, sizeof url, hdr, sizeof hdr)) { tm_go(j); return; }
+  j->refs++; net_get_hdr(url, hdr[0] ? hdr : NULL, on_tm_find, j);
+}
+
 /* ---- the API ----------------------------------------------------------------------------------------- */
 unsigned trailer_find(const char *imdbId, const char *ytIds, int lowQuality, TrailerCb cb, void *ud) {
   Job *j = calloc(1, sizeof *j); j->tok = nextTok++; j->lq = !!lowQuality; j->cb = cb; j->ud = ud; j->refs = 1; j->next = jobs; jobs = j;
@@ -453,9 +493,8 @@ unsigned trailer_find(const char *imdbId, const char *ytIds, int lowQuality, Tra
   const cJSON *tc = memo_get(trCache, j->key, 1800);
   if (tc) { j->sent = 1; j->out = cJSON_Duplicate(tc, 1); j->deliver = 1; j->refs++; }
   else {
-    char buf[200]; cpy(buf, sizeof buf, ytIds);
-    for (char *s = strtok(buf, ","); s && j->nyt < 8; s = strtok(NULL, ",")) if (valid_yt(s)) cpy(j->yt[j->nyt++], sizeof j->yt[0], s);
-    if (j->nyt || !j->imdb[0]) with_yt(j); else cinemeta_yt(j);
+    cpy(j->ytIn, sizeof j->ytIn, ytIds ? ytIds : "");
+    if (valid_tt(j->imdb, 5, 10) && tmdb_wanted(j->imdb)) tm_start(j); else tm_go(j);
   }
   unsigned tok = j->tok; job_unref(j); /* the start's own ref */
   return tok;
