@@ -459,13 +459,16 @@ static void on_yt_first(Job *j, const char *url, const char *err) {
 }
 static void on_tm_videos(int st, const unsigned char *body, size_t len, void *ud) {
   Job *j = ud; cJSON *r = st > 0 ? net_json(body) : NULL; char ll[4]; snprintf(ll, sizeof ll, "%.2s", i18n_lang()); const cJSON *v; int n = 0; char ids[8][20];
-  for (int pass = 0; pass < 2; pass++) cJSON_ArrayForEach(v, js_arr(r, "results")) {
-    if (n >= 5 || strcasecmp(js_str(v, "site", ""), "YouTube") || strcasecmp(js_str(v, "type", ""), "Trailer") || strcmp(js_str(v, "iso_639_1", ""), ll)) continue;
+  for (int pass = 0; pass < 3; pass++) cJSON_ArrayForEach(v, js_arr(r, "results")) {
+    const char *ty = js_str(v, "type", ""); /* a trailer first; a teaser or a clip only when nothing better (pass 2) */
+    if (n >= 5 || strcasecmp(js_str(v, "site", ""), "YouTube") || strcmp(js_str(v, "iso_639_1", ""), ll)) continue;
+    if (pass < 2 && strcasecmp(ty, "Trailer")) continue; if (pass == 2 && (n || (strcasecmp(ty, "Teaser") && strcasecmp(ty, "Clip")))) continue;
     if (pass == 0 && !js_bool(v, "official", 0)) continue; /* the official ones first */
     const char *k = js_str(v, "key", ""); if (!valid_yt(k)) continue; int dup = 0; for (int i = 0; i < n; i++) if (!strcmp(ids[i], k)) dup = 1;
     if (!dup) cpy(ids[n++], sizeof ids[0], k); }
-  cJSON_Delete(r);
-  fprintf(stderr, "[trailer] %s: %d trailer(s) in %s from TMDB\n", j->imdb, n, ll);
+  cJSON *r0 = r; 
+  fprintf(stderr, "[trailer] %s: TMDB answered %d, %d video(s) listed, %d in %s\n", j->imdb, st, cJSON_GetArraySize(js_arr(r0, "results")), n, ll);
+  cJSON_Delete(r0);
   if (!n) tm_go(j);
   else { j->nyt = 0; for (int i = 0; i < n; i++) cpy(j->yt[j->nyt++], sizeof j->yt[0], ids[i]); j->ytFirst = 1; yt_resolve(j, j->yt[0], on_yt_first); }
   job_unref(j);
@@ -474,7 +477,7 @@ static void on_tm_find(int st, const unsigned char *body, size_t len, void *ud) 
   Job *j = ud; cJSON *r = st > 0 ? net_json(body) : NULL;
   const cJSON *mv = cJSON_GetArrayItem(js_arr(r, "movie_results"), 0), *tv = cJSON_GetArrayItem(js_arr(r, "tv_results"), 0), *x = mv ? mv : tv; int id = x ? (int)js_num(x, "id", 0) : 0;
   char p[200], url[1100], hdr[480]; snprintf(p, sizeof p, "/%s/%d/videos?language=%s&include_video_language=%.2s,en", mv ? "movie" : "tv", id, i18n_lang(), i18n_lang());
-  cJSON_Delete(r);
+  cJSON_Delete(r); fprintf(stderr, "[trailer] %s: TMDB find answered %d -> id %d\n", j->imdb, st, id);
   if (!id || !tmdb_call(p, url, sizeof url, hdr, sizeof hdr)) { tm_go(j); job_unref(j); return; }
   j->refs++; net_get_hdr(url, hdr[0] ? hdr : NULL, on_tm_videos, j);
   job_unref(j);
