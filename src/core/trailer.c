@@ -14,7 +14,7 @@
    Innertube wants tokens), while IMDb hosts its own trailers on its CDN and every title shown already has an
    IMDb id: IMDb first, YouTube only as the fallback. IMDb's signed URLs live about two days. */
 #define IMDB_GQL "https://api.graphql.imdb.com/"
-#define YT_MAXH 720 /* the sharpest picture asked for from YouTube (its separate picture files): 1080 stalled and fell back to 360 */
+#define YT_MAXH 1080 /* the sharpest picture asked for from YouTube (its separate picture files) */
 #define YT_VER "20.10.38"
 #define YT_UA "com.google.android.youtube/" YT_VER " (Linux; U; Android 14)"
 #define WEB_UA "Mozilla/5.0 (Web0S; Linux) StremioOrigin"
@@ -178,7 +178,37 @@ static void reply(Job *j, cJSON *o) {
 
 /* ---- YouTube: Innertube's Android client, then Piped mirrors ------------------------------------- */
 typedef void (*YtCb)(cJSON *res, void *ud);  /* res: {lo, hi, len, subs} (owned by the callee) or NULL */
-typedef struct { char vid[20]; YtCb cb; void *ud; int k, order[NPIPED], n; } YtReq;
+typedef struct { char vid[20]; YtCb cb; void *ud; int k, order[NPIPED], n; cJSON *out; } YtReq;
+/* the sharpest picture (H.264, up to YT_MAXH) and the audio track in the app's language, two files the player joins: "picture\naudio" */
+static char *mix_pick(const cJSON *j, const char *vid) {
+  char *mix = NULL; const cJSON *f; char ll[4]; snprintf(ll, sizeof ll, "%.2s", i18n_lang()); const char *bv = "", *ba = ""; int bh = 0, bar = -1, bad = 0; char bn[64] = "";
+  cJSON_ArrayForEach(f, js_arr(js_obj(j, "streamingData"), "adaptiveFormats")) {
+    const char *u = js_str(f, "url", ""), *mt = js_str(f, "mimeType", ""); if (!*u) continue;
+    if (!strncmp(mt, "video/mp4", 9)) { int h = (int)js_num(f, "height", 0); if (strstr(mt, "avc1") && h <= YT_MAXH && h > bh) { bh = h; bv = u; } }
+    else if (!strncmp(mt, "audio/mp4", 9)) {
+      const cJSON *at = js_obj(f, "audioTrack"); const char *id = js_str(at, "id", "");
+      int rk = at ? (!strncasecmp(id, ll, 2) ? 2 : js_bool(at, "audioIsDefault", 0) ? 1 : 0) : 1, br = (int)js_num(f, "bitrate", 0);
+      if (rk > bar || (rk == bar && br > bad)) { bar = rk; bad = br; ba = u; cpy(bn, sizeof bn, at ? js_str(at, "displayName", id) : "single track"); }
+    }
+  }
+  fprintf(stderr, "[yt] %s adaptive (VR client): video %dp, audio \"%s\" (match %d)\n", vid, bh, bn, bar);
+  if (*bv && *ba && strlen(bv) + strlen(ba) < 4000) { mix = malloc(strlen(bv) + strlen(ba) + 2); sprintf(mix, "%s\n%s", bv, ba); }
+  return mix;
+}
+#define VR_VER "1.60.19"
+#define VR_UA "com.google.android.apps.youtube.vr.oculus/" VR_VER " (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
+static void on_vr(int st, const unsigned char *body, size_t len, void *ud) {
+  YtReq *r = ud; cJSON *j = st > 0 ? net_json(body) : NULL; char *mix = j ? mix_pick(j, r->vid) : NULL;
+  if (!j) fprintf(stderr, "[yt] %s VR client answered %d\n", r->vid, st);
+  if (mix) { cJSON_AddStringToObject(r->out, "mix", mix); free(mix); }
+  net_json_free(j); r->cb(r->out, r->ud); free(r);
+}
+static void yt_vr(YtReq *r) {
+  const char *ul = i18n_lang(); char hl[4], gl[3]; snprintf(hl, sizeof hl, "%.2s", ul); snprintf(gl, sizeof gl, "%s", strlen(ul) == 5 && ul[2] == '-' ? ul + 3 : !strncmp(ul, "pt", 2) ? "BR" : "US");
+  char body[640]; snprintf(body, sizeof body, "{\"videoId\":\"%s\",\"context\":{\"client\":{\"clientName\":\"ANDROID_VR\",\"clientVersion\":\"" VR_VER "\",\"deviceMake\":\"Oculus\",\"deviceModel\":\"Quest 3\",\"androidSdkVersion\":32,\"osName\":\"Android\",\"osVersion\":\"12L\",\"hl\":\"%s\",\"gl\":\"%s\"}},\"contentCheckOk\":true,\"racyCheckOk\":true}", r->vid, hl, gl);
+  net_post_hdr_t("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", body, "application/json",
+                 "User-Agent: " VR_UA "\nX-Youtube-Client-Name: 28\nX-Youtube-Client-Version: " VR_VER, 10000, on_vr, r);
+}
 static void on_innertube(int st, const unsigned char *body, size_t len, void *ud) {
   YtReq *r = ud; cJSON *j = st > 0 ? net_json(body) : NULL, *out = NULL;
   if (j) {
@@ -189,19 +219,6 @@ static void on_innertube(int st, const unsigned char *body, size_t len, void *ud
       fprintf(stderr, "[yt] %s format itag %d %s\n", r->vid, itag, js_str(f, "qualityLabel", ""));
       if (itag == 22) hi = u; else if (itag == 18) lo = u; else if (!*lo) lo = u;
     }
-    char *mix = NULL; /* the sharpest picture (H.264, up to 1080p) and the audio track in the app's language, two files the player joins */
-    { char ll[4]; snprintf(ll, sizeof ll, "%.2s", i18n_lang()); const char *bv = "", *ba = ""; int bh = 0, bar = -1, bad = 0; char bn[64] = "";
-      cJSON_ArrayForEach(f, js_arr(js_obj(j, "streamingData"), "adaptiveFormats")) {
-        const char *u = js_str(f, "url", ""), *mt = js_str(f, "mimeType", ""); if (!*u) continue;
-        if (!strncmp(mt, "video/mp4", 9)) { int h = (int)js_num(f, "height", 0); if (strstr(mt, "avc1") && h <= YT_MAXH && h > bh) { bh = h; bv = u; } }
-        else if (!strncmp(mt, "audio/mp4", 9)) {
-          const cJSON *at = js_obj(f, "audioTrack"); const char *id = js_str(at, "id", "");
-          int rk = at ? (!strncasecmp(id, ll, 2) ? 2 : js_bool(at, "audioIsDefault", 0) ? 1 : 0) : 1, br = (int)js_num(f, "bitrate", 0);
-          if (rk > bar || (rk == bar && br > bad)) { bar = rk; bad = br; ba = u; cpy(bn, sizeof bn, at ? js_str(at, "displayName", id) : "single track"); }
-        }
-      }
-      fprintf(stderr, "[yt] %s adaptive: video %dp, audio \"%s\" (match %d)\n", r->vid, bh, bn, bar);
-      if (*bv && *ba && strlen(bv) + strlen(ba) < 4000) { mix = malloc(strlen(bv) + strlen(ba) + 2); sprintf(mix, "%s\n%s", bv, ba); } }
     cJSON *subs = cJSON_CreateArray(); const cJSON *c;
     cJSON_ArrayForEach(c, js_arr(js_obj(js_obj(j, "captions"), "playerCaptionsTracklistRenderer"), "captionTracks")) {
       const char *bu = js_str(c, "baseUrl", ""); if (!*bu) continue;
@@ -212,13 +229,14 @@ static void on_innertube(int st, const unsigned char *body, size_t len, void *ud
       cJSON *s = cJSON_CreateObject(); cJSON_AddStringToObject(s, "name", snm); cJSON_AddStringToObject(s, "lang", lang); cJSON_AddStringToObject(s, "url", bu); cJSON_AddStringToObject(s, "kind", "timedtext");
       cJSON_AddItemToArray(subs, s);
     }
-    if (*lo || *hi || mix || cJSON_GetArraySize(subs)) {
-      out = cJSON_CreateObject(); cJSON_AddStringToObject(out, "lo", lo); cJSON_AddStringToObject(out, "hi", hi); cJSON_AddStringToObject(out, "mix", mix ? mix : "");
+    if (*lo || *hi || cJSON_GetArraySize(subs)) {
+      out = cJSON_CreateObject(); cJSON_AddStringToObject(out, "lo", lo); cJSON_AddStringToObject(out, "hi", hi);
       cJSON_AddNumberToObject(out, "len", js_numstr(js_obj(j, "videoDetails"), "lengthSeconds", 0)); /* to match it against IMDb's cuts */
       cJSON_AddItemToObject(out, "subs", subs);
     } else cJSON_Delete(subs);
-    free(mix); net_json_free(j);
+    net_json_free(j);
   }
+  if (out) { r->out = out; yt_vr(r); return; } /* the picture files come from the VR client: the Android one's are refused (403) */
   r->cb(out, r->ud); free(r);
 }
 static void yt_innertube(const char *vid, YtCb cb, void *ud) {

@@ -114,7 +114,10 @@ public final class VideoPlane {
             .setUserAgent("StremioOrigin/1.1 (Android TV)").setConnectTimeoutMs(20000).setReadTimeoutMs(30000);
         DefaultExtractorsFactory ex = new DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true);
         DefaultMediaSourceFactory msf = new DefaultMediaSourceFactory(new DefaultDataSource.Factory(a, http), new MkvSeekHead.Factory(ex)); /* (Matroska: an index listed in a second SeekHead found too) */
-        msfS = msf;
+        /* YouTube's separate picture and sound files are given to the VR client's own user agent (another one is refused: 403) */
+        DefaultHttpDataSource.Factory httpVr = new DefaultHttpDataSource.Factory().setAllowCrossProtocolRedirects(true)
+            .setUserAgent("com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip").setConnectTimeoutMs(20000).setReadTimeoutMs(30000);
+        msfS = new DefaultMediaSourceFactory(new DefaultDataSource.Factory(a, httpVr), new MkvSeekHead.Factory(ex));
         player = new ExoPlayer.Builder(a, rf).setTrackSelector(selector).setLoadControl(lc).setMediaSourceFactory(msf)
             .setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS).build();
         player.setVideoSurfaceView(view);
