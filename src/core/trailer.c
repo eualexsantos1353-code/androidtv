@@ -191,12 +191,10 @@ static char *mix_pick(const cJSON *j, const char *vid) {
       if (rk > bar || (rk == bar && br > bad)) { bar = rk; bad = br; ba = u; cpy(bn, sizeof bn, at ? js_str(at, "displayName", id) : "single track"); }
     }
   }
-  fprintf(stderr, "[yt] %s adaptive (VR client): video %dp, audio \"%s\" (match %d)\n", vid, bh, bn, bar);
+  fprintf(stderr, "[yt] %s adaptive (iOS client): video %dp, audio \"%s\" (match %d)\n", vid, bh, bn, bar);
   if (*bv && *ba && strlen(bv) + strlen(ba) < 4000) { mix = malloc(strlen(bv) + strlen(ba) + 2); sprintf(mix, "%s\n%s", bv, ba); }
   return mix;
 }
-#define VR_VER "1.60.19"
-#define VR_UA "com.google.android.apps.youtube.vr.oculus/" VR_VER " (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
 static void yt_diag(const cJSON *j, const char *vid, const char *who) {
   const cJSON *sd = js_obj(j, "streamingData"), *f, *ps = js_obj(j, "playabilityStatus"); int na = 0, nu = 0;
   cJSON_ArrayForEach(f, js_arr(sd, "adaptiveFormats")) { na++; if (*js_str(f, "url", "")) nu++; }
@@ -207,7 +205,7 @@ static void yt_diag(const cJSON *j, const char *vid, const char *who) {
 #define IOS_UA "com.google.ios.youtube/" IOS_VER " (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)"
 static void on_ios(int st, const unsigned char *body, size_t len, void *ud) {
   YtReq *r = ud; cJSON *j = st > 0 ? net_json(body) : NULL;
-  if (j) { yt_diag(j, r->vid, "iOS client"); const char *h = js_str(js_obj(j, "streamingData"), "hlsManifestUrl", ""); if (*h) cJSON_AddStringToObject(r->out, "hls", h); }
+  if (j) { yt_diag(j, r->vid, "iOS client"); char *mix = mix_pick(j, r->vid); if (mix) { cJSON_AddStringToObject(r->out, "mix", mix); free(mix); } const char *h = js_str(js_obj(j, "streamingData"), "hlsManifestUrl", ""); if (*h) cJSON_AddStringToObject(r->out, "hls", h); }
   else fprintf(stderr, "[yt] %s iOS client answered %d\n", r->vid, st);
   net_json_free(j); r->cb(r->out, r->ud); free(r);
 }
@@ -216,19 +214,6 @@ static void yt_ios(YtReq *r) {
   char body[640]; snprintf(body, sizeof body, "{\"videoId\":\"%s\",\"context\":{\"client\":{\"clientName\":\"IOS\",\"clientVersion\":\"" IOS_VER "\",\"deviceMake\":\"Apple\",\"deviceModel\":\"iPhone16,2\",\"osName\":\"iPhone\",\"osVersion\":\"18.3.2.22D82\",\"hl\":\"%s\",\"gl\":\"%s\"}},\"contentCheckOk\":true,\"racyCheckOk\":true}", r->vid, hl, gl);
   net_post_hdr_t("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", body, "application/json",
                  "User-Agent: " IOS_UA "\nX-Youtube-Client-Name: 5\nX-Youtube-Client-Version: " IOS_VER, 10000, on_ios, r);
-}
-static void on_vr(int st, const unsigned char *body, size_t len, void *ud) {
-  YtReq *r = ud; cJSON *j = st > 0 ? net_json(body) : NULL; char *mix = j ? mix_pick(j, r->vid) : NULL;
-  if (j) yt_diag(j, r->vid, "VR client"); else fprintf(stderr, "[yt] %s VR client answered %d\n", r->vid, st);
-  net_json_free(j);
-  if (mix) { cJSON_AddStringToObject(r->out, "mix", mix); free(mix); r->cb(r->out, r->ud); free(r); return; }
-  yt_ios(r); /* no separate files: the iOS client's HLS (the player picks the sharpest and the sound) */
-}
-static void yt_vr(YtReq *r) {
-  const char *ul = i18n_lang(); char hl[4], gl[3]; snprintf(hl, sizeof hl, "%.2s", ul); snprintf(gl, sizeof gl, "%s", strlen(ul) == 5 && ul[2] == '-' ? ul + 3 : !strncmp(ul, "pt", 2) ? "BR" : "US");
-  char body[640]; snprintf(body, sizeof body, "{\"videoId\":\"%s\",\"context\":{\"client\":{\"clientName\":\"ANDROID_VR\",\"clientVersion\":\"" VR_VER "\",\"deviceMake\":\"Oculus\",\"deviceModel\":\"Quest 3\",\"androidSdkVersion\":32,\"osName\":\"Android\",\"osVersion\":\"12L\",\"hl\":\"%s\",\"gl\":\"%s\"}},\"contentCheckOk\":true,\"racyCheckOk\":true}", r->vid, hl, gl);
-  net_post_hdr_t("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", body, "application/json",
-                 "User-Agent: " VR_UA "\nX-Youtube-Client-Name: 28\nX-Youtube-Client-Version: " VR_VER, 10000, on_vr, r);
 }
 static void on_innertube(int st, const unsigned char *body, size_t len, void *ud) {
   YtReq *r = ud; cJSON *j = st > 0 ? net_json(body) : NULL, *out = NULL;
@@ -257,7 +242,7 @@ static void on_innertube(int st, const unsigned char *body, size_t len, void *ud
     } else cJSON_Delete(subs);
     net_json_free(j);
   }
-  if (out) { r->out = out; yt_vr(r); return; } /* the picture files come from the VR client: the Android one's are refused (403) */
+  if (out) { r->out = out; yt_ios(r); return; } /* the picture files come from the iOS client: the Android one's are refused (403), the VR one's need a login */
   r->cb(out, r->ud); free(r);
 }
 static void yt_innertube(const char *vid, YtCb cb, void *ud) {

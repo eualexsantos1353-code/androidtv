@@ -114,9 +114,9 @@ public final class VideoPlane {
             .setUserAgent("StremioOrigin/1.1 (Android TV)").setConnectTimeoutMs(20000).setReadTimeoutMs(30000);
         DefaultExtractorsFactory ex = new DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true);
         DefaultMediaSourceFactory msf = new DefaultMediaSourceFactory(new DefaultDataSource.Factory(a, http), new MkvSeekHead.Factory(ex)); /* (Matroska: an index listed in a second SeekHead found too) */
-        /* YouTube's separate picture and sound files are given to the VR client's own user agent (another one is refused: 403) */
+        /* YouTube's separate picture and sound files are given to the iOS client's own user agent (another one is refused: 403) */
         DefaultHttpDataSource.Factory httpVr = new DefaultHttpDataSource.Factory().setAllowCrossProtocolRedirects(true)
-            .setUserAgent("com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip").setConnectTimeoutMs(20000).setReadTimeoutMs(30000);
+            .setUserAgent("com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)").setConnectTimeoutMs(20000).setReadTimeoutMs(30000);
         msfIos = new DefaultMediaSourceFactory(new DefaultDataSource.Factory(a, new DefaultHttpDataSource.Factory().setAllowCrossProtocolRedirects(true)
             .setUserAgent("com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)").setConnectTimeoutMs(20000).setReadTimeoutMs(30000)));
         msfS = new DefaultMediaSourceFactory(new DefaultDataSource.Factory(a, httpVr), new MkvSeekHead.Factory(ex));
