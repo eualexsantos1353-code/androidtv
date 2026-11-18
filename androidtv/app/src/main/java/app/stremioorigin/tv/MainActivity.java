@@ -262,6 +262,10 @@ public class MainActivity extends SDLActivity {
         if (mcLock != null) try { mcLock.release(); } catch (Throwable e) { }
         if (self == this) self = null;
         super.onDestroy();
+        /* leaving for good: the process goes too. SDL keeps its state in the native libraries, so a process that lives on cannot start the app again
+           (the TV had to be restarted). A fresh start inside the grace time (a new window already up) keeps it. */
+        if (isFinishing()) { final int pid = android.os.Process.myPid();
+            new Thread(new Runnable() { public void run() { try { Thread.sleep(800); } catch (Throwable e) { } if (self == null) android.os.Process.killProcess(pid); } }).start(); }
     }
 
     /* ---- the remote: the keys the app uses go to it first (Back never closes the app behind its back; the colour and
