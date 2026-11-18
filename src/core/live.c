@@ -31,13 +31,24 @@ void live_item(const LiveCh *c, Item *it) { memset(it, 0, sizeof *it); snprintf(
   snprintf(it->logo, sizeof it->logo, "%s", c->logo); snprintf(it->poster, sizeof it->poster, "%s", c->poster); snprintf(it->background, sizeof it->background, "%s", c->poster); }
 static void *ctok(int k) { return (void *)(uintptr_t)(((uintptr_t)(catGen & 0x3ffffff) << 6) | (uintptr_t)k); }
 static int cok(void *ud, int *k) { uintptr_t t = (uintptr_t)ud; *k = (int)(t & 63); return (unsigned)(t >> 6) == (catGen & 0x3ffffff) && *k < ncat; }
+static void name_key(const char *n, char *k, size_t cap);
+/* the regional Globo cuts (Globo EPTV Campinas, Globo Rio, Globo Sul ...) are left out of the lists: only the viewer's
+   three praças (Minas, São Paulo, Bahia) and the Globo channels that are not a region (News, Play ...) stay */
+static int globo_hidden(const char *name) {
+  char k[96]; name_key(name, k, sizeof k); const char *r = k; if (!strncmp(r, "tv", 2) && !strncmp(r + 2, "globo", 5)) r += 2;
+  if (strncmp(r, "globo", 5)) return 0; r += 5; if (!*r) return 0;
+  static const char *const keep[] = { "minas", "mg", "paulo", "sp", "bahia", "ba", "salvador", "news", "play", "mais", "filmes", "series", "reality", "nordeste4k", "4k", NULL };
+  if (!strcmp(r, "sp") || !strcmp(r, "mg") || !strcmp(r, "ba")) return 0;
+  for (int i = 0; keep[i]; i++) if (strlen(keep[i]) > 2 && strstr(r, keep[i])) return 0;
+  return 1;
+}
 static int cat_add(int i, const ItemList *l) { /* the answer's channels, each once; how many were new */
   int add = 0; if (cats[i].n + l->n > cats[i].cap) { int nc = cats[i].n + l->n + 64; if (nc > MAXCH) nc = MAXCH; LiveCh *g = realloc(cats[i].ch, sizeof(LiveCh) * (size_t)nc); if (!g) return 0; cats[i].ch = g; cats[i].cap = nc; }
   /* each once: the ids already there in a hash (every one against every one was 250 000 comparisons for a page of 500) */
   int hn = 64; while (hn < (cats[i].n + l->n) * 2) hn <<= 1; int *H = malloc(sizeof(int) * (size_t)hn); if (!H) return 0; for (int k = 0; k < hn; k++) H[k] = -1;
   #define CH_H(s) ({ unsigned hh = 2166136261u; for (const char *q = (s); *q; q++) hh = (hh ^ (unsigned char)*q) * 16777619u; (int)(hh & (unsigned)(hn - 1)); })
   for (int b = 0; b < cats[i].n; b++) { int h = CH_H(cats[i].ch[b].id); while (H[h] >= 0) h = (h + 1) & (hn - 1); H[h] = b; }
-  for (int a = 0; a < l->n && cats[i].n < cats[i].cap; a++) { const char *id = l->items[a].id; if (!id[0]) continue;
+  for (int a = 0; a < l->n && cats[i].n < cats[i].cap; a++) { const char *id = l->items[a].id; if (!id[0] || globo_hidden(l->items[a].name)) continue;
     int h = CH_H(id), dup = 0; while (H[h] >= 0) { if (!strcmp(cats[i].ch[H[h]].id, id)) { dup = 1; break; } h = (h + 1) & (hn - 1); }
     if (dup) continue; H[h] = cats[i].n; ch_of(&l->items[a], &cats[i].ch[cats[i].n++]); add++; }
   #undef CH_H
