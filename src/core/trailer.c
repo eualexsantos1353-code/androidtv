@@ -14,6 +14,7 @@
    Innertube wants tokens), while IMDb hosts its own trailers on its CDN and every title shown already has an
    IMDb id: IMDb first, YouTube only as the fallback. IMDb's signed URLs live about two days. */
 #define IMDB_GQL "https://api.graphql.imdb.com/"
+#define YT_MAXH 720 /* the sharpest picture asked for from YouTube (its separate picture files): 1080 stalled and fell back to 360 */
 #define YT_VER "20.10.38"
 #define YT_UA "com.google.android.youtube/" YT_VER " (Linux; U; Android 14)"
 #define WEB_UA "Mozilla/5.0 (Web0S; Linux) StremioOrigin"
@@ -192,7 +193,7 @@ static void on_innertube(int st, const unsigned char *body, size_t len, void *ud
     { char ll[4]; snprintf(ll, sizeof ll, "%.2s", i18n_lang()); const char *bv = "", *ba = ""; int bh = 0, bar = -1, bad = 0; char bn[64] = "";
       cJSON_ArrayForEach(f, js_arr(js_obj(j, "streamingData"), "adaptiveFormats")) {
         const char *u = js_str(f, "url", ""), *mt = js_str(f, "mimeType", ""); if (!*u) continue;
-        if (!strncmp(mt, "video/mp4", 9)) { int h = (int)js_num(f, "height", 0); if (strstr(mt, "avc1") && h <= 1080 && h > bh) { bh = h; bv = u; } }
+        if (!strncmp(mt, "video/mp4", 9)) { int h = (int)js_num(f, "height", 0); if (strstr(mt, "avc1") && h <= YT_MAXH && h > bh) { bh = h; bv = u; } }
         else if (!strncmp(mt, "audio/mp4", 9)) {
           const cJSON *at = js_obj(f, "audioTrack"); const char *id = js_str(at, "id", "");
           int rk = at ? (!strncasecmp(id, ll, 2) ? 2 : js_bool(at, "audioIsDefault", 0) ? 1 : 0) : 1, br = (int)js_num(f, "bitrate", 0);
