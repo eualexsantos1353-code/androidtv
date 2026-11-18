@@ -185,6 +185,7 @@ static void on_innertube(int st, const unsigned char *body, size_t len, void *ud
     cJSON_ArrayForEach(f, js_arr(js_obj(j, "streamingData"), "formats")) {
       const char *u = js_str(f, "url", ""); if (!*u || strncmp(js_str(f, "mimeType", ""), "video/mp4", 9)) continue;
       int itag = (int)js_num(f, "itag", 0);
+      fprintf(stderr, "[yt] %s format itag %d %s\n", r->vid, itag, js_str(f, "qualityLabel", ""));
       if (itag == 22) hi = u; else if (itag == 18) lo = u; else if (!*lo) lo = u;
     }
     cJSON *subs = cJSON_CreateArray(); const cJSON *c;
@@ -208,7 +209,8 @@ static void on_innertube(int st, const unsigned char *body, size_t len, void *ud
 }
 static void yt_innertube(const char *vid, YtCb cb, void *ud) {
   YtReq *r = calloc(1, sizeof *r); cpy(r->vid, sizeof r->vid, vid); r->cb = cb; r->ud = ud;
-  char body[512]; snprintf(body, sizeof body, "{\"videoId\":\"%s\",\"context\":{\"client\":{\"clientName\":\"ANDROID\",\"clientVersion\":\"" YT_VER "\",\"androidSdkVersion\":34,\"hl\":\"en\",\"gl\":\"US\"}},\"contentCheckOk\":true,\"racyCheckOk\":true}", vid);
+  const char *ul = i18n_lang(); char hl[4], gl[3]; snprintf(hl, sizeof hl, "%.2s", ul); snprintf(gl, sizeof gl, "%s", strlen(ul) == 5 && ul[2] == '-' ? ul + 3 : !strncmp(ul, "pt", 2) ? "BR" : "US"); /* the app's language and country: a video with several audio tracks plays the one for them */
+  char body[560]; snprintf(body, sizeof body, "{\"videoId\":\"%s\",\"context\":{\"client\":{\"clientName\":\"ANDROID\",\"clientVersion\":\"" YT_VER "\",\"androidSdkVersion\":34,\"hl\":\"%s\",\"gl\":\"%s\"}},\"contentCheckOk\":true,\"racyCheckOk\":true}", vid, hl, gl);
   net_post_hdr_t("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", body, "application/json",
                  "User-Agent: " YT_UA "\nX-Youtube-Client-Name: 3\nX-Youtube-Client-Version: " YT_VER, 10000, on_innertube, r);
 }
