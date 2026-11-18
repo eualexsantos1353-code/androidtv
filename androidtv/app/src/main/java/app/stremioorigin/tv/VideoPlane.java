@@ -117,6 +117,8 @@ public final class VideoPlane {
         /* YouTube's separate picture and sound files are given to the VR client's own user agent (another one is refused: 403) */
         DefaultHttpDataSource.Factory httpVr = new DefaultHttpDataSource.Factory().setAllowCrossProtocolRedirects(true)
             .setUserAgent("com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip").setConnectTimeoutMs(20000).setReadTimeoutMs(30000);
+        msfIos = new DefaultMediaSourceFactory(new DefaultDataSource.Factory(a, new DefaultHttpDataSource.Factory().setAllowCrossProtocolRedirects(true)
+            .setUserAgent("com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)").setConnectTimeoutMs(20000).setReadTimeoutMs(30000)));
         msfS = new DefaultMediaSourceFactory(new DefaultDataSource.Factory(a, httpVr), new MkvSeekHead.Factory(ex));
         player = new ExoPlayer.Builder(a, rf).setTrackSelector(selector).setLoadControl(lc).setMediaSourceFactory(msf)
             .setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS).build();
@@ -219,7 +221,7 @@ public final class VideoPlane {
     }
 
     /* ---- calls from the native side (any thread) ---- */
-    private static DefaultMediaSourceFactory msfS;
+    private static DefaultMediaSourceFactory msfS, msfIos;
     public static void load(final String url, final long startMs, final boolean isLive) {
         state = 1; firstFrame = 0; hasMedia = 1; error = ""; hdr = ""; vw = vh = 0; pos = startMs; dur = 0; buf = 0; unsup = 0; seeking = 0; changed = 1;
         audioLines = ""; textLines = ""; audioCur = -1; wantPlay = true; live = isLive;
@@ -228,6 +230,14 @@ public final class VideoPlane {
             ensure(); if (player == null) { state = 6; error = "no player"; return; }
             /* no subtitle of the file's own until the app picks one (a track flagged "default" was shown by itself) */
             selector.setParameters(selector.buildUponParameters().clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true));
+            if (url.indexOf("manifest.googlevideo.com") >= 0 && msfIos != null) { /* YouTube's own HLS: the iOS app's user agent */
+                MediaSource hs = msfIos.createMediaSource(new MediaItem.Builder().setUri(Uri.parse(url)).setMimeType(androidx.media3.common.MimeTypes.APPLICATION_M3U8).build());
+                player.setVolume(volTarget / 100f);
+                if (startMs > 0) player.setMediaSource(hs, startMs); else player.setMediaSource(hs);
+                player.setPlayWhenReady(true); player.prepare();
+                cues(java.util.Collections.emptyList());
+                return;
+            }
             if (url.indexOf('\n') > 0) { /* "picture\naudio": YouTube's two files, played together */
                 String[] pa = url.split("\n");
                 MediaSource ms = new MergingMediaSource(msfS.createMediaSource(MediaItem.fromUri(Uri.parse(pa[0]))), msfS.createMediaSource(MediaItem.fromUri(Uri.parse(pa[1]))));

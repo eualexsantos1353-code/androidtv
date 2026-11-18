@@ -197,11 +197,32 @@ static char *mix_pick(const cJSON *j, const char *vid) {
 }
 #define VR_VER "1.60.19"
 #define VR_UA "com.google.android.apps.youtube.vr.oculus/" VR_VER " (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
+static void yt_diag(const cJSON *j, const char *vid, const char *who) {
+  const cJSON *sd = js_obj(j, "streamingData"), *f, *ps = js_obj(j, "playabilityStatus"); int na = 0, nu = 0;
+  cJSON_ArrayForEach(f, js_arr(sd, "adaptiveFormats")) { na++; if (*js_str(f, "url", "")) nu++; }
+  fprintf(stderr, "[yt] %s %s: %s (%.50s), %d adaptive / %d with a link, hls %s, sabr %s\n", vid, who, js_str(ps, "status", "?"), js_str(ps, "reason", ""), na, nu,
+          *js_str(sd, "hlsManifestUrl", "") ? "yes" : "no", *js_str(sd, "serverAbrStreamingUrl", "") ? "yes" : "no");
+}
+#define IOS_VER "20.10.4"
+#define IOS_UA "com.google.ios.youtube/" IOS_VER " (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)"
+static void on_ios(int st, const unsigned char *body, size_t len, void *ud) {
+  YtReq *r = ud; cJSON *j = st > 0 ? net_json(body) : NULL;
+  if (j) { yt_diag(j, r->vid, "iOS client"); const char *h = js_str(js_obj(j, "streamingData"), "hlsManifestUrl", ""); if (*h) cJSON_AddStringToObject(r->out, "hls", h); }
+  else fprintf(stderr, "[yt] %s iOS client answered %d\n", r->vid, st);
+  net_json_free(j); r->cb(r->out, r->ud); free(r);
+}
+static void yt_ios(YtReq *r) {
+  const char *ul = i18n_lang(); char hl[4], gl[3]; snprintf(hl, sizeof hl, "%.2s", ul); snprintf(gl, sizeof gl, "%s", strlen(ul) == 5 && ul[2] == '-' ? ul + 3 : !strncmp(ul, "pt", 2) ? "BR" : "US");
+  char body[640]; snprintf(body, sizeof body, "{\"videoId\":\"%s\",\"context\":{\"client\":{\"clientName\":\"IOS\",\"clientVersion\":\"" IOS_VER "\",\"deviceMake\":\"Apple\",\"deviceModel\":\"iPhone16,2\",\"osName\":\"iPhone\",\"osVersion\":\"18.3.2.22D82\",\"hl\":\"%s\",\"gl\":\"%s\"}},\"contentCheckOk\":true,\"racyCheckOk\":true}", r->vid, hl, gl);
+  net_post_hdr_t("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", body, "application/json",
+                 "User-Agent: " IOS_UA "\nX-Youtube-Client-Name: 5\nX-Youtube-Client-Version: " IOS_VER, 10000, on_ios, r);
+}
 static void on_vr(int st, const unsigned char *body, size_t len, void *ud) {
   YtReq *r = ud; cJSON *j = st > 0 ? net_json(body) : NULL; char *mix = j ? mix_pick(j, r->vid) : NULL;
-  if (!j) fprintf(stderr, "[yt] %s VR client answered %d\n", r->vid, st);
-  if (mix) { cJSON_AddStringToObject(r->out, "mix", mix); free(mix); }
-  net_json_free(j); r->cb(r->out, r->ud); free(r);
+  if (j) yt_diag(j, r->vid, "VR client"); else fprintf(stderr, "[yt] %s VR client answered %d\n", r->vid, st);
+  net_json_free(j);
+  if (mix) { cJSON_AddStringToObject(r->out, "mix", mix); free(mix); r->cb(r->out, r->ud); free(r); return; }
+  yt_ios(r); /* no separate files: the iOS client's HLS (the player picks the sharpest and the sound) */
 }
 static void yt_vr(YtReq *r) {
   const char *ul = i18n_lang(); char hl[4], gl[3]; snprintf(hl, sizeof hl, "%.2s", ul); snprintf(gl, sizeof gl, "%s", strlen(ul) == 5 && ul[2] == '-' ? ul + 3 : !strncmp(ul, "pt", 2) ? "BR" : "US");
@@ -427,6 +448,7 @@ static void on_yt_url(Job *j, const char *url, const char *err) {
   if (!*url) { reply(j, err_obj(*err ? err : "unavailable")); return; }
   const cJSON *c = memo_get(ytCache, j->yt[0], 1e9), *subs = js_arr(c, "subs");
   cJSON *o = cJSON_CreateObject(); cJSON_AddStringToObject(o, "url", url); cJSON_AddStringToObject(o, "name", "Trailer"); cJSON_AddStringToObject(o, "source", "youtube");
+  { const char *hl = js_str(c, "hls", ""); if (*hl && !j->lq) cJSON_AddStringToObject(o, "hls", hl); } /* (YouTube's own HLS, from the iOS client: sharpest picture, its sound) */
   if (strchr(url, '\n')) { const char *fb = *js_str(c, "hi", "") ? js_str(c, "hi", "") : js_str(c, "lo", ""); if (*fb) cJSON_AddStringToObject(o, "alt", fb); } /* (the single file when the two do not play) */
   { const char *lo = js_str(c, "lo", ""); if (j->lq && *lo && strcmp(lo, url)) { cJSON *dn = cJSON_AddArrayToObject(o, "down"); cJSON_AddItemToArray(dn, cJSON_CreateString(lo)); } } /* (the background trailer: the low one when the high one fails) */
   cJSON_AddItemToObject(o, "subs", subs ? cJSON_Duplicate(subs, 1) : cJSON_CreateArray());
