@@ -2,6 +2,8 @@
    the end), the focused category's settings on a see-through panel beside them; one accent highlight glides from
    row to row; switches flip with OK, choices drill in (the settings slide out to the left, the choices come in
    from the right); the accent blobs drift behind (app.c, shared with Search); a key-hint bar at the bottom. */
+#include "core/iptv.h"
+#include "core/live.h"
 #include "screens/settings.h"
 #include "screens/board.h"
 #include "platform/plat.h"
@@ -79,7 +81,7 @@ static const Opt SS_OPTS[] = { { "0", "Off" }, { "1", "1 min" }, { "2", "2 min" 
 static const Opt ACCENT_OPTS[] = { { "logo", "From the logo" }, { "adaptive", "From the artwork" }, { "purple", "Purple" }, { "violet", "Violet" }, { "fuchsia", "Fuchsia" }, { "pink", "Pink" }, { "rose", "Rose" }, { "red", "Red" }, { "orange", "Orange" }, { "amber", "Amber" }, { "gold", "Gold" }, { "lime", "Lime" }, { "green", "Green" }, { "emerald", "Emerald" }, { "teal", "Teal" }, { "cyan", "Cyan" }, { "sky", "Sky" }, { "blue", "Blue" }, { "indigo", "Indigo" }, { "graphite", "Graphite" } };
 #define NCAT 11
 #define MAXROWS 48
-static Setting playBase[14], playS[10], seekS[6], subsS[11], audS[4], lookS[6], langS[44], langOpt, keyS[4], traktS[6], addonS[40], acctS[1], supS[10];
+static Setting playBase[14], playS[10], seekS[6], subsS[11], audS[4], lookS[6], langS[44], langOpt, keyS[8], traktS[6], addonS[40], acctS[1], supS[10];
 static Cat cats[NCAT]; static int ncat; /* (Keys leaves when this build carries every key) */
 
 /* the layout, in the web's pixels: the grid is centred, 1600 wide, 150 from the top */
@@ -147,6 +149,9 @@ static int keys_opts(void) {
   if (tmdbOn && !tmdb_builtin()) set_act(&keyS[n++], "__tmdbOff", "Remove the TMDB key", "Titles and descriptions go back to English");
   if (!trakt_builtin()) set_act(&keyS[n++], "__trakt", "Ratings and reviews", traktOn ? "The rating, its spread and people\xe2\x80\x99s comments, from Trakt. OK to change the id" : "OK to add a Trakt client id from your phone");
   if (traktOn && !trakt_builtin()) set_act(&keyS[n++], "__traktOff", "Remove the Trakt id", "Ratings and comments from the other sources alone");
+  { int pt = !strncmp(i18n_lang(), "pt", 2), has = iptv_has();
+    set_act(&keyS[n++], "__iptv", pt ? "Lista IPTV" : "IPTV list", has ? (pt ? "Canais e guia da sua lista, em TV ao vivo. OK para trocar os links" : "Your list's channels and guide, in live TV. OK to change the links") : (pt ? "OK para colar o link da lista (M3U) e do guia (EPG) pelo celular" : "OK to add your list (M3U) and guide (EPG) links from your phone"));
+    if (has) set_act(&keyS[n++], "__iptvOff", pt ? "Remover a lista IPTV" : "Remove the IPTV list", pt ? "Apaga os links e os canais dela desta TV" : "Deletes the links and its channels from this TV"); }
   return n;
 }
 /* Trakt: connect this TV with a code, then a switch for what you watch and a way out */
@@ -178,6 +183,7 @@ static void trakt_code_ready(int ok, void *ud) {
   qrcard_show(&o);
 }
 static void relang(void) { for (int i = 0; i < ncat; i++) if (cats[i].opts == langS) { cats[i].n = lang_opts(); if (S.cat == i && S.idx >= cats[i].n) S.idx = cats[i].n - 1; } for (int i = 0; i < ncat; i++) if (cats[i].opts == keyS) { cats[i].n = keys_opts(); if (S.cat == i && S.idx >= cats[i].n) S.idx = cats[i].n - 1; } S.dirty = 1; }
+static void on_iptv_card(int has, void *ud) { (void)has; (void)ud; live_refresh(1); }
 static void on_tmdb_card(int on, void *ud) { (void)ud; if (on == tmdbOn) return; relang(); if (on) toast(T("Titles and descriptions in your language"), 2000, NULL); }
 static void on_trakt_card(int on, void *ud) { (void)ud; if (on == traktOn) return; relang(); if (on) toast(T("Ratings and comments now come from Trakt too"), 2000, NULL); }
 /* About: the update rows (as the update stands now) and Share logs */
@@ -515,6 +521,8 @@ static int key(int k) {
     if (op->action) { if (!strcmp(op->k, "__tmdb")) { qrcard_show_tmdb(on_tmdb_card, NULL); return 1; }
       if (!strcmp(op->k, "__tmdbOff")) { tmdb_key_clear(); relang(); toast(T("Titles and descriptions in English"), 2000, NULL); return 1; }
       if (!strcmp(op->k, "__trakt")) { qrcard_show_trakt(on_trakt_card, NULL); return 1; }
+      if (!strcmp(op->k, "__iptv")) { qrcard_show_iptv(on_iptv_card, NULL); return 1; }
+      if (!strcmp(op->k, "__iptvOff")) { iptv_clear(); toast(!strncmp(i18n_lang(), "pt", 2) ? "Lista IPTV removida" : "IPTV list removed", 2000, NULL); return 1; }
       if (!strcmp(op->k, "__traktOff")) { trakt_key_clear(); relang(); toast(T("The Trakt id is gone"), 2000, NULL); return 1; }
       if (!strcmp(op->k, "__keys")) { settings_open_keys(); return 1; }
       if (!strcmp(op->k, "__traktUnlink")) { scrobble_unlink(); board_invalidate(); trakt_relayout(); toast(T("Trakt is disconnected"), 2000, NULL); return 1; }

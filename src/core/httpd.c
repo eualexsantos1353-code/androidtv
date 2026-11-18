@@ -22,7 +22,7 @@
 #define MSG_NOSIGNAL 0   /* the Mac: SO_NOSIGPIPE on each socket instead */
 #endif
 #define IDLE_SEC (15 * 60)
-#define MAX_REQ 4096     /* a request line and its headers; anything longer is not one of ours */
+#define MAX_REQ 8192     /* a request line and its headers; anything longer is not one of ours */
 #define MAX_CONN 8
 
 static pthread_mutex_t mu = PTHREAD_MUTEX_INITIALIZER;
@@ -31,6 +31,7 @@ static char tok[17];
 static struct { int seq; char text[400]; } typed;
 static unsigned hits;
 static int (*keyFn)(const char *key), (*traktFn)(const char *key);
+static int (*iptvFn)(const char *m3u, const char *epg);
 
 /* the pages speak the app's language: its translations of these, taken when a screen asks for the server
    (the server thread never reads the dictionaries, which a language change rebuilds) */
@@ -157,6 +158,16 @@ static void clean_text(const char *in, char *out, size_t cap) {
     units += n == 4 ? 2 : 1; s += n; }
   out[o] = 0;
 }
+static const char *pl(const char *en, const char *ptb) { return !strncmp(str.lang, "pt", 2) ? ptb : en; } /* (this page is worded here: English, and Portuguese for a Portuguese app) */
+static void iptv_page(Buf *b) {
+  head(b, "IPTV"); b_s(b, "<h1>"); hx(b, pl("Your IPTV list", "Sua lista IPTV")); b_s(b, "</h1><p>"); hx(b, pl("Paste the list link (M3U) and, if you have one, the guide link (EPG). Both stay on your TV only.", "Cole o link da lista (M3U) e, se tiver, o link do guia (EPG). Os dois ficam s\xc3\xb3 na sua TV.")); b_s(b, "</p>");
+  b_s(b, "<input id=\"m\" dir=\"ltr\" autocomplete=\"off\" autocapitalize=\"off\" spellcheck=\"false\" placeholder=\""); hx(b, pl("List link (M3U)", "Link da lista (M3U)")); b_s(b, "\">");
+  b_s(b, "<input id=\"e\" dir=\"ltr\" autocomplete=\"off\" autocapitalize=\"off\" spellcheck=\"false\" placeholder=\""); hx(b, pl("Guide link (EPG, optional)", "Link do guia (EPG, opcional)")); b_s(b, "\"><button id=\"b\">"); hx(b, pt("Save")); b_s(b, "</button><small id=\"s\"></small><script>"
+    "var m=document.getElementById(\"m\"),e=document.getElementById(\"e\"),s=document.getElementById(\"s\");document.getElementById(\"b\").onclick=function(){s.textContent="); js(b, pt("Checking\xe2\x80\xa6")); b_s(b, ";var x=new XMLHttpRequest();"
+    "x.open(\"GET\",location.pathname+\"/set?m3u=\"+encodeURIComponent(m.value.trim())+\"&epg=\"+encodeURIComponent(e.value.trim()));x.onload=function(){s.textContent=x.status===204?"); js(b, pt("Saved. You can close this page.")); b_s(b, ":"); js(b, pl("That does not look like a link.", "Isso n\xc3\xa3o parece um link.")); b_s(b, ";};"
+    "x.onerror=function(){s.textContent="); js(b, pt("Can\xe2\x80\x99t reach the TV")); b_s(b, ";};x.send();};</script></body></html>");
+}
+
 static void handle(int fd) {
   char req[MAX_REQ + 1]; size_t got = 0;
   while (got < MAX_REQ) { ssize_t r = recv(fd, req + got, MAX_REQ - got, 0); if (r <= 0) break; got += (size_t)r; req[got] = 0; if (strstr(req, "\r\n\r\n") || strstr(req, "\n\n")) break; }
@@ -168,9 +179,13 @@ static void handle(int fd) {
   const char *rest = NULL;
   if (!strncmp(target, "/t/", 3) && strlen(target) >= 19 && !strncmp(target + 3, tok, 16)) {
     rest = target + 19;
-    if (*rest && strcmp(rest, "/q") && strcmp(rest, "/tmdb") && strcmp(rest, "/tmdb/set") && strcmp(rest, "/trakt") && strcmp(rest, "/trakt/set")) rest = NULL; }
+    if (*rest && strcmp(rest, "/q") && strcmp(rest, "/tmdb") && strcmp(rest, "/tmdb/set") && strcmp(rest, "/trakt") && strcmp(rest, "/trakt/set") && strcmp(rest, "/iptv") && strcmp(rest, "/iptv/set")) rest = NULL; }
   if (!rest) { if (!strncmp(target, "/t/", 3) || !strcmp(target, "/")) { Buf b = { 0 }; pthread_mutex_lock(&mu); stale_page(&b); pthread_mutex_unlock(&mu); reply(fd, 404, "Content-Type: text/html; charset=utf-8\r\n", b.p, b.n); free(b.p); } else reply(fd, 404, NULL, NULL, 0); return; }
-  if (strcmp(rest, "/q") && strcmp(rest, "/tmdb/set") && strcmp(rest, "/trakt/set")) { pthread_mutex_lock(&mu); hits++; pthread_mutex_unlock(&mu); } /* a code was opened */
+  if (strcmp(rest, "/q") && strcmp(rest, "/tmdb/set") && strcmp(rest, "/trakt/set") && strcmp(rest, "/iptv/set")) { pthread_mutex_lock(&mu); hits++; pthread_mutex_unlock(&mu); } /* a code was opened */
+  if (!strcmp(rest, "/iptv/set")) {
+    char m[2048], e[2048]; qparam(q, "m3u", m, sizeof m); qparam(q, "epg", e, sizeof e);
+    pthread_mutex_lock(&mu); int (*fn)(const char *, const char *) = iptvFn; pthread_mutex_unlock(&mu);
+    reply(fd, fn && fn(m, e) ? 204 : 400, NULL, NULL, 0); return; }
   if (!strcmp(rest, "/tmdb/set") || !strcmp(rest, "/trakt/set")) {
     char key[1024]; qparam(q, "key", key, sizeof key);
     pthread_mutex_lock(&mu); int (*fn)(const char *) = rest[1] == 't' && rest[2] == 'm' ? keyFn : traktFn; pthread_mutex_unlock(&mu);
@@ -180,7 +195,7 @@ static void handle(int fd) {
     pthread_mutex_lock(&mu); typed.seq++; snprintf(typed.text, sizeof typed.text, "%s", t); pthread_mutex_unlock(&mu);
     reply(fd, 204, NULL, NULL, 0); return; }
   Buf b = { 0 };
-  pthread_mutex_lock(&mu); if (!strcmp(rest, "/tmdb")) tmdb_page(&b); else if (!strcmp(rest, "/trakt")) trakt_page(&b); else search_page(&b); pthread_mutex_unlock(&mu);
+  pthread_mutex_lock(&mu); if (!strcmp(rest, "/tmdb")) tmdb_page(&b); else if (!strcmp(rest, "/trakt")) trakt_page(&b); else if (!strcmp(rest, "/iptv")) iptv_page(&b); else search_page(&b); pthread_mutex_unlock(&mu);
   reply(fd, 200, "Content-Type: text/html; charset=utf-8\r\n", b.p, b.n); free(b.p);
 }
 static void *conn_main(void *arg) {
@@ -272,4 +287,5 @@ int httpd_typed(int since, char *out, size_t cap) {
 }
 unsigned httpd_hits(void) { pthread_mutex_lock(&mu); unsigned h = hits; pthread_mutex_unlock(&mu); return h; }
 void httpd_set_key_handler(int (*fn)(const char *key)) { pthread_mutex_lock(&mu); keyFn = fn; pthread_mutex_unlock(&mu); }
+void httpd_set_iptv_handler(int (*fn)(const char *m3u, const char *epg)) { pthread_mutex_lock(&mu); iptvFn = fn; pthread_mutex_unlock(&mu); }
 void httpd_set_trakt_handler(int (*fn)(const char *key)) { pthread_mutex_lock(&mu); traktFn = fn; pthread_mutex_unlock(&mu); }

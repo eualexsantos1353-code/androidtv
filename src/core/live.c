@@ -1,3 +1,4 @@
+#include "core/iptv.h"
 #include "core/live.h"
 #include "core/app.h"
 #include "core/i18n.h"
@@ -66,6 +67,7 @@ static void on_cat(ItemList *l, int cached, void *ud) {
   (void)cached; if (cats[i].def.skip && got) sb_catalog_page(&cats[i].def, cats[i].skip, on_page, ctok(i)); /* its next pages (the cached copy too: a fresh one comes only when it differs) */
 }
 void live_refresh(int force) {
+  iptv_refresh(0); /* (its own list and guide: fetched when due; the catalogs are rebuilt when they land) */
   static CatalogDef all[128]; static unsigned lastSig; int n = sb_home_defs(all, 128), k = 0;
   unsigned sig = 2166136261u; for (int i = 0; i < n; i++) if (live_type(all[i].type)) for (const char *p = all[i].url; *p; p++) sig = (sig ^ (unsigned char)*p) * 16777619u; /* (the live catalogs the addons offer now) */
   if (!force && now_s() - catAt < 600 && sig == lastSig) return; /* (asked again every 10 minutes, or at once when the addons changed: one turned off or removed takes its channels with it) */
@@ -73,6 +75,13 @@ void live_refresh(int force) {
   for (int i = 0; i < n && k < MAXCAT; i++) if (live_type(all[i].type)) {
     if (k >= ncat || strcmp(cats[k].def.url, all[i].url)) cats[k].n = 0;
     cats[k].def = all[i]; if (ncat < k + 1) ncat = k + 1; /* (a cached answer comes back at once, inside the call) */ sb_catalog_url(all[i].url, all[i].type, 500, on_cat, ctok(k)); k++; }
+  if (iptv_has() && iptv_count() && k < MAXCAT) { /* the viewer's own IPTV list: one more catalog, its channels from the list */
+    int c = iptv_count(); if (k >= ncat || strcmp(cats[k].def.url, "iptv:list")) { free(cats[k].ch); memset(&cats[k], 0, sizeof cats[k]); }
+    LiveCh *g = realloc(cats[k].ch, sizeof(LiveCh) * (size_t)c); if (g) { cats[k].ch = g; cats[k].cap = c; cats[k].n = 0;
+      memset(&cats[k].def, 0, sizeof cats[k].def); snprintf(cats[k].def.title, sizeof cats[k].def.title, "IPTV"); snprintf(cats[k].def.url, sizeof cats[k].def.url, "iptv:list"); snprintf(cats[k].def.type, sizeof cats[k].def.type, "tv");
+      for (int i = 0; i < c; i++) { const IptvCh *ic = iptv_chan(i); LiveCh *d = &cats[k].ch[cats[k].n++]; memset(d, 0, sizeof *d);
+        snprintf(d->id, sizeof d->id, "%s", ic->id); snprintf(d->type, sizeof d->type, "tv"); snprintf(d->name, sizeof d->name, "%s", ic->name); snprintf(d->logo, sizeof d->logo, "%s", ic->logo); }
+      if (ncat < k + 1) ncat = k + 1; k++; } }
   for (int i = k; i < ncat; i++) { free(cats[i].ch); memset(&cats[i], 0, sizeof cats[i]); }
   ncat = k;
 }
@@ -246,6 +255,16 @@ static void *probe_run(void *arg) {
 }
 static void kick(void) { pthread_mutex_lock(&L.mu); int go = !L.busy && !L.found && L.next < L.ns; if (go) L.busy = 1; unsigned tok = L.tok; pthread_mutex_unlock(&L.mu);
   if (go) { pthread_t th; if (pthread_create(&th, NULL, probe_run, (void *)(uintptr_t)tok)) { pthread_mutex_lock(&L.mu); L.busy = 0; pthread_mutex_unlock(&L.mu); } else pthread_detach(th); } }
+/* the IPTV list's channels have no addon: their stream is the list's own address, answered on the next frame like an addon's */
+typedef struct { StreamPartCb part; StreamDoneCb done; void *ud; char id[64]; } IptvAns;
+static void iptv_answer(int st, const unsigned char *b, size_t n, void *ud) { (void)st; (void)b; (void)n; IptvAns *a = ud;
+  Stream *s = calloc(1, sizeof *s); int ok = s && iptv_url(a->id, s->url, sizeof s->url);
+  if (ok) { snprintf(s->addon, sizeof s->addon, "IPTV"); snprintf(s->name, sizeof s->name, "IPTV"); StreamGroup g; memset(&g, 0, sizeof g); snprintf(g.name, sizeof g.name, "IPTV"); g.items = s; g.n = 1; a->part(&g, 0, a->ud); }
+  else free(s);
+  a->done(ok ? 1 : 0, a->ud); free(a); }
+static unsigned lv_streams(const char *type, const char *id, StreamPartCb part, StreamDoneCb done, void *ud) {
+  if (!iptv_is(id)) return sb_streams(type, id, part, done, ud);
+  IptvAns *a = calloc(1, sizeof *a); if (!a) return 0; a->part = part; a->done = done; a->ud = ud; snprintf(a->id, sizeof a->id, "%s", id); net_file("", iptv_answer, a); return 1; }
 static void on_part(StreamGroup *g, int gi, void *ud) {
   (void)gi; if ((unsigned)(uintptr_t)ud != L.tok) { free(g->items); return; }
   pthread_mutex_lock(&L.mu); for (int i = 0; i < g->n && L.ns < MAXS; i++) { const Stream *s = &g->items[i]; if (!s->url[0] || s->ext[0] || s->p2p) continue; add_stream(L.s, &L.ns, MAXS, L.next, s); } pthread_mutex_unlock(&L.mu);
@@ -286,7 +305,7 @@ void live_start(const Item *it, const Item *from, int nfrom, int zap) {
   cardIt = *it; card.it = &cardIt; card.on = 1; card.tuning = 1; card.failed = 0; card.backHint = 0; card.at = now_s();
   if (!zap) art_up(it);
   fprintf(stderr, "[live] tuning in to a channel (%s)\n", zap ? "switching" : "from a card");
-  sb_streams(it->type, it->id, on_part, on_done, (void *)(uintptr_t)tok);
+  lv_streams(it->type, it->id, on_part, on_done, (void *)(uintptr_t)tok);
 }
 static void probe_tick(void);
 /* each live list asked once a launch even inside the addon's cacheMaxAge (a server that went away no longer leaves
@@ -345,7 +364,7 @@ void live_peek(const Item *it) {
   pthread_mutex_lock(&L.mu); L.tok++; L.ns = L.next = L.found = 0; unsigned tok = L.tok; pthread_mutex_unlock(&L.mu);
   L.it = *it; L.zap = 1; L.peek = 1; L.t0 = now_s(); L.asked = 1; L.done = 0;
   fprintf(stderr, "[live] preview: looking for a stream\n");
-  sb_streams(it->type, it->id, on_part, on_done, (void *)(uintptr_t)tok);
+  lv_streams(it->type, it->id, on_part, on_done, (void *)(uintptr_t)tok);
 }
 /* the preview's stream loaded and showed no picture: its channel's next stream that sends one (three at most); 0 when
    there is none left (the preview then says so) */
@@ -397,7 +416,7 @@ static void probe_tick(void) {
   for (int i = 0; i < npv; i++) { if (live_reach(PV[i].id)) continue; if (!strcmp(PK.id, PV[i].id) || (L.asked && !strcmp(L.it.id, PV[i].id))) continue; /* (being tried already) */
     pthread_mutex_lock(&PR.mu); PR.tok++; PR.ns = PR.next = PR.found = 0; PR.done = 0; unsigned tok = PR.tok; pthread_mutex_unlock(&PR.mu);
     snprintf(PR.id, sizeof PR.id, "%s", PV[i].id); PR.t0 = now_s(); PR.on = 1;
-    sb_streams(PV[i].type, PV[i].id, pr_part, pr_done, (void *)(uintptr_t)tok); break; }
+    lv_streams(PV[i].type, PV[i].id, pr_part, pr_done, (void *)(uintptr_t)tok); break; }
   npv = 0; /* (asked again each frame by whoever shows them) */
 }
 

@@ -27,4 +27,6 @@ void qrcard_close(void);
 void qrcard_show_tmdb(void (*onClose)(int hasKey, void *ud), void *ud);
 /* Settings > Keys > Ratings and reviews: the Trakt client id page */
 void qrcard_show_trakt(void (*onClose)(int hasKey, void *ud), void *ud);
+/* Settings > Keys > IPTV list: the page that takes the M3U and EPG links from the phone */
+void qrcard_show_iptv(void (*onClose)(int hasList, void *ud), void *ud);
 #endif

@@ -1,3 +1,4 @@
+#include "core/iptv.h"
 #include "ui/qrcard.h"
 #include "ui/widgets.h"
 #include "core/keys.h"
@@ -136,4 +137,17 @@ void qrcard_show_trakt(void (*onClose)(int hasKey, void *ud), void *ud) {
   o.check = trakt_check; o.doneTitle = T("Id saved"); o.doneSub = T("Ratings, their spread and people\xe2\x80\x99s comments now come from Trakt"); o.doneHold = 1.6f;
   o.onClose = trakt_closed;
   qrcard_show(&o); tk.cb = onClose; tk.ud = ud; tk.gen = trakt_generation();
+}
+/* Settings > Keys > IPTV list: the page for the list link and the guide link; onClose(hasList, ud) once it is closed */
+static struct { void (*cb)(int, void *); void *ud; unsigned gen; } ip;
+static int iptv_check(void *ud) { (void)ud; return iptv_has() && iptv_generation() != ip.gen; }
+static void iptv_closed(void *ud) { (void)ud; void (*cb)(int, void *) = ip.cb; ip.cb = NULL; if (cb) cb(iptv_has(), ip.ud); }
+void qrcard_show_iptv(void (*onClose)(int hasList, void *ud), void *ud) {
+  iptv_init(); /* the IPTV side ready to take the links from the phone */
+  char url[600]; httpd_url("/iptv", url, sizeof url); int pt = !strncmp(i18n_lang(), "pt", 2);
+  QrCardOpts o; memset(&o, 0, sizeof o);
+  o.title = pt ? "Lista IPTV" : "IPTV list"; o.sub = pt ? "Aponte o celular e cole o link da lista (M3U) e do guia (EPG). Ficam s\xc3\xb3 nesta TV" : "Scan with your phone and paste the list link (M3U) and the guide link (EPG). They stay on this TV only"; o.url = url;
+  o.check = iptv_check; o.doneTitle = pt ? "Lista salva" : "List saved"; o.doneSub = pt ? "Os canais aparecem em TV ao vivo" : "The channels show in live TV"; o.doneHold = 1.6f;
+  o.onClose = iptv_closed;
+  qrcard_show(&o); ip.cb = onClose; ip.ud = ud; ip.gen = iptv_generation();
 }

@@ -26,4 +26,6 @@ unsigned httpd_hits(void);
 void httpd_set_key_handler(int (*fn)(const char *key));
 /* the same for the Trakt page's Save (the Trakt module): 1 = Trakt accepted the client id */
 void httpd_set_trakt_handler(int (*fn)(const char *key));
+/* the IPTV page's Save (the IPTV module): the list link and the guide link as typed; 1 = kept */
+void httpd_set_iptv_handler(int (*fn)(const char *m3u, const char *epg));
 #endif

@@ -1,3 +1,4 @@
+#include "core/iptv.h"
 #include "ui/xline.h"
 #include "screens/livehub.h"
 #include "core/app.h"
@@ -220,6 +221,9 @@ static void tile(const LiveCh *it, float x, float y, int f, float k, int playing
   if (f) { gfx_ring_out(x, y, TW, TH, 18, 3, ACC2); float hp = H.inPlayer ? (H.okDown && !H.holdFired ? app_hold_k(H.okAt) : 0) : app_hold_progress(); if (hp > 0) hold_trace_draw(x, y, TW, TH, 18, ease_apply(EASE_IN_OUT, hp)); } /* (held: the line runs round it, as on Home) */
   gfx_scale_pop();
   text_draw(it->name, x + 4, y + TH + 14 + 8 * k, 23, f ? 700 : 600, f ? WHITE_A(255) : WHITE_A(190), 0, TW - 8, ALIGN_LEFT);
+  if (iptv_is(it->id)) { char now[96], nx[96]; int pc = 0; /* the list's guide: what is on, over the tile's foot, with how far in it is */
+    if (iptv_epg(it->id, now, sizeof now, nx, sizeof nx, &pc) && now[0]) { gfx_rrect_v(x, y + TH - 40, TW, 40, 18, WHITE_A(0), RGBA(10, 9, 14, 200)); text_draw(now, x + 12, y + TH - 32, 19, 600, WHITE_A(235), 0, TW - 24, ALIGN_LEFT);
+      gfx_rrect(x + 12, y + TH - 9, TW - 24, 3, 1, WHITE_A(50)); gfx_rrect(x + 12, y + TH - 9, (TW - 24) * (float)pc / 100.f, 3, 1, ACC2); } }
 }
 static void hub_draw_body(void);
 /* where "Live TV" was: the focused channel's state (live_mark) */
