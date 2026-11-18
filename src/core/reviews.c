@@ -56,7 +56,29 @@ static void comment(Reviews *r, const char *from, const char *user, const char *
   if (!r->c) { r->c = calloc(REV_MAXC, sizeof *r->c); if (!r->c) return; }
   RevComment *c = &r->c[r->nc]; memset(c, 0, sizeof *c); words(text, c->text, sizeof c->text); if (!c->text[0]) return;
   snprintf(c->from, sizeof c->from, "%s", from); snprintf(c->user, sizeof c->user, "%s", user && *user ? user : "\xe2\x80\x94");
+  { unsigned h = 5381; for (const char *q = c->text; *q; q++) h = h * 33 + (unsigned char)*q; c->h = h; }
   c->score = score < 0 ? 0 : score > 10 ? 10 : score; c->likes = likes; c->replies = replies; c->spoiler = spoiler; c->days = days_ago(created); r->nc++;
+}
+/* ---- comments in other languages, translated into the app's (Google Translate's free web endpoint, one call a comment) ---- */
+typedef struct { char key[48]; int idx; unsigned h; } TrAsk;
+static void tr_target(char *out, size_t cap) { const char *l = i18n_lang(); if (!strncasecmp(l, "zh", 2)) snprintf(out, cap, "%s", !strcasecmp(l, "zh-TW") || !strcasecmp(l, "zh-HK") ? "zh-TW" : "zh-CN"); else snprintf(out, cap, "%.2s", l); }
+static void on_tr(int st, const unsigned char *body, size_t len, void *ud) {
+  TrAsk *a = ud; Reviews *r = find(a->key); (void)len;
+  if (r && st == 200 && r->c && a->idx < r->nc && r->c[a->idx].h == a->h && !r->c[a->idx].translated) {
+    cJSON *j = net_json(body); char tl[8]; tr_target(tl, sizeof tl); char out[REV_TEXT * 2]; size_t o = 0; out[0] = 0;
+    const cJSON *seg, *segs = cJSON_GetArrayItem(j, 0); const char *src = cJSON_IsString(cJSON_GetArrayItem(j, 2)) ? cJSON_GetArrayItem(j, 2)->valuestring : "";
+    if (cJSON_IsArray(segs)) cJSON_ArrayForEach(seg, segs) { const cJSON *t = cJSON_GetArrayItem(seg, 0); if (!cJSON_IsString(t) || !t->valuestring) continue; size_t n = strlen(t->valuestring); if (o + n + 1 >= sizeof out) break; memcpy(out + o, t->valuestring, n); o += n; out[o] = 0; }
+    if (o && strncasecmp(src, tl, 2)) { char w[REV_TEXT]; words(out, w, sizeof w); if (w[0]) { snprintf(r->c[a->idx].text, sizeof r->c[a->idx].text, "%s", w); r->c[a->idx].translated = 1; touched(r); } } /* (the same language as ours: left as it was) */
+    net_json_free(j); }
+  free(a);
+}
+static void translate_from(Reviews *r, int from) {
+  char tl[8]; tr_target(tl, sizeof tl); static const char *H = "0123456789ABCDEF";
+  for (int i = from; i < r->nc; i++) { RevComment *c = &r->c[i]; char enc[REV_TEXT * 3 + 4]; size_t o = 0;
+    for (const unsigned char *s = (const unsigned char *)c->text; *s && o + 4 < sizeof enc; s++) { if (isalnum(*s) || *s == '-' || *s == '_' || *s == '.' || *s == '~') enc[o++] = (char)*s; else { enc[o++] = '%'; enc[o++] = H[*s >> 4]; enc[o++] = H[*s & 15]; } }
+    enc[o] = 0; char url[REV_TEXT * 3 + 160]; snprintf(url, sizeof url, "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=%s&dt=t&q=%s", tl, enc);
+    TrAsk *a = calloc(1, sizeof *a); snprintf(a->key, sizeof a->key, "%s", r->key); a->idx = i; a->h = c->h;
+    if (!net_get(url, on_tr, a)) free(a); }
 }
 static void trakt_ratings(Reviews *r, const cJSON *j) {
   float v = (float)js_num(j, "rating", 0); int votes = (int)js_num(j, "votes", 0); if (v <= 0) return;
@@ -65,8 +87,9 @@ static void trakt_ratings(Reviews *r, const cJSON *j) {
   r->hasDist = any; char s[12]; snprintf(s, sizeof s, "%d%%", (int)(v * 10 + 0.5f)); tile(r, RK_TRAKT, "Trakt", s); score(r, RK_TRAKT, v, votes, "Trakt");
 }
 static void trakt_comments(Reviews *r, const cJSON *j) {
-  const cJSON *c; cJSON_ArrayForEach(c, j) { const cJSON *u = js_obj(c, "user"); const char *nm = js_str(u, "username", js_str(u, "name", ""));
+  int from = r->nc; const cJSON *c; cJSON_ArrayForEach(c, j) { const cJSON *u = js_obj(c, "user"); const char *nm = js_str(u, "username", js_str(u, "name", ""));
     comment(r, "Trakt", nm, js_str(c, "comment", ""), (int)js_num(js_obj(c, "user_stats"), "rating", 0), (int)js_num(c, "likes", 0), (int)js_num(c, "replies", 0), js_bool(c, "spoiler", 0), js_str(c, "created_at", NULL)); }
+  translate_from(r, from);
 }
 static void tmdb_vote(Reviews *r, const cJSON *j) {
   { const char *ov = js_str(j, "overview", ""), *pp = js_str(j, "poster_path", ""); /* a season's own words and poster (its answer carries them) */
@@ -74,8 +97,9 @@ static void tmdb_vote(Reviews *r, const cJSON *j) {
   float v = (float)js_num(j, "vote_average", 0); if (v <= 0) return; char s[12]; snprintf(s, sizeof s, "%.1f", v); tile(r, RK_TMDB, "TMDB", s); score(r, RK_TMDB, v, (int)js_num(j, "vote_count", 0), "TMDB");
 }
 static void tmdb_reviews(Reviews *r, const cJSON *j) {
-  const cJSON *c; cJSON_ArrayForEach(c, js_arr(j, "results")) { const cJSON *d = js_obj(c, "author_details"); const char *nm = js_str(d, "username", js_str(c, "author", ""));
+  int from = r->nc; const cJSON *c; cJSON_ArrayForEach(c, js_arr(j, "results")) { const cJSON *d = js_obj(c, "author_details"); const char *nm = js_str(d, "username", js_str(c, "author", ""));
     comment(r, "TMDB", nm, js_str(c, "content", ""), (int)(js_num(d, "rating", 0) + 0.5), 0, 0, 0, js_str(c, "created_at", NULL)); }
+  translate_from(r, from);
 }
 /* Wikidata's review scores: Rotten Tomatoes' tomatometer ("85%"), Metacritic's ("78/100") */
 static void wiki(Reviews *r, const cJSON *j) {

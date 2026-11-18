@@ -7,7 +7,7 @@
 #define REV_MAXC 30     /* comments kept per title */
 #define REV_TEXT 600    /* bytes of one comment */
 typedef struct { char src[20], val[12]; int rank; } RevTile;   /* one source's score as it shows it ("8.0", "85%", "78") */
-typedef struct { char user[40], from[12], text[REV_TEXT]; int days, score, likes, replies, spoiler; } RevComment; /* days: ago (-1 unknown); score 0 = none */
+typedef struct { char user[40], from[12], text[REV_TEXT]; int days, score, likes, replies, spoiler; unsigned h; int translated; } RevComment; /* h: a hash of the original words; translated: the text shown is a translation */ /* days: ago (-1 unknown); score 0 = none */
 typedef struct {
   char key[48]; unsigned ver; int pending, asked;      /* ver bumps as answers land; pending: answers still to come */
   float score; int votes; char scoreSrc[12]; int rank; /* the main score: the source with a spread first (Trakt), then TMDB, then IMDb */
