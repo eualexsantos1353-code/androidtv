@@ -115,6 +115,7 @@ public final class VideoPlane {
         DefaultExtractorsFactory ex = new DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true);
         DefaultMediaSourceFactory msf = new DefaultMediaSourceFactory(new DefaultDataSource.Factory(a, http), new MkvSeekHead.Factory(ex)); /* (Matroska: an index listed in a second SeekHead found too) */
         msfS = msf; /* (the separate picture and sound files of a Piped mirror: the app's own user agent) */
+        player = new ExoPlayer.Builder(a, rf).setTrackSelector(selector).setLoadControl(lc).setMediaSourceFactory(msf)
             .setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS).build();
         player.setVideoSurfaceView(view);
         /* a film takes the sound (another app's sound pauses it, a call or the assistant ducks it); headphones or a
