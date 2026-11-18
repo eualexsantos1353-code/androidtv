@@ -26,7 +26,7 @@
 #include <strings.h>
 #include <math.h>
 
-#define MAXTAB 70
+#define MAXTAB 170
 #define COLS 6
 #define TW 252.0f
 #define TH 142.0f

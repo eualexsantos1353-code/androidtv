@@ -21,7 +21,8 @@
 int live_type(const char *type) { return type && (!strcmp(type, "tv") || !strcmp(type, "channel")); }
 
 /* ---- the channels: every live catalog's list ---- */
-#define MAXCAT 64
+#define MAXCAT 160
+#define MAXGRP 120
 /* a channel kept small (thousands of them: a full card's fields would be megabytes), made into a card when it is used */
 static struct { CatalogDef def; LiveCh *ch; int n, cap, skip; } cats[MAXCAT]; /* skip: where the next page starts */ static int ncat; static unsigned catGen; static double catAt = -1e9;
 static double now_s(void) { return SDL_GetTicks() / 1000.0; }
@@ -72,14 +73,22 @@ void live_refresh(int force) {
   unsigned sig = 2166136261u; for (int i = 0; i < n; i++) if (live_type(all[i].type)) for (const char *p = all[i].url; *p; p++) sig = (sig ^ (unsigned char)*p) * 16777619u; /* (the live catalogs the addons offer now) */
   if (!force && now_s() - catAt < 600 && sig == lastSig) return; /* (asked again every 10 minutes, or at once when the addons changed: one turned off or removed takes its channels with it) */
   lastSig = sig; catAt = now_s(); catGen++;
-  for (int i = 0; i < n && k < MAXCAT; i++) if (live_type(all[i].type)) {
+  for (int i = 0; i < n && k < 60; i++) if (live_type(all[i].type)) {
     if (k >= ncat || strcmp(cats[k].def.url, all[i].url)) cats[k].n = 0;
     cats[k].def = all[i]; if (ncat < k + 1) ncat = k + 1; /* (a cached answer comes back at once, inside the call) */ sb_catalog_url(all[i].url, all[i].type, 500, on_cat, ctok(k)); k++; }
-  if (iptv_has() && iptv_count() && k < MAXCAT) { /* the viewer's own IPTV list: one more catalog, its channels from the list */
-    int c = iptv_count(); if (k >= ncat || strcmp(cats[k].def.url, "iptv:list")) { free(cats[k].ch); memset(&cats[k], 0, sizeof cats[k]); }
-    LiveCh *g = realloc(cats[k].ch, sizeof(LiveCh) * (size_t)c); if (g) { cats[k].ch = g; cats[k].cap = c; cats[k].n = 0;
-      memset(&cats[k].def, 0, sizeof cats[k].def); snprintf(cats[k].def.title, sizeof cats[k].def.title, "IPTV"); snprintf(cats[k].def.url, sizeof cats[k].def.url, "iptv:list"); snprintf(cats[k].def.type, sizeof cats[k].def.type, "tv");
-      for (int i = 0; i < c; i++) { const IptvCh *ic = iptv_chan(i); LiveCh *d = &cats[k].ch[cats[k].n++]; memset(d, 0, sizeof *d);
+  if (iptv_has() && iptv_count()) { /* the viewer's own IPTV list: a catalog for each of its groups (group-title), in the list's order */
+    static char gn[MAXGRP][64]; static short gi[12000]; int ng = 0, c = iptv_count(); if (c > 12000) c = 12000;
+    for (int i = 0; i < c; i++) { const IptvCh *ic = iptv_chan(i); const char *g = ic->group[0] ? ic->group : "IPTV"; int f = -1;
+      for (int q = 0; q < ng; q++) if (!strcmp(gn[q], g)) { f = q; break; }
+      if (f < 0 && ng < MAXGRP - 1) { f = ng; snprintf(gn[ng++], sizeof gn[0], "%s", g); }
+      if (f < 0) { for (int q = 0; q < ng; q++) if (!strcmp(gn[q], "Outros")) { f = q; break; } if (f < 0) { f = ng; snprintf(gn[ng++], sizeof gn[0], "Outros"); } } /* (past the groups kept: one more, "Outros") */
+      gi[i] = (short)f; }
+    for (int q = 0; q < ng && k < MAXCAT; q++) { char url[64]; snprintf(url, sizeof url, "iptv:list:%d", q);
+      if (k >= ncat || strcmp(cats[k].def.url, url)) { free(cats[k].ch); memset(&cats[k], 0, sizeof cats[k]); }
+      int cnt = 0; for (int i = 0; i < c; i++) if (gi[i] == q) cnt++;
+      LiveCh *g = realloc(cats[k].ch, sizeof(LiveCh) * (size_t)(cnt ? cnt : 1)); if (!g) continue; cats[k].ch = g; cats[k].cap = cnt; cats[k].n = 0;
+      memset(&cats[k].def, 0, sizeof cats[k].def); snprintf(cats[k].def.title, sizeof cats[k].def.title, "%s", gn[q]); snprintf(cats[k].def.url, sizeof cats[k].def.url, "%s", url); snprintf(cats[k].def.type, sizeof cats[k].def.type, "tv");
+      for (int i = 0; i < c; i++) { if (gi[i] != q) continue; const IptvCh *ic = iptv_chan(i); LiveCh *d = &cats[k].ch[cats[k].n++]; memset(d, 0, sizeof *d);
         snprintf(d->id, sizeof d->id, "%s", ic->id); snprintf(d->type, sizeof d->type, "tv"); snprintf(d->name, sizeof d->name, "%s", ic->name); snprintf(d->logo, sizeof d->logo, "%s", ic->logo); }
       if (ncat < k + 1) ncat = k + 1; k++; } }
   for (int i = k; i < ncat; i++) { free(cats[i].ch); memset(&cats[i], 0, sizeof cats[i]); }

@@ -20,7 +20,7 @@ static char cfgPath[1200], m3uUrl[2048], epgUrl[2048];  /* the links: in memory 
 static unsigned gen, loadedGen; static double listAt = -1e9, epgAt = -1e9; static int listBusy, epgBusy;
 static Row *rows; static int nrows;
 static Prog *progs; static int nprogs, capprogs;
-#define MAX_ROWS 6000
+#define MAX_ROWS 12000
 #define MAX_PROGS 60000
 
 static void trim(char *s) { size_t n = strlen(s); while (n && isspace((unsigned char)s[n - 1])) s[--n] = 0; char *p = s; while (*p && isspace((unsigned char)*p)) p++; if (p != s) memmove(s, p, strlen(p) + 1); }
