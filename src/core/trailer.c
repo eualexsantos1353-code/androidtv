@@ -179,41 +179,6 @@ static void reply(Job *j, cJSON *o) {
 /* ---- YouTube: Innertube's Android client, then Piped mirrors ------------------------------------- */
 typedef void (*YtCb)(cJSON *res, void *ud);  /* res: {lo, hi, len, subs} (owned by the callee) or NULL */
 typedef struct { char vid[20]; YtCb cb; void *ud; int k, order[NPIPED], n; cJSON *out; } YtReq;
-/* the picture and the sound as two files from a Piped mirror (YouTube refuses them to this app: 403): "picture\naudio", else NULL */
-static char *piped_mix(const cJSON *j, const char *vid) {
-  const cJSON *v; const char *bv = "", *ba = ""; int bh = 0, bad = 0, bar = -1; char ll[4], bn[32] = ""; snprintf(ll, sizeof ll, "%.2s", i18n_lang());
-  cJSON_ArrayForEach(v, js_arr(j, "videoStreams")) {
-    const char *u = js_str(v, "url", ""), *cd = js_str(v, "codec", ""); if (!*u || !js_bool(v, "videoOnly", 0) || strncmp(js_str(v, "mimeType", ""), "video/mp4", 9) || (*cd && !strstr(cd, "avc1"))) continue;
-    int h = (int)js_num(v, "height", 0); if (h <= YT_MAXH && h > bh) { bh = h; bv = u; } }
-  cJSON_ArrayForEach(v, js_arr(j, "audioStreams")) {
-    const char *u = js_str(v, "url", ""); if (!*u || strncmp(js_str(v, "mimeType", ""), "audio/mp4", 9)) continue;
-    const char *loc = js_str(v, "audioTrackLocale", ""); int rk = !*loc ? 1 : !strncasecmp(loc, ll, 2) ? 2 : !strcasecmp(js_str(v, "audioTrackType", ""), "ORIGINAL") ? 1 : 0, br = (int)js_num(v, "bitrate", 0);
-    if (rk > bar || (rk == bar && br > bad)) { bar = rk; bad = br; ba = u; cpy(bn, sizeof bn, *loc ? loc : "single"); } }
-  fprintf(stderr, "[yt] %s Piped: video %dp, audio %s (match %d)\n", vid, bh, bn, bar);
-  if (!*bv || !*ba || bh <= 360 || strlen(bv) + strlen(ba) >= 4000) return NULL;
-  char *mix = malloc(strlen(bv) + strlen(ba) + 2); sprintf(mix, "%s\n%s", bv, ba); return mix;
-}
-static void phd_try(YtReq *r);
-static void on_phd(int st, const unsigned char *body, size_t len, void *ud) {
-  YtReq *r = ud; int ii = r->order[r->k]; cJSON *j = st > 0 ? net_json(body) : NULL; char *mix = j ? piped_mix(j, r->vid) : NULL;
-  if (mix) { cJSON_AddStringToObject(r->out, "mix", mix); free(mix); pipedGood = ii; pipedBad[ii] = 0; net_json_free(j); r->cb(r->out, r->ud); free(r); return; }
-  if (!j) pipedBad[ii] = now_s();
-  fprintf(stderr, "[yt] %s Piped %s: %.60s\n", r->vid, PIPED[ii], j ? js_str(j, "error", js_str(j, "message", "no HD picture")) : "no answer");
-  net_json_free(j); r->k++; phd_try(r);
-}
-static void phd_try(YtReq *r) {
-  if (r->k >= r->n) { r->cb(r->out, r->ud); free(r); return; }
-  char u[256]; snprintf(u, sizeof u, "%s/streams/%s", PIPED[r->order[r->k]], r->vid);
-  net_get_timeout(u, 4000, on_phd, r);
-}
-static void yt_piped_hd(YtReq *r) { /* two mirrors at most, a short wait: the trailer starts as it was when they are down */
-  double t = now_s(); r->n = 0; r->k = 0;
-#define OK(i) (!(pipedBad[i] && t - pipedBad[i] < 180))
-  if (pipedGood >= 0 && OK(pipedGood)) r->order[r->n++] = pipedGood;
-  for (int i = 0; i < NPIPED && r->n < 2; i++) if (i != pipedGood && OK(i)) r->order[r->n++] = i;
-#undef OK
-  phd_try(r);
-}
 static void on_innertube(int st, const unsigned char *body, size_t len, void *ud) {
   YtReq *r = ud; cJSON *j = st > 0 ? net_json(body) : NULL, *out = NULL;
   if (j) {
@@ -241,7 +206,6 @@ static void on_innertube(int st, const unsigned char *body, size_t len, void *ud
     } else cJSON_Delete(subs);
     net_json_free(j);
   }
-  if (out) { r->out = out; yt_piped_hd(r); return; } /* the separate picture files: YouTube refuses them to the app (403), a Piped mirror may serve them */
   r->cb(out, r->ud); free(r);
 }
 static void yt_innertube(const char *vid, YtCb cb, void *ud) {
