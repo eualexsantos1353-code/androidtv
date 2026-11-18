@@ -114,7 +114,7 @@ static void deliver(Job *j) {
   Trailer *t = calloc(1, sizeof *t); const char *hls = js_str(o, "hls", "");
   /* HLS when IMDb has it: its MP4s mark too few keyframes for the TV to seek; the background trailer keeps an MP4 (bg_order) */
   if (*hls && !j->lq) { cpy(t->url, sizeof t->url, hls); cpy(t->alt, sizeof t->alt, url); cpy(t->mime, sizeof t->mime, "application/x-mpegurl"); }
-  else { cpy(t->url, sizeof t->url, url); cpy(t->mime, sizeof t->mime, "video/mp4"); }
+  else { cpy(t->url, sizeof t->url, url); cpy(t->alt, sizeof t->alt, js_str(o, "alt", "")); cpy(t->mime, sizeof t->mime, "video/mp4"); }
   if (j->lq) { int n = 0; const cJSON *d; cJSON_ArrayForEach(d, js_arr(o, "down")) if (n < 2 && cJSON_IsString(d) && *d->valuestring) cpy(t->down[n++], sizeof t->down[0], d->valuestring); }
   cpy(t->name, sizeof t->name, js_str(o, "name", "Trailer")); t->runtime = (int)js_num(o, "runtime", 0); cpy(t->source, sizeof t->source, js_str(o, "source", ""));
   const cJSON *s; cJSON_ArrayForEach(s, js_arr(o, "subs")) { if (t->nsubs >= TRAILER_MAX_SUBS) break; TrailerSub *d = &t->subs[t->nsubs++];
@@ -188,6 +188,19 @@ static void on_innertube(int st, const unsigned char *body, size_t len, void *ud
       fprintf(stderr, "[yt] %s format itag %d %s\n", r->vid, itag, js_str(f, "qualityLabel", ""));
       if (itag == 22) hi = u; else if (itag == 18) lo = u; else if (!*lo) lo = u;
     }
+    char *mix = NULL; /* the sharpest picture (H.264, up to 1080p) and the audio track in the app's language, two files the player joins */
+    { char ll[4]; snprintf(ll, sizeof ll, "%.2s", i18n_lang()); const char *bv = "", *ba = ""; int bh = 0, bar = -1, bad = 0; char bn[64] = "";
+      cJSON_ArrayForEach(f, js_arr(js_obj(j, "streamingData"), "adaptiveFormats")) {
+        const char *u = js_str(f, "url", ""), *mt = js_str(f, "mimeType", ""); if (!*u) continue;
+        if (!strncmp(mt, "video/mp4", 9)) { int h = (int)js_num(f, "height", 0); if (strstr(mt, "avc1") && h <= 1080 && h > bh) { bh = h; bv = u; } }
+        else if (!strncmp(mt, "audio/mp4", 9)) {
+          const cJSON *at = js_obj(f, "audioTrack"); const char *id = js_str(at, "id", "");
+          int rk = at ? (!strncasecmp(id, ll, 2) ? 2 : js_bool(at, "audioIsDefault", 0) ? 1 : 0) : 1, br = (int)js_num(f, "bitrate", 0);
+          if (rk > bar || (rk == bar && br > bad)) { bar = rk; bad = br; ba = u; cpy(bn, sizeof bn, at ? js_str(at, "displayName", id) : "single track"); }
+        }
+      }
+      fprintf(stderr, "[yt] %s adaptive: video %dp, audio \"%s\" (match %d)\n", r->vid, bh, bn, bar);
+      if (*bv && *ba && strlen(bv) + strlen(ba) < 4000) { mix = malloc(strlen(bv) + strlen(ba) + 2); sprintf(mix, "%s\n%s", bv, ba); } }
     cJSON *subs = cJSON_CreateArray(); const cJSON *c;
     cJSON_ArrayForEach(c, js_arr(js_obj(js_obj(j, "captions"), "playerCaptionsTracklistRenderer"), "captionTracks")) {
       const char *bu = js_str(c, "baseUrl", ""); if (!*bu) continue;
@@ -198,12 +211,12 @@ static void on_innertube(int st, const unsigned char *body, size_t len, void *ud
       cJSON *s = cJSON_CreateObject(); cJSON_AddStringToObject(s, "name", snm); cJSON_AddStringToObject(s, "lang", lang); cJSON_AddStringToObject(s, "url", bu); cJSON_AddStringToObject(s, "kind", "timedtext");
       cJSON_AddItemToArray(subs, s);
     }
-    if (*lo || *hi || cJSON_GetArraySize(subs)) {
-      out = cJSON_CreateObject(); cJSON_AddStringToObject(out, "lo", lo); cJSON_AddStringToObject(out, "hi", hi);
+    if (*lo || *hi || mix || cJSON_GetArraySize(subs)) {
+      out = cJSON_CreateObject(); cJSON_AddStringToObject(out, "lo", lo); cJSON_AddStringToObject(out, "hi", hi); cJSON_AddStringToObject(out, "mix", mix ? mix : "");
       cJSON_AddNumberToObject(out, "len", js_numstr(js_obj(j, "videoDetails"), "lengthSeconds", 0)); /* to match it against IMDb's cuts */
       cJSON_AddItemToObject(out, "subs", subs);
     } else cJSON_Delete(subs);
-    net_json_free(j);
+    free(mix); net_json_free(j);
   }
   r->cb(out, r->ud); free(r);
 }
@@ -252,9 +265,10 @@ typedef void (*YtUrlCb)(Job *j, const char *url, const char *err);
 typedef struct { Job *j; char vid[20]; YtUrlCb cb; } YtRes;
 /* the background trailer: the sharpest MP4 there is (1080p, else 720p, else 480p), the low one first only on a connection
    measured slow (under 8 Mb/s: Settings, the best stream); the TV decodes the picture itself, the cost is the download */
-static int bg_slow(void) { double m = best_net_mbps(); return m > 0 && m < 8; }
+static int bg_slow(void) { double m = best_net_mbps(); return m > 0 && m < 3; }
 static const char *yt_pick(const cJSON *c, int lq) {
-  const char *lo = js_str(c, "lo", ""), *hi = js_str(c, "hi", "");
+  const char *lo = js_str(c, "lo", ""), *hi = js_str(c, "hi", ""), *mx = js_str(c, "mix", "");
+  if (*mx && !(lq && bg_slow())) return mx; /* picture and sound as two files ("video\naudio"): sharper, and the sound in the app's language */
   return lq && bg_slow() ? (*lo ? lo : hi) : (*hi ? hi : lo);
 }
 static void yt_res_done(YtRes *r, cJSON *res) {
@@ -394,6 +408,7 @@ static void on_yt_url(Job *j, const char *url, const char *err) {
   if (!*url) { reply(j, err_obj(*err ? err : "unavailable")); return; }
   const cJSON *c = memo_get(ytCache, j->yt[0], 1e9), *subs = js_arr(c, "subs");
   cJSON *o = cJSON_CreateObject(); cJSON_AddStringToObject(o, "url", url); cJSON_AddStringToObject(o, "name", "Trailer"); cJSON_AddStringToObject(o, "source", "youtube");
+  if (strchr(url, '\n')) { const char *fb = *js_str(c, "hi", "") ? js_str(c, "hi", "") : js_str(c, "lo", ""); if (*fb) cJSON_AddStringToObject(o, "alt", fb); } /* (the single file when the two do not play) */
   { const char *lo = js_str(c, "lo", ""); if (j->lq && *lo && strcmp(lo, url)) { cJSON *dn = cJSON_AddArrayToObject(o, "down"); cJSON_AddItemToArray(dn, cJSON_CreateString(lo)); } } /* (the background trailer: the low one when the high one fails) */
   cJSON_AddItemToObject(o, "subs", subs ? cJSON_Duplicate(subs, 1) : cJSON_CreateArray());
   reply(j, o);

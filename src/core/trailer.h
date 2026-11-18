@@ -11,8 +11,8 @@
 #define TRAILER_MAX_SUBS 12
 typedef struct { char url[1536], lang[8], name[64], kind[12]; } TrailerSub;  /* kind: "srt" (IMDb) or "timedtext" (YouTube) */
 typedef struct {
-  char url[2048];      /* what to load: the best HLS variant, or an MP4 (low quality: the sharpest MP4, 1080p / 720p / 480p) */
-  char alt[2048];      /* the MP4 to try when the HLS stream fails ("" = none) */
+  char url[4096];      /* what to load: the best HLS variant, or an MP4, or "picture-url\naudio-url" for the player to join (low quality: the sharpest MP4, 1080p / 720p / 480p) */
+  char alt[4096];      /* the MP4 to try when the HLS stream fails ("" = none) */
   char down[2][2048];  /* the background trailer: the lower MP4s to fall back to, in order (720p then 480p; "" = none) */
   char mime[32];       /* "application/x-mpegurl" or "video/mp4" */
   char name[128];      /* the clip's own name ("Official Trailer"); "Trailer" when unknown */

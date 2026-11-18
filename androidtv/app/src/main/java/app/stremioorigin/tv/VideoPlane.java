@@ -27,6 +27,8 @@ import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
+import androidx.media3.exoplayer.source.MediaSource;
+import androidx.media3.exoplayer.source.MergingMediaSource;
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
 import androidx.media3.extractor.DefaultExtractorsFactory;
 import androidx.media3.ui.SubtitleView;
@@ -112,6 +114,7 @@ public final class VideoPlane {
             .setUserAgent("StremioOrigin/1.1 (Android TV)").setConnectTimeoutMs(20000).setReadTimeoutMs(30000);
         DefaultExtractorsFactory ex = new DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true);
         DefaultMediaSourceFactory msf = new DefaultMediaSourceFactory(new DefaultDataSource.Factory(a, http), new MkvSeekHead.Factory(ex)); /* (Matroska: an index listed in a second SeekHead found too) */
+        msfS = msf;
         player = new ExoPlayer.Builder(a, rf).setTrackSelector(selector).setLoadControl(lc).setMediaSourceFactory(msf)
             .setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS).build();
         player.setVideoSurfaceView(view);
@@ -213,6 +216,7 @@ public final class VideoPlane {
     }
 
     /* ---- calls from the native side (any thread) ---- */
+    private static DefaultMediaSourceFactory msfS;
     public static void load(final String url, final long startMs, final boolean isLive) {
         state = 1; firstFrame = 0; hasMedia = 1; error = ""; hdr = ""; vw = vh = 0; pos = startMs; dur = 0; buf = 0; unsup = 0; seeking = 0; changed = 1;
         audioLines = ""; textLines = ""; audioCur = -1; wantPlay = true; live = isLive;
@@ -221,6 +225,15 @@ public final class VideoPlane {
             ensure(); if (player == null) { state = 6; error = "no player"; return; }
             /* no subtitle of the file's own until the app picks one (a track flagged "default" was shown by itself) */
             selector.setParameters(selector.buildUponParameters().clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true));
+            if (url.indexOf('\n') > 0) { /* "picture\naudio": YouTube's two files, played together */
+                String[] pa = url.split("\n");
+                MediaSource ms = new MergingMediaSource(msfS.createMediaSource(MediaItem.fromUri(Uri.parse(pa[0]))), msfS.createMediaSource(MediaItem.fromUri(Uri.parse(pa[1]))));
+                player.setVolume(volTarget / 100f);
+                if (startMs > 0) player.setMediaSource(ms, startMs); else player.setMediaSource(ms);
+                player.setPlayWhenReady(true); player.prepare();
+                cues(java.util.Collections.emptyList());
+                return;
+            }
             MediaItem.Builder b = new MediaItem.Builder().setUri(Uri.parse(url));
             if (isLive) b.setLiveConfiguration(new MediaItem.LiveConfiguration.Builder().build());
             player.setVolume(volTarget / 100f);

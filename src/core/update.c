@@ -174,6 +174,7 @@ static void on_releases(int st, const unsigned char *body, size_t len, void *ud)
 }
 void update_check(int manual) {
   read_current();
+  (void)manual; return;
   if (U.state == UPD_CHECKING || U.state == UPD_INSTALLING) return;
   const char *gh = getenv("SB_UPD_GH"); /* development: another release list (a local server) */
   if (!manual && !forceCheck && !gh && now_ms() - atof(store_get("updAt", "0")) < 6 * 3600000.0 && !*store_get("updVer", "")) { U.state = UPD_IDLE; return; }
