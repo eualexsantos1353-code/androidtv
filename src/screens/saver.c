@@ -54,6 +54,7 @@ static void clock_update(void) {
 /* the backdrop as large as the picture memory allows: the screen's own size where there is room, 720p on small TVs */
 static const char *bg_hq(const Item *it, char *buf, size_t cap) {
   sb_bg_mid(it, buf, cap); if (!SS.big) return buf;
+  if (img_budget_mb() >= 128 && sb_is_imdb(it->id) && tmdb_wanted(it->id) && strlen(it->id) < 14) { snprintf(buf, cap, "tmdb-bg:%s", it->id); return buf; } /* (TMDB's original, up to 4K; Metahub's large one when it has none) */
   char *p = strstr(buf, "/background/medium/"); if (p && strlen(buf) + 1 < cap) { char rest[512]; snprintf(rest, sizeof rest, "%s", p + 19); snprintf(p, cap - (size_t)(p - buf), "/background/large/%s", rest); }
   return buf;
 }
