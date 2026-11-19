@@ -27,6 +27,7 @@ int  live_catalog(int i, const char **title, const LiveCh **ch); /* one of them 
 /* starting a channel: from (the list it was picked in) becomes the line-up (NULL: the one kept, else the band, else
    its catalog); zap: from the player (the picture playing stays until the new one is found) */
 void live_start(const Item *it, const Item *from, int nfrom, int zap);
+unsigned live_streams(const char *type, const char *id, StreamPartCb part, StreamDoneCb done, void *ud); /* a channel's streams (an IPTV list's channel answered here too) */
 void live_start_list(const LiveCh *const *list, int n, int idx, int zap); /* one of a list of channels (the hub's tab, its line-up) */
 void live_zap(int dir);                      /* the next / previous channel of the line-up */
 int  live_back(void);                        /* the channel played before this one, started; 0 when none */

@@ -1,3 +1,4 @@
+#include "core/multi.h"
 #include "core/iptv.h"
 #include "ui/xline.h"
 #include "screens/livehub.h"
@@ -119,7 +120,7 @@ void hub_open(int inPlayer, const char *playingId) {
   if (!inPlayer) app_pace_again(); /* (the TV's rate may have changed with the last video) */
   sound_play(SND_TOGGLE); fprintf(stderr, "[hub] open (%s): %d tabs, %d channels\n", inPlayer ? "over a channel" : "from Home", H.ntab, H.ntab ? H.tab[0].n : 0);
 }
-void hub_close(void) {
+void hub_close(void) { multi_disarm();
   if (!H.open) return; H.open = 0; preview_place(0); tween_to(&H.a, 0, 0.34f, EASE_CSS_EASE); /* (it sinks a little as it fades: hub_draw_body) */
   if (app_overlay == &over) app_overlay = NULL; /* (whichever way it was opened last: the one from Home may have become the one over a channel) */
 }
@@ -143,6 +144,7 @@ void hub_over_draw(void) { hub_draw(); }
 static void focus_moved(void) { H.focusAt = app_now(); H.tunedFor = -1; H.ptrHold = 0; }
 static void watch(void) {
   const Tab *t = cur_tab(); const LiveCh *it = focused(); if (!it || !t) return;
+  if (multi_armed()) { multi_pick(it); hub_close(); return; } /* (Multi-screen: this channel is the second screen) */
   if (H.inPlayer && !strcmp(it->id, H.playing) && live_card()->tuning == 0) { hub_close(); return; } /* (it is the one playing: full screen) */
   if (live_reach(it->id) < 0) { live_start_list(t->p, t->n, H.idx, H.inPlayer); return; } /* off air: said at once, the hub stays (OK again tries it) */
   live_start_list(t->p, t->n, H.idx, H.inPlayer);

@@ -49,6 +49,9 @@ public final class VideoPlane {
     private static FrameLayout box;      /* clips the picture to its window (a crop shows part of a larger picture) */
     private static SurfaceView view;
     private static SubtitleView subs;
+    /* Multi-screen: a second decoder on its own surface, the right half; the first one takes the left half. The sound is on one of them. */
+    private static ExoPlayer player2; private static FrameLayout box2; private static SurfaceView view2;
+    private static boolean split; private static int audioSel; private static volatile int vw2, vh2;
     private static final Handler ui = new Handler(Looper.getMainLooper());
     /* for the native side: 0 idle, 1 loading, 2 playing, 3 paused, 4 buffering, 5 ended, 6 error (VidState) */
     private static volatile long state, pos, dur, buf, vw, vh, firstFrame, hasMedia, seeking, fpsm, unsup, changed;
@@ -91,7 +94,7 @@ public final class VideoPlane {
         subs.setApplyEmbeddedStyles(false); subs.setApplyEmbeddedFontSizes(false); subs.setFractionalTextSize(0.0533f * 1.2f); subs.setBottomPaddingFraction(subUp);
         subs.setVisibility(android.view.View.INVISIBLE);   /* (shown only while it has lines: see cues()) */
         root.addView(subs, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        root.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> applyPlace());
+        root.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> { applyPlace(); applyPlace2(); });
 
         selector = new DefaultTrackSelector(a);
         selector.setParameters(selector.buildUponParameters().setPreferredAudioLanguage(null).setTunnelingEnabled(false)
@@ -252,7 +255,7 @@ public final class VideoPlane {
     /* the volume, reached over easeMs (the trailer's sound fading in and out) */
     public static void volume(final int pct, final int easeMs) {
         volTarget = Math.max(0, Math.min(100, pct));
-        run(() -> { if (player == null) return; final float from = player.getVolume(), to = volTarget / 100f; final long t0 = android.os.SystemClock.uptimeMillis();
+        run(() -> { if (player == null) return; final float from = player.getVolume(), to = (split && audioSel == 1 ? 0 : volTarget) / 100f; final long t0 = android.os.SystemClock.uptimeMillis();
             if (easeMs <= 0) { player.setVolume(to); return; }
             Runnable step = new Runnable() { public void run() { if (player == null) return; float k = Math.min(1f, (android.os.SystemClock.uptimeMillis() - t0) / (float) easeMs);
                 player.setVolume(from + (to - from) * k); if (k < 1f) ui.postDelayed(this, 16); } };
@@ -276,10 +279,48 @@ public final class VideoPlane {
     public static void place(float sx, float sy, float sw, float sh, float x, float y, float w, float h) {
         final float[] p = { sx, sy, sw, sh, x, y, w, h }; run(() -> { place = p; applyPlace(); });
     }
+
+    /* ---- Multi-screen ---- */
+    private static void ensure2() {
+        MainActivity a = MainActivity.self; if (a == null || player2 != null) return; ViewGroup root = MainActivity.layout(); if (root == null) return;
+        box2 = new FrameLayout(a); box2.setClipChildren(true); view2 = new SurfaceView(a);
+        box2.addView(view2, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.TOP | Gravity.LEFT));
+        root.addView(box2, 1, new ViewGroup.LayoutParams(1, 1));   /* (over the first picture's box, under SDL's surface) */
+        DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory().setAllowCrossProtocolRedirects(true)
+            .setUserAgent("StremioOrigin/1.1 (Android TV)").setConnectTimeoutMs(20000).setReadTimeoutMs(30000);
+        player2 = new ExoPlayer.Builder(a).setMediaSourceFactory(new DefaultMediaSourceFactory(new DefaultDataSource.Factory(a, http))).build();
+        player2.setVideoSurfaceView(view2);
+        player2.setAudioAttributes(new androidx.media3.common.AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), false);   /* (the first screen holds the audio focus) */
+        player2.addListener(new Player.Listener() {
+            @Override public void onVideoSizeChanged(VideoSize s) { vw2 = s.width; vh2 = s.height; applyPlace2(); }
+            @Override public void onPlayerError(PlaybackException e) { MainActivity.log("[video] second screen: " + e.getErrorCodeName()); } });
+    }
+    public static void load2(final String url) {
+        run(() -> { ensure2(); if (player2 == null) return; player2.setMediaItem(androidx.media3.common.MediaItem.fromUri(url)); player2.prepare(); player2.setPlayWhenReady(true); applyAudio(); });
+    }
+    /* split 1: two screens (the sound on audio 0 / 1); split 0: back to one screen, the second decoder let go */
+    public static void layout(final int sp, final int audio) {
+        run(() -> { split = sp != 0; audioSel = audio;
+            if (!split && player2 != null) { player2.stop(); player2.release(); player2 = null; if (box2 != null) { ViewGroup r = MainActivity.layout(); if (r != null) r.removeView(box2); box2 = null; view2 = null; } }
+            applyPlace(); applyPlace2(); applyAudio(); });
+    }
+    private static void applyAudio() {
+        if (player != null) player.setVolume((split && audioSel == 1 ? 0 : volTarget) / 100f);
+        if (player2 != null) player2.setVolume(split && audioSel == 1 ? 1f : 0f);
+    }
+    private static void applyPlace2() {
+        ViewGroup root = MainActivity.layout(); if (box2 == null || view2 == null || root == null || !split) return;
+        int W = root.getWidth(), H = root.getHeight(); if (W <= 0 || H <= 0) return;
+        int bx = W / 2, bw = W - W / 2, bh = H; float ar = vw2 > 0 && vh2 > 0 ? (float) vw2 / vh2 : 16f / 9f; int fw, fh;
+        if ((float) bw / bh > ar) { fh = bh; fw = Math.round(bh * ar); } else { fw = bw; fh = Math.round(bw / ar); }
+        ViewGroup.LayoutParams bl = box2.getLayoutParams(); box2.setX(bx); box2.setY(0); if (bl.width != bw || bl.height != bh) { bl.width = bw; bl.height = bh; box2.setLayoutParams(bl); }
+        FrameLayout.LayoutParams vl = (FrameLayout.LayoutParams) view2.getLayoutParams(); int fx = (bw - fw) / 2, fy = (bh - fh) / 2;
+        if (vl.width != fw || vl.height != fh || vl.leftMargin != fx || vl.topMargin != fy) { vl.width = fw; vl.height = fh; vl.leftMargin = fx; vl.topMargin = fy; view2.setLayoutParams(vl); }
+    }
     private static void applyPlace() {
         ViewGroup root = MainActivity.layout(); if (box == null || view == null || root == null) return;
         int W = root.getWidth(), H = root.getHeight(); if (W <= 0 || H <= 0) return;
-        float[] p = place;
+        float[] p = place; if (split) p = new float[] { 0, 0, 1, 1, 0, 0, 0.5f, 1 };   /* two screens: the first one in the left half */
         int bx = Math.round(p[4] * W), by = Math.round(p[5] * H), bw = Math.max(1, Math.round(p[6] * W)), bh = Math.max(1, Math.round(p[7] * H));
         /* the whole frame fitted inside the box (its shape kept); a crop: the frame scaled so its part fills the box */
         int fw, fh, fx, fy;

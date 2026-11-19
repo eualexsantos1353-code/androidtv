@@ -1,3 +1,4 @@
+#include "core/multi.h"
 #include "screens/player.h"
 #include "core/traktwatch.h"
 #include "screens/board.h"
@@ -1138,6 +1139,7 @@ static void build_btns(void) {
   if (P.isTrailer) { if (trSubsN) B("cc", "p_subs", T("Subtitles"), 0); } /* a trailer's captions: one press on, one off */
   else if (!live_title()) B("subs", "p_subs", T("Subtitles"), 0); /* (a live channel: none to choose) */
   if (!P.isTrailer) B("aud", "p_aud", T("Audio"), 0);
+  if (live_title() && live_catalogs() > 0 && multi_available()) B("mv", "wn_live", !strncmp(i18n_lang(), "pt", 2) ? (multi_on() ? "Uma tela" : "Multi-tela") : (multi_on() ? "One screen" : "Multi-screen"), 0);
   const char *am = !strcmp(P.aspect, "fill") ? "Fill the screen" : !strcmp(P.aspect, "zoom") ? "Zoom" : "Original"; B("asp", "p_asp", T(am), 0);
   #undef B
   P.nbtn = i; if (P.bIdx >= i) P.bIdx = 0; if (fid) for (int k = 0; k < i; k++) if (!strcmp(P.btns[k].id, fid)) P.bIdx = k;
@@ -1840,6 +1842,7 @@ static void hub_from_player(void) { close_tray(); P.osd = 0; P.mode = 6; hub_ope
 static void act(const char *id) {
   if (!strcmp(id, "pp")) toggle(); else if (!strcmp(id, "beg")) from_start(); else if (!strcmp(id, "asp")) next_aspect(); else if (!strcmp(id, "nxt")) next_auto(); else if (!strcmp(id, "cc")) cc_toggle();
   else if (!strcmp(id, "chn")) { hub_from_player(); return; }
+  else if (!strcmp(id, "mv")) { multi_button(); if (multi_armed()) hub_from_player(); else build_btns(); return; }
   else open_tray(!strcmp(id, "eps") ? 1 : !strcmp(id, "src") ? 2 : !strcmp(id, "aud") ? 3 : 4);
   arm_hide();
 }
@@ -1884,6 +1887,7 @@ void player_key(int k, int down) {
     else if (k == K_OK) prompt_go(P.prompt.idx);
     else if (k == K_UP || k == K_DOWN) { P.mode = 0; show_osd(0); }
     return; }
+  if (multi_on() && P.mode == 0 && (k == K_LEFT || k == K_RIGHT)) { multi_audio(k == K_RIGHT ? 1 : 0); return; } /* two screens: the sound goes to the left or the right one */
   if (k == K_YELLOW && live_title() && live_catalogs() > 0 && P.mode != 6 && P.mode != 2) { hub_from_player(); return; } /* the yellow key: the channels over the picture */
   if (P.mode == 6) { if (k == K_CH_UP || k == K_CH_DOWN) { live_zap(k == K_CH_UP ? 1 : -1); return; } hub_key(k); if (!hub_on()) P.mode = 0; return; } /* the hub has the keys */
   if (P.mode == 0 && live_title() && P.seekT < 0) { /* a channel: the channel keys switch (the yellow key or the Channels button: the hub), Left / Right bring the controls (nothing to seek); Down as ever */
@@ -2262,7 +2266,7 @@ int player_cast_state(double *pos, double *du, char *title, int cap) {
 static void finish_close(void) { if (hub_on() && hub_player_mode()) hub_close(); /* (one from Home stays: it is the page) */ { extern void detail_refresh_watched(void); detail_refresh_watched(); } /* the title page under it: its ticks as they are now */ sync_stop(0); gfx_target_free(&handSnap); mo_set(&handA, 0); if (!keepVideo) video_unload(); keepVideo = 0; /* (back into its preview: it plays on there) */ asssubs_close(); if (mkv) { prevspike_stop(); sp_close(); mkv_close(mkv); mkv = NULL; } p2p_player_closed(); p2pTok++; metaTok++; P.open = 0; P.closing = 0; if (P.meta) cJSON_Delete(P.meta); P.meta = NULL; subs_free(P.cues, P.ncues); free(P.ext); free(P.adx); srcs_free(); cols_clear(); memset(&P, 0, sizeof P); sub_reset(); free(extAss); extAss = NULL; app_refresh_boards(); }
 static int closeNext, closeSim, closeArt; static double closeAt, closeT0; /* closeArt: closed on the loading screen (its line and words fade as the logo flies back) */
 static void close_player(int goNext, int goSim) {
-  if (!P.open || P.closing) return; if (bestTok) { best_choose_cancel(bestTok); bestTok = 0; } P.closing = 1; ps_hold(0); sp_verify_reset(); np_stop(); NP.vid[0] = 0; /* (the next episode's pictures made so far: kept) */ /* (a lighter copy not taken yet: it reads on freely, nothing plays) */ closeArt = !P.live && P.artA.v > 0.999f; closeT0 = now_(); sx_begin_quick(0); /* the player's logo moves back to the page */ closeNext = goNext; closeSim = goSim; P.ssOn = 0; P.nx.tok = 0; P.sk.tok = 0;
+  if (!P.open || P.closing) return; multi_stop(); if (bestTok) { best_choose_cancel(bestTok); bestTok = 0; } P.closing = 1; ps_hold(0); sp_verify_reset(); np_stop(); NP.vid[0] = 0; /* (the next episode's pictures made so far: kept) */ /* (a lighter copy not taken yet: it reads on freely, nothing plays) */ closeArt = !P.live && P.artA.v > 0.999f; closeT0 = now_(); sx_begin_quick(0); /* the player's logo moves back to the page */ closeNext = goNext; closeSim = goSim; P.ssOn = 0; P.nx.tok = 0; P.sk.tok = 0;
   scrobble_player_end(video_time(), dur(), 0); save_progress(1); video_pause(); /* (Test playback: nothing told, nothing kept) */
   /* the title's own picture fades back over the paused frame, the video goes, then the cover fades onto the app */
   closeAt = now_() + (closeArt ? 0.01 : 0.26); /* the cover fades back over the paused frame (see css()); from the loading screen the art fades at once, under the logo on its way back */
@@ -3169,7 +3173,7 @@ static void draw_tray(void) {
   gfx_offset_pop(); gfx_scale_pop(); gfx_opacity_pop();
 }
 void player_draw(void) {
-  if (!P.open) return; float a = P.in.v; gfx_opacity_push(a);
+  if (!P.open) return; float a = P.in.v; gfx_opacity_push(a); multi_draw();
   if (P.mode == 6 && !hub_on()) P.mode = 0; /* (the hub closed from elsewhere: the player has its keys again) */
   if (growPending) { extern int app_snapshot_ready(void); /* the move waits for the page's picture (taking it is a slow frame: never one of the move's) */
     if (!P.open || P.closing) growPending = 0;

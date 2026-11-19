@@ -106,6 +106,10 @@ void video_set_window(float x, float y, float w, float h) {
 int video_set_crop(int sx, int sy, int sw, int sh, float dx, float dy, float dw, float dh) {
   if (V.w <= 0 || V.h <= 0 || sw <= 0 || sh <= 0) return 0;
   last[0] = -1; place((float)sx / V.w, (float)sy / V.h, (float)sw / V.w, (float)sh / V.h, dx, dy, dw, dh); return 1; }
+/* Multi-screen: the second decoder (VideoPlane.load2 / layout) */
+int video2_available(void) { return 1; }
+void video2_load(const char *u) { JNIEnv *e = atv_env(); jmethodID m = atv_method(e, VP, "load2", "(Ljava/lang/String;)V"); if (!m) return; jstring s = (*e)->NewStringUTF(e, u); (*e)->CallStaticVoidMethod(e, atv_class(e, VP), m, s); atv_check(e); (*e)->DeleteLocalRef(e, s); }
+void video2_layout(int split, int audio) { JNIEnv *e = atv_env(); jmethodID m = atv_method(e, VP, "layout", "(II)V"); if (m) { (*e)->CallStaticVoidMethod(e, atv_class(e, VP), m, (jint)split, (jint)audio); atv_check(e); } }
 void video_set_surface(int w, int h) { surfW = w; surfH = h; }
 
 /* the lines Android's own subtitle view draws (an embedded track while the app is still reading it): the viewer's

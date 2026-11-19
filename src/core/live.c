@@ -271,9 +271,11 @@ static void iptv_answer(int st, const unsigned char *b, size_t n, void *ud) { (v
   if (ok) { snprintf(s->addon, sizeof s->addon, "IPTV"); snprintf(s->name, sizeof s->name, "IPTV"); StreamGroup g; memset(&g, 0, sizeof g); snprintf(g.name, sizeof g.name, "IPTV"); g.items = s; g.n = 1; a->part(&g, 0, a->ud); }
   else free(s);
   a->done(ok ? 1 : 0, a->ud); free(a); }
+unsigned live_streams(const char *type, const char *id, StreamPartCb part, StreamDoneCb done, void *ud);
 static unsigned lv_streams(const char *type, const char *id, StreamPartCb part, StreamDoneCb done, void *ud) {
   if (!iptv_is(id)) return sb_streams(type, id, part, done, ud);
   IptvAns *a = calloc(1, sizeof *a); if (!a) return 0; a->part = part; a->done = done; a->ud = ud; snprintf(a->id, sizeof a->id, "%s", id); net_file("", iptv_answer, a); return 1; }
+unsigned live_streams(const char *type, const char *id, StreamPartCb part, StreamDoneCb done, void *ud) { return lv_streams(type, id, part, done, ud); }
 static void on_part(StreamGroup *g, int gi, void *ud) {
   (void)gi; if ((unsigned)(uintptr_t)ud != L.tok) { free(g->items); return; }
   pthread_mutex_lock(&L.mu); for (int i = 0; i < g->n && L.ns < MAXS; i++) { const Stream *s = &g->items[i]; if (!s->url[0] || s->ext[0] || s->p2p) continue; add_stream(L.s, &L.ns, MAXS, L.next, s); } pthread_mutex_unlock(&L.mu);
