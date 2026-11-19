@@ -420,7 +420,8 @@ static const char *bg_of(const Item *it, char *buf, size_t cap) {
 /* a wide card's backdrop (430 wide, 460 focused): a source at least that wide, never smaller (TMDB's w300 and
    metahub's small were stretched 1.5 times and showed their blocks); the decode scales it to the card */
 const char *sb_bg_small(const Item *it, char *buf, size_t cap) { bg_of(it, buf, cap); /* a card's backdrop: Metahub's small one (480x270, ~12 KB, against ~600 KB for the 1920x1080 medium: the reference app's choice for cards; the disk cache keeps fifty times more of them) */
-  if (find_in(buf, "images.metahub.space/background/")) { const char *k[] = { "/background/medium/", "/background/large/" }; for (int i = 0; i < 2; i++) replace_in(buf, cap, k[i], "/background/small/"); }
+  if (find_in(buf, "images.metahub.space/background/")) { extern int img_budget_mb(void); /* a TV with the memory for it: the medium picture (1280 wide and more, sharp at a 600 px card); else the small one, 480x270 */
+    int big = img_budget_mb() >= 128; const char *k[] = { "/background/medium/", "/background/large/", "/background/small/" }; for (int i = 0; i < 3; i++) replace_in(buf, cap, k[i], big ? "/background/medium/" : "/background/small/"); }
   else if (find_in(buf, "image.tmdb.org/t/p/")) { const char *k[] = { "/t/p/w300/", "/t/p/w500/", "/t/p/w1280/", "/t/p/original/" }; for (int i = 0; i < 4; i++) replace_in(buf, cap, k[i], "/t/p/w780/"); }
   return buf; }
 const char *sb_bg_mid(const Item *it, char *buf, size_t cap) { bg_of(it, buf, cap);
