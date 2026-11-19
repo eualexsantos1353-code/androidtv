@@ -555,6 +555,12 @@ void app_clock_top(void) { if (splash_signed_in() || welcome_is_open()) { lglass
 static int bg_big(void) { static int v = -1; if (v < 0) v = img_budget_mb() >= 128; return v; }
 #define BGW (bg_big() ? 1920 : 1280)
 #define BGH (bg_big() ? 1080 : 720)
+/* the backdrop at its best: Metahub's large one (what the screensaver shows) where the TV has the memory; the medium one when that picture is missing */
+static int is_large(const char *u) { return strstr(u, "images.metahub.space/background/large/") != NULL; }
+static void large_to_medium(const char *u, char *o, size_t cap) { const char *k = strstr(u, "/background/large/"); if (!k) { snprintf(o, cap, "%s", u); return; } snprintf(o, cap, "%.*s/background/medium/%s", (int)(k - u), u, k + 18); }
+const char *sb_bg_hi(const Item *it, char *buf, size_t cap) { sb_bg_mid(it, buf, cap);
+  if (bg_big()) { const char *k = strstr(buf, "images.metahub.space/background/medium/"); if (k) { char t[512]; snprintf(t, sizeof t, "%.*simages.metahub.space/background/large/%s", (int)(k - buf), buf, k + 38); if (!img_failed(t)) snprintf(buf, cap, "%s", t); } }
+  return buf; }
 int bg_w(void) { return BGW; }
 int bg_h(void) { return BGH; }
 typedef struct { char url[512]; GLuint tex; float aspect; GfxTarget baked; char bakedUrl[512]; int mode, bakedMode, bakedRtl, bakedOk; } BgLayer; /* baked = the picture with its shading, made once per change */
@@ -575,7 +581,8 @@ static void bg_fade_away(void) { if (!bgL[bgTop].url[0] && !bgL[!bgTop].url[0]) 
   if (bgFade.on && bgFadingIn) { bgL[!bgTop].url[0] = 0; bgL[!bgTop].tex = 0; } /* the one still arriving is dropped */
   bgFadingIn = 0; bgFadingOut = 1; timer_start(&bgFade, 0.3f); }
 void bg_clear(void) { bgCur[0] = 0; bgWaiting = 0; bg_fade_away(); }
-void bg_set(const char *u, int delayMs, const char *alt) {
+void bg_set(const char *u0, int delayMs, const char *alt) {
+  char um[512]; const char *u = u0; if (u0 && is_large(u0) && img_failed(u0)) { large_to_medium(u0, um, sizeof um); u = um; } /* (a large one that is not there: its medium one) */
   if (!u || !*u) { if (bgCur[0] || bgWaiting) bg_clear(); return; }
   if (!strcmp(u, bgCur)) { if (bgWaiting && strcmp(bgWant, bgCur)) bgWaiting = 0; return; } /* back on the one shown (A, B, A quickly): the B still on its way must not land after (a change of shading of A itself stays) */
   if (bgWaiting && !strcmp(u, bgWant)) return;
@@ -603,6 +610,7 @@ void bg_tick(float dt) {
     float aspect; img_urgent(bgWant, BGW, BGH); GLuint tex = img_get(bgWant, BGW, BGH, &aspect); /* decoded before anything asked after it */
     /* a crossfade running plays out first (cut short, its picture jumped in whole): the newest wanted follows it */
     if (tex) { if (NOW >= bgNotBefore && !(bgFade.on && bgFadingIn)) { bgWaiting = 0; bg_show(bgWant, tex, aspect); } }
+    else if (img_failed(bgWant) && is_large(bgWant)) { char t[512]; large_to_medium(bgWant, t, sizeof t); snprintf(bgWant, sizeof bgWant, "%s", t); } /* (its medium one next) */
     else if (img_failed(bgWant)) { if (bgAlt[0] && strcmp(bgAlt, bgWant)) { snprintf(bgWant, sizeof bgWant, "%s", bgAlt); bgAlt[0] = 0; } else { bgWaiting = 0; bgCur[0] = 0; bg_fade_away(); } }
   }
   /* the shown pictures stay asked for (kept from eviction): the player opens on the same picture at the same size, and

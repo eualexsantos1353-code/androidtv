@@ -389,7 +389,7 @@ static void hero_apply(Board *b) {
   if (cur() != b) return; const Item *it = focused_of(b); if (!it && filtOn(b) && b->nfeat) it = &b->feat[b->featIdx % b->nfeat]; /* the strip: the spotlight's title stays */
   if (!it) { tween_to(&b->heroA, 0, 0.12f, EASE_CSS_EASEIN); b->heroSet = 0; return; } /* nothing to show yet: never the previous screen's title */
   int again = b->heroSet && b->heroShown && !strcmp(b->hero.id, it->id) && b->heroPhase == HP_IDLE && b->heroSpot == spotLike(b); /* back from its page: it is already there */
-  char bgu[512], pu[512]; sb_bg_mid(it, bgu, sizeof bgu); sb_poster_of(it, pu, sizeof pu);
+  char bgu[512], pu[512]; sb_bg_hi(it, bgu, sizeof bgu); sb_poster_of(it, pu, sizeof pu);
   int fast = b->fastBg; b->fastBg = 0; /* entering a board: show its backdrop right away */
   float idle = app_idle(); int delay = (app_splash_done && !fast) ? (int)((0.4f - idle) * 1000) : 0; if (delay < 0) delay = 0;
   bg_set(bgu, delay, pu); /* shown ~0.4 s after the last move */
@@ -405,11 +405,11 @@ static void hero_apply(Board *b) {
 static void hero_ahead(Board *b) {
   if (b->aheadDone || app_idle() < 0.3f || b->rowIdx >= b->n) return; b->aheadDone = 1;
   char bu[512];
-  if (spotOn(b)) { if (b->nfeat > 1) { const Item *nx = &b->feat[(b->featIdx + 1) % b->nfeat]; if (sb_bg_mid(nx, bu, sizeof bu)[0]) img_prefetch(bu, bg_w(), bg_h()); } return; } /* the spotlight's next title, before it turns */
+  if (spotOn(b)) { if (b->nfeat > 1) { const Item *nx = &b->feat[(b->featIdx + 1) % b->nfeat]; if (sb_bg_hi(nx, bu, sizeof bu)[0]) img_prefetch(bu, bg_w(), bg_h()); } return; } /* the spotlight's next title, before it turns */
   Row *r = &b->rows[b->rowIdx];
   for (int d = -2; d <= 3; d++) { int c = r->col + d; if (!d || c < 0 || c >= r->items.n) continue; const Item *it = &r->items.items[c];
     if (d >= -1) { meta_ask(b, b->rowIdx, c); char lu[512]; logo_src(it, lu, sizeof lu); if (lu[0]) img_prefetch_pri(lu, 520, 175); }
-    int bd = img_budget_mb() >= 80 ? 2 : 1; if (d >= -bd && d <= bd && sb_bg_mid(it, bu, sizeof bu)[0]) img_prefetch(bu, bg_w(), bg_h()); } /* the backdrops either side, at the size the backdrop draws them: two each way where memory allows, one on a small TV (each is 3.6 MB) */
+    int bd = img_budget_mb() >= 80 ? 2 : 1; if (d >= -bd && d <= bd && sb_bg_hi(it, bu, sizeof bu)[0]) img_prefetch(bu, bg_w(), bg_h()); } /* the backdrops either side, at the size the backdrop draws them: two each way where memory allows, one on a small TV (each is 3.6 MB) */
 }
 static void hero_tick(Board *b, float dt) {
   tween_tick(&b->heroA, dt); tween_tick(&b->logoIn, dt);
@@ -1006,7 +1006,7 @@ static int board_warm(Board *b) {
      (they loaded again in view) */
   if (img_budget_mb() >= 80) {
     logo_src(it, u, sizeof u); if (u[0]) { img_prefetch_pri(u, 520, 175); pics = pics && (img_loaded(u) || img_failed(u)); }
-    if (sb_bg_mid(it, u, sizeof u)[0]) { img_get(u, bg_w(), bg_h(), NULL); pics = pics && (img_loaded(u) || img_failed(u)); } /* at the size the backdrop draws it */
+    if (sb_bg_hi(it, u, sizeof u)[0]) { img_get(u, bg_w(), bg_h(), NULL); pics = pics && (img_loaded(u) || img_failed(u)); } /* at the size the backdrop draws it */
     cards = first_cards(b, b->kind == 1 ? 1 : 2); }
   return loc && pics && cards && sb_meta_cached(it->type, it->id) != NULL;
 }
@@ -1029,7 +1029,7 @@ void board_from_bar(void) { Board *b = cur(); if (!b) return; int n = first_visi
 /* the titles of the moment for the screensaver: the spotlight, then the first rows of Home and Discover (6 of each) */
 int board_saver_items(Item *out, int max) {
   int n = 0; Board *d = &boards[1];
-  #define TAKE(it) do { const Item *x_ = (it); char bu_[512]; int dup_ = 0; if (!x_->id[0] || n >= max) break; for (int q_ = 0; q_ < n; q_++) if (!strcmp(out[q_].id, x_->id)) dup_ = 1; if (!dup_ && sb_bg_mid(x_, bu_, sizeof bu_)[0]) out[n++] = *x_; } while (0)
+  #define TAKE(it) do { const Item *x_ = (it); char bu_[512]; int dup_ = 0; if (!x_->id[0] || n >= max) break; for (int q_ = 0; q_ < n; q_++) if (!strcmp(out[q_].id, x_->id)) dup_ = 1; if (!dup_ && sb_bg_hi(x_, bu_, sizeof bu_)[0]) out[n++] = *x_; } while (0)
   for (int j = 0; j < d->nfeat && j < 6; j++) TAKE(&d->feat[j]);
   for (int bi = 0; bi < 2; bi++) { Board *b = &boards[bi]; for (int r = 0; r < b->n && r < 4; r++) for (int j = 0; j < b->rows[r].items.n && j < 6; j++) TAKE(&b->rows[r].items.items[j]); }
   #undef TAKE

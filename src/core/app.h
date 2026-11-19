@@ -108,6 +108,7 @@ void topnav_switch(int idx);
 void bg_set(const char *url, int delayMs, const char *alt);   /* crossfades to the picture; alt = the poster when there is no backdrop */
 void bg_clear(void);
 void bg_draw(void);
+const char *sb_bg_hi(const Item *it, char *buf, size_t cap);    /* sb_bg_mid's picture at its best (Metahub's large one on a TV with the memory for it) */
 int  bg_w(void); int bg_h(void);                              /* the size the backdrop is decoded at (what a prefetch for it must ask) */
 void bg_tick(float dt);
 void bg_set_mode(int detail);                                  /* the shading: a title page shows more of the cover */

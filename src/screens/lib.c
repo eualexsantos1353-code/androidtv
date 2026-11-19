@@ -185,7 +185,7 @@ static void meta_once(const Item *it) {
    details are ready before the remote gets there, so the next one shows at once */
 static void head_ahead(int idx) {
   for (int d = -2; d <= 2; d++) { const LibIt *o = at(idx + d); if (!o) continue; char bu[512];
-    if (d) { const char *b = sb_bg_mid(&o->it, bu, sizeof bu); if (b && *b) img_prefetch(b, bg_w(), bg_h()); }
+    if (d) { const char *b = sb_bg_hi(&o->it, bu, sizeof bu); if (b && *b) img_prefetch(b, bg_w(), bg_h()); }
     if (sb_is_imdb(o->it.id)) { char lu[160]; snprintf(lu, sizeof lu, "https://images.metahub.space/logo/medium/%s/img", o->it.id); img_prefetch_pri(lu, 520, 140); } else if (o->it.logo[0]) img_prefetch_pri(o->it.logo, 520, 140);
     meta_once(&o->it); }
 }
@@ -211,7 +211,7 @@ static void head_tick(void) {
     if (L.hLogo[0]) img_prefetch_pri(L.hLogo, 520, 140); L.logoDeadline = now + 0.7; L.metaDeadline = now + 0.45;
     meta_once(&o->it);
     head_ahead(L.zone == 1 ? L.idx : 0);
-    char bu[512], pu[512]; bg_set(sb_bg_mid(&o->it, bu, sizeof bu), 0, sb_poster_of(&o->it, pu, sizeof pu)); } /* the backdrop keeps the old one up until the new one is decoded, then crossfades */
+    char bu[512], pu[512]; bg_set(sb_bg_hi(&o->it, bu, sizeof bu), 0, sb_poster_of(&o->it, pu, sizeof pu)); } /* the backdrop keeps the old one up until the new one is decoded, then crossfades */
   if (L.wantStage == 2) { const LibIt *o = &L.all[L.wantIdx];
     cJSON *m = sb_meta_cached(o->it.type, o->it.id);
     int ready = (!L.hLogo[0] || img_loaded(L.hLogo) || img_failed(L.hLogo) || now >= L.logoDeadline) && (m || now >= L.metaDeadline); if (L.hLogo[0]) img_get(L.hLogo, 520, 140, NULL);
@@ -246,7 +246,7 @@ int lib_warm(void) {
   for (int i = 0; i < COLS * 2 && i < L.n; i++) { const char *src = at(i)->poster; if (!src[0]) continue;
     img_get_shaped(src, (int)LW, (int)LH, CARD_R, 0); if (!img_shaped_loaded(src, (int)LW, (int)LH, CARD_R, 0) && !img_shaped_failed(src, (int)LW, (int)LH, CARD_R, 0)) ok = 0; }
   const LibIt *o = at(0); if (!o) return ok;
-  char bu[512]; const char *b = sb_bg_mid(&o->it, bu, sizeof bu); if (b && *b) { img_get(b, bg_w(), bg_h(), NULL); if (!img_loaded(b) && !img_failed(b)) ok = 0; }
+  char bu[512]; const char *b = sb_bg_hi(&o->it, bu, sizeof bu); if (b && *b) { img_get(b, bg_w(), bg_h(), NULL); if (!img_loaded(b) && !img_failed(b)) ok = 0; }
   head_ahead(0); return ok && sb_meta_cached(o->it.type, o->it.id) != NULL;
 }
 void lib_from_bar(void) { L.zone = 0; L.ri = L.tab; paint(); }
