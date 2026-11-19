@@ -405,11 +405,11 @@ static void hero_apply(Board *b) {
 static void hero_ahead(Board *b) {
   if (b->aheadDone || app_idle() < 0.3f || b->rowIdx >= b->n) return; b->aheadDone = 1;
   char bu[512];
-  if (spotOn(b)) { if (b->nfeat > 1) { const Item *nx = &b->feat[(b->featIdx + 1) % b->nfeat]; if (sb_bg_mid(nx, bu, sizeof bu)[0]) img_prefetch(bu, 1280, 720); } return; } /* the spotlight's next title, before it turns */
+  if (spotOn(b)) { if (b->nfeat > 1) { const Item *nx = &b->feat[(b->featIdx + 1) % b->nfeat]; if (sb_bg_mid(nx, bu, sizeof bu)[0]) img_prefetch(bu, bg_w(), bg_h()); } return; } /* the spotlight's next title, before it turns */
   Row *r = &b->rows[b->rowIdx];
   for (int d = -2; d <= 3; d++) { int c = r->col + d; if (!d || c < 0 || c >= r->items.n) continue; const Item *it = &r->items.items[c];
     if (d >= -1) { meta_ask(b, b->rowIdx, c); char lu[512]; logo_src(it, lu, sizeof lu); if (lu[0]) img_prefetch_pri(lu, 520, 175); }
-    int bd = img_budget_mb() >= 80 ? 2 : 1; if (d >= -bd && d <= bd && sb_bg_mid(it, bu, sizeof bu)[0]) img_prefetch(bu, 1280, 720); } /* the backdrops either side, at the size the backdrop draws them: two each way where memory allows, one on a small TV (each is 3.6 MB) */
+    int bd = img_budget_mb() >= 80 ? 2 : 1; if (d >= -bd && d <= bd && sb_bg_mid(it, bu, sizeof bu)[0]) img_prefetch(bu, bg_w(), bg_h()); } /* the backdrops either side, at the size the backdrop draws them: two each way where memory allows, one on a small TV (each is 3.6 MB) */
 }
 static void hero_tick(Board *b, float dt) {
   tween_tick(&b->heroA, dt); tween_tick(&b->logoIn, dt);
@@ -1006,7 +1006,7 @@ static int board_warm(Board *b) {
      (they loaded again in view) */
   if (img_budget_mb() >= 80) {
     logo_src(it, u, sizeof u); if (u[0]) { img_prefetch_pri(u, 520, 175); pics = pics && (img_loaded(u) || img_failed(u)); }
-    if (sb_bg_mid(it, u, sizeof u)[0]) { img_get(u, 1280, 720, NULL); pics = pics && (img_loaded(u) || img_failed(u)); } /* at the size the backdrop draws it */
+    if (sb_bg_mid(it, u, sizeof u)[0]) { img_get(u, bg_w(), bg_h(), NULL); pics = pics && (img_loaded(u) || img_failed(u)); } /* at the size the backdrop draws it */
     cards = first_cards(b, b->kind == 1 ? 1 : 2); }
   return loc && pics && cards && sb_meta_cached(it->type, it->id) != NULL;
 }

@@ -551,8 +551,12 @@ void topnav_draw(void) {
 void app_clock_top(void) { if (splash_signed_in() || welcome_is_open()) { lglass_light(0); clock_draw(); } } /* over the start screen and the guide: the same clock, in its place */
 
 /* ---- the backdrop: two layers, the new one fades in over the old (never a dip to black) ---- */
-#define BGW 1280
-#define BGH 720
+/* the backdrop is drawn at the size the TV has memory for: full 1920x1080 (Metahub's medium is that big) with 128 MB or more for pictures, else 1280x720 stretched */
+static int bg_big(void) { static int v = -1; if (v < 0) v = img_budget_mb() >= 128; return v; }
+#define BGW (bg_big() ? 1920 : 1280)
+#define BGH (bg_big() ? 1080 : 720)
+int bg_w(void) { return BGW; }
+int bg_h(void) { return BGH; }
 typedef struct { char url[512]; GLuint tex; float aspect; GfxTarget baked; char bakedUrl[512]; int mode, bakedMode, bakedRtl, bakedOk; } BgLayer; /* baked = the picture with its shading, made once per change */
 static BgLayer bgL[2]; static int bgTop;        /* bgL[bgTop] is above */
 static Timer1 bgFade; static int bgFadingIn, bgFadingOut;

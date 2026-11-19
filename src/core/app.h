@@ -108,6 +108,7 @@ void topnav_switch(int idx);
 void bg_set(const char *url, int delayMs, const char *alt);   /* crossfades to the picture; alt = the poster when there is no backdrop */
 void bg_clear(void);
 void bg_draw(void);
+int  bg_w(void); int bg_h(void);                              /* the size the backdrop is decoded at (what a prefetch for it must ask) */
 void bg_tick(float dt);
 void bg_set_mode(int detail);                                  /* the shading: a title page shows more of the cover */
 const char *bg_current(void);
