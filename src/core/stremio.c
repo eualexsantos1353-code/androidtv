@@ -11,6 +11,7 @@
 #include "core/json.h"
 #include "core/i18n.h"
 #include "core/addons.h"
+#include "core/tmdb.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -419,7 +420,9 @@ static const char *bg_of(const Item *it, char *buf, size_t cap) {
 }
 /* a wide card's backdrop (430 wide, 460 focused): a source at least that wide, never smaller (TMDB's w300 and
    metahub's small were stretched 1.5 times and showed their blocks); the decode scales it to the card */
-const char *sb_bg_small(const Item *it, char *buf, size_t cap) { bg_of(it, buf, cap); /* a card's backdrop: Metahub's small one (480x270, ~12 KB, against ~600 KB for the 1920x1080 medium: the reference app's choice for cards; the disk cache keeps fifty times more of them) */
+static int tmdb_art(const Item *it, int need) { extern int img_budget_mb(void); return sb_is_imdb(it->id) && !strchr(it->id, ':') && strlen(it->id) < 14 && img_budget_mb() >= need && tmdb_wanted(it->id); } /* the viewer's TMDB key is on, a plain IMDb title, the TV has the memory */
+const char *sb_bg_small(const Item *it, char *buf, size_t cap) { if (tmdb_art(it, 128)) { snprintf(buf, cap, "tmdb-bw:%s", it->id); return buf; } /* a card's backdrop from TMDB (780 wide), Metahub's medium one when TMDB has none */
+  bg_of(it, buf, cap); /* a card's backdrop: Metahub's small one (480x270, ~12 KB, against ~600 KB for the 1920x1080 medium: the reference app's choice for cards; the disk cache keeps fifty times more of them) */
   if (find_in(buf, "images.metahub.space/background/")) { extern int img_budget_mb(void); /* a TV with the memory for it: the medium picture (1280 wide and more, sharp at a 600 px card); else the small one, 480x270 */
     int big = img_budget_mb() >= 128; const char *k[] = { "/background/medium/", "/background/large/", "/background/small/" }; for (int i = 0; i < 3; i++) replace_in(buf, cap, k[i], big ? "/background/medium/" : "/background/small/"); }
   else if (find_in(buf, "image.tmdb.org/t/p/")) { const char *k[] = { "/t/p/w300/", "/t/p/w500/", "/t/p/w1280/", "/t/p/original/" }; for (int i = 0; i < 4; i++) replace_in(buf, cap, k[i], "/t/p/w780/"); }

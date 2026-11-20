@@ -163,14 +163,14 @@ static void decode_part(Img *im, unsigned char *data, size_t len, int fromNet, c
 static double mono_s(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + t.tv_nsec / 1e9; }
 static void load(Img *im) { dec_enter(); int ok = small_load(im); dec_leave(); if (ok) __atomic_add_fetch(&stThumb, 1, __ATOMIC_RELAXED); else load_(im); }
 /* the screensaver's backdrop at its best: TMDB's original (up to 4K) by the IMDb id ("tmdb-bg:tt..."), Metahub's large one when TMDB has none or is off */
-static unsigned char *tmdb_bg_original(const char *id, size_t *len) {
+static unsigned char *tmdb_bg_original(const char *id, const char *size, const char *mh, size_t *len) {
   unsigned char *data = NULL; char path[64], url[1200], hdr[480]; snprintf(path, sizeof path, "/find/%.14s?external_source=imdb_id", id);
   if (tmdb_call_any(path, url, sizeof url, hdr, sizeof hdr)) { size_t fl = 0; int fs = 0; unsigned char *fb = net_fetch_sync_hdr(url, hdr[0] ? hdr : NULL, &fl, &fs, 10000);
     cJSON *j = fb ? cJSON_Parse((const char *)fb) : NULL; free(fb); const char *pp = NULL;
     const char *arr[] = { "movie_results", "tv_results" }; for (int a = 0; a < 2 && !pp; a++) { const cJSON *r = cJSON_GetArrayItem(js_arr(j, arr[a]), 0); const char *v = js_str(r, "backdrop_path", ""); if (v[0] == '/' && strlen(v) < 100) pp = v; }
-    if (pp) { char u[400]; snprintf(u, sizeof u, "https://image.tmdb.org/t/p/original%s", pp); int s2 = 0; data = net_fetch_sync(u, len, &s2, 30000); if (data) fprintf(stderr, "[img] backdrop: TMDB original, %zu KB\n", *len / 1024); }
+    if (pp) { char u[400]; snprintf(u, sizeof u, "https://image.tmdb.org/t/p/%s%s", size, pp); int s2 = 0; data = net_fetch_sync(u, len, &s2, 30000); if (data) fprintf(stderr, "[img] backdrop: TMDB %s, %zu KB\n", size, *len / 1024); }
     cJSON_Delete(j); }
-  if (!data) { char mu[200]; int s3 = 0; snprintf(mu, sizeof mu, "https://images.metahub.space/background/large/%.14s/img", id); data = net_fetch_sync(mu, len, &s3, 20000); if (data) fprintf(stderr, "[img] backdrop: Metahub large, %zu KB\n", *len / 1024); }
+  if (!data) { char mu[200]; int s3 = 0; snprintf(mu, sizeof mu, "https://images.metahub.space/background/%s/%.14s/img", mh, id); data = net_fetch_sync(mu, len, &s3, 20000); if (data) fprintf(stderr, "[img] backdrop: Metahub %s, %zu KB\n", mh, *len / 1024); }
   return data; }
 static void load_(Img *im) {
   char key[2048]; snprintf(key, sizeof key, "img:%s", im->src);
@@ -179,7 +179,7 @@ static void load_(Img *im) {
   if (!data && !strncmp(im->src, "file://", 7)) { FILE *f = fopen(im->src + 7, "rb"); if (f) { fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET); if (n > 0) { data = malloc(n); len = fread(data, 1, n, f); } fclose(f); } } /* a bundled picture */
   else if (!data) { char nk[2100]; snprintf(nk, sizeof nk, "neg:%s", im->src); char np[1200];
     if (cache_file(nk, 86400, np, sizeof np)) { __atomic_add_fetch(&stNeg, 1, __ATOMIC_RELAXED); im->gone = 1; im->fails++; im->failAt = mono_s(); im->state = 3; return; } /* missing yesterday: not asked again for a day */
-    int st = 0; if (!strncmp(im->src, "tmdb-bg:", 8)) data = tmdb_bg_original(im->src + 8, &len); else data = net_fetch_sync(im->src, &len, &st, 20000); fromNet = 1;
+    int st = 0; if (!strncmp(im->src, "tmdb-bg:", 8)) data = tmdb_bg_original(im->src + 8, "original", "large", &len); else if (!strncmp(im->src, "tmdb-bw:", 8)) data = tmdb_bg_original(im->src + 8, "w780", "medium", &len); else data = net_fetch_sync(im->src, &len, &st, 20000); fromNet = 1;
     if (!data && strstr(im->src, "images.metahub.space/")) { /* Metahub down, or without it: the same picture from TMDB, by the IMDb id in its address (kept under Metahub's) */
       const char *tt = strstr(im->src, "/tt"), *kind = strstr(im->src, "/background/") ? "backdrop_path" : strstr(im->src, "/poster/") ? "poster_path" : NULL;
       char id[16] = ""; if (tt) { size_t k = 1; while (k < 14 && tt[k] && tt[k] != '/') k++; snprintf(id, sizeof id, "%.*s", (int)(k - 1), tt + 1); }

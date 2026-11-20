@@ -20,6 +20,7 @@
 #include "ui/gfx.h"
 #include "ui/text.h"
 #include "ui/img.h"
+#include "core/tmdb.h"
 #include "ui/icon.h"
 #include "ui/palette.h"
 #include "screens/player.h"
@@ -559,6 +560,7 @@ static int bg_big(void) { static int v = -1; if (v < 0) v = img_budget_mb() >= 1
 static int is_large(const char *u) { return strstr(u, "images.metahub.space/background/large/") != NULL; }
 static void large_to_medium(const char *u, char *o, size_t cap) { const char *k = strstr(u, "/background/large/"); if (!k) { snprintf(o, cap, "%s", u); return; } snprintf(o, cap, "%.*s/background/medium/%s", (int)(k - u), u, k + 18); }
 const char *sb_bg_hi(const Item *it, char *buf, size_t cap) { sb_bg_mid(it, buf, cap);
+  if (bg_big() && img_budget_mb() >= 192 && sb_is_imdb(it->id) && !strchr(it->id, ':') && strlen(it->id) < 14 && tmdb_wanted(it->id)) { snprintf(buf, cap, "tmdb-bg:%s", it->id); return buf; } /* the banner from TMDB at its original size (a TV with the memory for it); Metahub's large one when TMDB has none */
   if (bg_big()) { const char *k = strstr(buf, "images.metahub.space/background/medium/"); if (k) { char t[512]; snprintf(t, sizeof t, "%.*simages.metahub.space/background/large/%s", (int)(k - buf), buf, k + 38); if (!img_failed(t)) snprintf(buf, cap, "%s", t); } }
   return buf; }
 int bg_w(void) { return BGW; }
