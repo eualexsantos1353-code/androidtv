@@ -29,7 +29,7 @@ extern int board_saver_items(Item *out, int max);
 typedef struct { GfxTarget t; int ok, kb; double at; Tween a; } SsLayer;
 static struct {
   int on, n, i, top, loading, tw, th, big; Item list[MAXSS]; char url[512];
-  SsLayer L[2]; Tween fade; double startAt, sceneAt, nextAt, checkAt, freeAt; int scene;
+  SsLayer L[2]; Tween fade; double startAt, sceneAt, nextAt, checkAt, freeAt, loadAt; int scene;
   /* the title: its logo or name, its line, what it is about */
   Item cur, nxt; char logo[512], meta[96], desc[1024]; int infoWant, infoOut, descLines; double infoSwapAt; Tween infoA, infoY; /* cur: the title shown; nxt: the one whose picture is on its way */
   /* the clock: its corner (0 top left, 1 top right, 2 bottom left, 3 bottom right), the one it goes to next */
@@ -79,7 +79,7 @@ static void desc_fill(const cJSON *m) {
 static void on_meta(cJSON *m, void *ud) { (void)ud; if (m && SS.on && !strcmp(js_str(m, "id", ""), SS.cur.id) && !SS.desc[0]) desc_fill(m); }
 static void scene_load(void) {
   if (!SS.n) return; SS.nxt = SS.list[SS.i % SS.n]; SS.scene = SS.i++;
-  bg_hq(&SS.nxt, SS.url, sizeof SS.url); SS.loading = 1; SS.nextAt = 0; /* (the title shown stays until this picture comes in) */
+  bg_hq(&SS.nxt, SS.url, sizeof SS.url); SS.loading = 1; SS.nextAt = 0; SS.loadAt = app_now(); /* (the title shown stays until this picture comes in) */
 }
 /* the title whose picture has come in: its logo, its line and its words, ready to fade in */
 static void info_set(void) {
@@ -152,7 +152,7 @@ void saver_tick(float dt) {
   if (SS.swapAt && now >= SS.swapAt) { SS.swapAt = 0; if (SS.pairGone) { SS.pairGone = 0; SS.imir = SS.mir; nudge_rand(&SS.infoDx, &SS.infoDy); tween_to(&SS.pairInfoA, 1, 0.9f, EASE_IN_OUT); } }
   if (SS.cswapAt && now >= SS.cswapAt) { SS.cswapAt = 0; SS.cpos = SS.cnext; nudge_rand(&SS.clockDx, &SS.clockDy); tween_to(&SS.clockA, 1, 1.0f, EASE_IN_OUT); }
   if (SS.loading) { float asp; GLuint t = img_get(SS.url, SS.tw, SS.th, &asp);
-    if (t) scene_start(t, asp); else if (img_failed(SS.url)) { if (SS.big && strstr(SS.url, "/background/large/")) { sb_bg_mid(&SS.nxt, SS.url, sizeof SS.url); } else { SS.loading = 0; SS.nextAt = now + 0.6; } } } /* (no large copy: the usual one) */
+    if (t) scene_start(t, asp); else if (!strncmp(SS.url, "tmdb-bg:", 8) && (img_failed(SS.url) || now - SS.loadAt > 6)) { sb_bg_mid(&SS.nxt, SS.url, sizeof SS.url); SS.loadAt = now; /* (TMDB's original is slow or absent: the usual picture, which comes at once) */ } else if (img_failed(SS.url)) { if (SS.big && strstr(SS.url, "/background/large/")) { sb_bg_mid(&SS.nxt, SS.url, sizeof SS.url); } else { SS.loading = 0; SS.nextAt = now + 0.6; } } } /* (no large copy: the usual one) */
   else if (SS.nextAt && now >= SS.nextAt) scene_load();
   /* the title comes in a moment after its picture (with its logo, or the name when it has none) and stays as long as
      the picture does: it leaves only with it, as the next picture comes in */
