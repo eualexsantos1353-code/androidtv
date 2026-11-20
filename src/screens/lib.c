@@ -361,6 +361,7 @@ static void draw(void) {
   if (melt > 0) gfx_opacity_pop();
   gfx_clip_push(34, GRID_TOP, SB_W - 34, SB_H - GRID_TOP);
   if (!L.n) { float y = GRID_TOP + 14 + 30; int any = L.nall > 0;
+    mascot_draw(app_rtl() ? 330 : SB_W - 330, GRID_TOP + 190, 230, any ? 1 : 0); /* Lima keeps the empty page company */
     text_draw(any ? T("Nothing here yet") : T("Your library is empty."), hx, y, 30, 600, WHITE_A(217), 0, SB_W - 96, al);
     text_draw(any ? T("Try another filter") : T("Hold OK on any title (or use + Library) to add it here."), hx, y + text_line_height(30) + 10, 25, 400, WHITE_A(191), 0, SB_W - 96, al); }
 

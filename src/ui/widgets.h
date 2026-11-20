@@ -49,6 +49,7 @@ int  ph_hold(void);   /* development (SB_PH_HOLD=1): pictures are held back, eve
 
 /* the floating focus copy over a card: lifted 6px, 1.06 from its top edge, a 5px white ring, popping up on each move */
 typedef struct { Timer1 pop; int which; } FocusPop;
+void mascot_draw(float cx, float cy, float s, int mood); /* Lima, the lime mascot, for empty screens (bobs and blinks; mood 0 happy, 1 curious) */
 void card_mark_pop(const char *id);   /* that title was just marked watched: its badge pops in on its card */
 void focus_pop(FocusPop *f);                      /* restart the pop (a new card) */
 void focus_tick(FocusPop *f, float dt);
