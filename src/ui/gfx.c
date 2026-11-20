@@ -399,7 +399,7 @@ static void quad(int prog, GLuint tex, float x, float y, float w, float h, float
   /* the rectangle in the current transform */
   float x0 = x, y0 = y, x1 = x + w, y1 = y + h; xform(&x0, &y0); xform(&x1, &y1);
   if (mirN) { mir(&x0, &x1); uint32_t t = c00; c00 = c10; c10 = t; t = c01; c01 = c11; c11 = t; } /* (a sideways gradient turns with it) */
-  if (fillOn) { if (fillOn < 0) fillOn = getenv("SB_FILL") != NULL; if (fillOn) { fill_add(prog, x0 - grow, y0 - grow, x1 + grow, y1 + grow); } }
+  if (fillOn) { if (fillOn < 0) fillOn = 1; /* (on in every build: it only adds up quad areas) */ if (fillOn) { fill_add(prog, x0 - grow, y0 - grow, x1 + grow, y1 + grow); } }
   float cx = (x0 + x1) * 0.5f, cy = (y0 + y1) * 0.5f, hw = (x1 - x0) * 0.5f, hh = (y1 - y0) * 0.5f;
   if (sdfFull) { float a0 = sdfR[0], b0 = sdfR[1], a1 = sdfR[0] + sdfR[2], b1 = sdfR[1] + sdfR[3]; xform(&a0, &b0); xform(&a1, &b1); mir(&a0, &a1); /* a piece of a bigger rounded box: its shape is the whole box's */
     cx = (a0 + a1) * 0.5f; cy = (b0 + b1) * 0.5f; hw = (a1 - a0) * 0.5f; hh = (b1 - b0) * 0.5f; }
