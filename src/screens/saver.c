@@ -95,6 +95,7 @@ static void scene_start(GLuint tex, float asp) {
   l->kb = SS.scene % 2; l->at = app_now(); tween_set(&l->a, 0); tween_to(&l->a, 1, 1.8f, EASE_IN_OUT);
   tween_to(&SS.L[SS.top].a, 0, 1.8f, EASE_IN_OUT); SS.top = nx; /* the one fading away keeps drifting */
   SS.sceneAt = app_now(); SS.nextAt = SS.sceneAt + 12.2; SS.infoOut = 0; SS.infoWant = 0;
+  if (SS.n) { Item pn = SS.list[SS.i % SS.n]; char pu[512]; bg_hq(&pn, pu, sizeof pu); img_prefetch(pu, SS.tw, SS.th); } /* the next picture is fetched while this one shows (TMDB's original is a few MB to fetch and decode: ready by the time it is due) */
   /* the title shown goes with its picture (both fading as the next one comes in), then the next title fades in */
   if (SS.infoA.v > 0.001f) { tween_to(&SS.infoA, 0, 0.8f, EASE_IN_OUT); tween_to(&SS.infoY, 16, 1.0f, EASE_OUT); SS.infoSwapAt = SS.sceneAt + 0.85; } else { SS.infoSwapAt = 0; info_set(); }
 }
