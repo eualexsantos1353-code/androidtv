@@ -521,12 +521,10 @@ void topnav_draw(void) {
     float pa = topNav.pill.v; if (pa > 0.001f) { static float lastX, sv, dir; float x = topNav.px.v, w = topNav.pw.v, h = 62, r = 31; float x0 = lastX; lglass_stretch(&sv, &lastX, x, DT); if (fabsf(x - x0) > 0.01f) dir = x > x0 ? 1 : -1; /* 0..1, and which way */
       float sw = w * (1 + 0.22f * sv), sh = h * (1 - 0.10f * sv), px = x + w / 2 - sw / 2, py = 50 - sh / 2;
       gfx_opacity_push(pa); gfx_offset_push(nx, ny);
-      { float u0, v0, u1, v1; GLuint t = lg_tex(px, py, sw, sh, &u0, &v0, &u1, &v1); if (t) { float lag = (-dir * sv * 7.0f + 1.2f * sinf((float)NOW * 0.9f)) / SB_W, wob = 0.8f * sinf((float)NOW * 0.7f + 1) / LG_H; /* the picture in it lags a few units the way it moves, a tiny wobble at rest */
-        gfx_liquid(t, px, py, sw, sh, sh / 2, fminf(sh * 0.6f, 36) * (1 + 0.25f * sv), 1, u0 + lag, v0 - wob, u1 + lag, v1 - wob); } } /* (a stronger lens: it is the drop of glass that moves, stronger still while it moves) */
-      gfx_rrect_v(px, py, sw, sh, sh / 2, col_alpha(ACC2 | 0xff000000u, 0.46f), col_alpha(ACC | 0xff000000u, 0.36f));
-      gfx_rrect_v(px, py, sw, sh, sh / 2, WHITE_A(40), WHITE_A(0)); gfx_clip_push(px, py, sw, sh); gfx_alpha_tex(gfx_radial_tex(), px + sw * 0.15f, py - sh * 0.6f, sw * 0.7f, sh, WHITE_A(55)); gfx_clip_pop();
-      gfx_rrect_h(px, py, sw, sh, sh / 2, WHITE_A(34), WHITE_A(0)); /* the sheen crossing it corner to corner */
-      gfx_ring(px, py, sw, sh, sh / 2, 1.5f, col_alpha(col_mix(ACC2 | 0xff000000u, 0xffffffffu, 0.55f), 0.85f)); gfx_ring(px + 1.5f, py + 1.5f, sw - 3, sh - 3, sh / 2 - 1.5f, 1, WHITE_A(30)); (void)r; /* the thin glassy edge in the accent's light */
+      /* the ASTRAL look: a solid lime pill (lit from above, a soft lime shadow), its stretch kept; no glass lens under it */
+      gfx_shadow(px, py + 6, sw, sh, sh / 2, 18, col_alpha(ACC | 0xff000000u, 0.35f));
+      gfx_rrect_v(px, py, sw, sh, sh / 2, ACC2 | 0xff000000u, ACC | 0xff000000u);
+      gfx_rrect_v(px, py, sw, sh / 2, sh / 2, WHITE_A(46), WHITE_A(0)); (void)dir; (void)r;
       gfx_offset_pop(); gfx_opacity_pop(); }
     for (int i = NAV_DISC; i <= NAV_LIB; i++) {
       int cur = chipCur(i), f = chipFocused(i); float x = topNav.chipX[i], w = topNav.chipW[i];
@@ -534,8 +532,9 @@ void topnav_draw(void) {
       if (f) gfx_offset_push(nx, ny);
       { static Tween em[3]; Tween *e = &em[i - NAV_DISC]; tween_to(e, f || (cur && !topNav.active) ? 1 : 0, 0.22f, EASE_CSS_EASE); tween_tick(e, DT); /* bold while focused, or the page shown with the focus elsewhere: crossfaded both ways */
         float ty = 50 - text_line_height(32) / 2.0f, k = e->v;
-        if (k < 0.999f) text_draw(chipLabel(i), x + w / 2, ty, 32, 400, WHITE_A((int)(184 * (1 - k))), 0, 0, ALIGN_CENTER);
-        if (k > 0.001f) text_draw(chipLabel(i), x + w / 2, ty, 32, 700, WHITE_A((int)(255 * k)), 0, 0, ALIGN_CENTER); }
+        float ov = 1 - fabsf((x + w / 2) - (topNav.px.v + topNav.pw.v / 2)) / (w * 0.6f); ov = (ov < 0 ? 0 : ov > 1 ? 1 : ov) * topNav.pill.v; uint32_t lc = col_mix(0xffffffffu, ACC_FG, ov); /* the label turns dark as the lime pill reaches it */
+        if (k < 0.999f) text_draw(chipLabel(i), x + w / 2, ty, 32, 400, col_alpha(lc, 184 * (1 - k) / 255.0f), 0, 0, ALIGN_CENTER);
+        if (k > 0.001f) text_draw(chipLabel(i), x + w / 2, ty, 32, 700, col_alpha(lc, k), 0, 0, ALIGN_CENTER); }
       if (f) gfx_offset_pop();
       if (opening) { gfx_opacity_pop(); gfx_offset_pop(); }
     }
