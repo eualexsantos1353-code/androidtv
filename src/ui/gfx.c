@@ -614,7 +614,7 @@ void gfx_tex_fade_forget(GLuint t) { if (fades[t % FADE_N].tex == t) fades[t % F
 static float spotU, spotV, spotK; /* the next liquid quad's moving spot (then none again) */
 void gfx_liquid_spot(float u, float v, float k) { spotU = u; spotV = v; spotK = k; }
 void gfx_liquid(GLuint tex, float x, float y, float w, float h, float r, float pull, float alpha, float u0, float v0, float u1, float v1) {
-  { static int no = -1; if (no < 0) no = getenv("SB_NOLIQ") != NULL; if (no) { spotK = 0; return; } } /* (development: the glass without its bend, to measure what it costs) */
+  { static int no = -1; if (no < 0) no = 1; if (no) { spotK = 0; return; } } /* TEST (etapa 7): the glass without its bend (SB_NOLIQ was the development switch); it is the costliest shader on the TV GPU */
   if (!tex || alpha <= 0.002f || curOpac <= 0.002f || clipped_out(x, y, w, h)) { spotK = 0; return; } /* (an invisible piece of glass costs nothing: the bar lifted away over a trailer) */
   float sx = (u1 - u0) / w, sy = (v1 - v0) / h; /* uv per layout unit, across and down (down may be negative) */
   int cr = (int)(fminf(fmaxf(spotU, 0), 1) * 255), cg = (int)(fminf(fmaxf(spotV, 0), 1) * 255), cb = (int)(fminf(fmaxf(spotK, 0), 1) * 255); uint32_t c = RGBA(cr, cg, cb, (int)(255 * alpha)); spotK = 0;
