@@ -379,7 +379,7 @@ void lift_end(unsigned long long key, float x, float y, float w, float h, float 
        plain to see */
     if (e->on) { float q = ease_apply(EASE_IN_OUT, p < 0 ? 0 : p > 1 ? 1 : p), pos = -0.2f + 1.0f * q, al = 40 * q + 56 * sinf(3.14159f * q); /* soft as it crosses, settling to its faint rest (half what it was: it glared) */
       gfx_glare(x, y, w, h, r, pos, WHITE_A((int)(al * k))); }
-    if (e->on) { gfx_ring(x, y, w, h, r, 4, col_alpha(ACC | 0xff000000u, 0.98f * k)); gfx_ring(x + 2, y + 2, w - 4, h - 4, r > 2 ? r - 2 : 0, 1, WHITE_A((int)(34 * k))); } } /* the selection's thin glassy edge, in the accent's light, as every selector */
+    if (e->on) { gfx_ring(x, y, w, h, r, 2, col_alpha(col_mix(ACC2 | 0xff000000u, 0xffffffffu, 0.5f), 0.9f * k)); gfx_ring(x + 2, y + 2, w - 4, h - 4, r > 2 ? r - 2 : 0, 1, WHITE_A((int)(34 * k))); } } /* the selection's thin glassy edge, in the accent's light, as every selector */
   gfx_scale_pop();
 }
 /* a remote key drawn as on the remote, then what it does: OK, Back and Down round, the colour keys a small rounded block
@@ -533,33 +533,4 @@ float live_mark(float x, float y, float sc, int rtl, float *k3, int st) {
     for (int i = 0; i <= 14; i++) { float t = i / 14.f; gfx_circle(ix + 4 * sc + (is - 8 * sc) * t, y + is - 4 * sc - (is - 8 * sc) * t, 1.6f * sc, g); }
     text_draw(T("Off air"), x, y + is + 6 * sc, (int)(18 * sc + 0.5f), 600, WHITE_A(140), 0.3f, 0, rtl ? ALIGN_RIGHT : ALIGN_LEFT); gfx_opacity_pop(); }
   return k3[1] > 0.5f ? is : cw;
-}
-
-/* ---- Lima, the app's mascot: a lime bean with a leaf, drawn with shapes only (no picture to load), bobbing and
-   blinking; for the places with nothing to show. cx, cy = its middle, s = its width; mood 0 happy, 1 curious (looks up). ---- */
-void mascot_draw(float cx, float cy, float s, int mood) {
-  double t = app_now(); float bob = 0.035f * s * sinf((float)t * 1.7f), sq = 0.03f * sinf((float)t * 3.4f);
-  float bw = s * (1 - sq), bh = s * 0.92f * (1 + sq), bx = cx - bw / 2, by = cy - bh / 2 + bob, base = cy + s * 0.46f;
-  float sh = 1 - 0.12f * (bob / (0.035f * s + 0.001f)); /* the shadow breathes against the bob */
-  gfx_shadow(cx - 0.32f * s * sh, base - 0.015f * s, 0.64f * s * sh, 0.05f * s, 0.025f * s, 0.06f * s, BLACK_A(120));
-  /* the leaf */
-  gfx_rrect(cx - 0.012f * s, by - 0.085f * s, 0.024f * s, 0.11f * s, 0.012f * s, RGB(0x3f, 0x7d, 0x0f));
-  gfx_rrect(cx + 0.01f * s, by - 0.13f * s, 0.15f * s, 0.075f * s, 0.0375f * s, RGB(0x6f, 0xc2, 0x1d));
-  gfx_rrect(cx - 0.12f * s, by - 0.095f * s, 0.12f * s, 0.06f * s, 0.03f * s, RGB(0x57, 0xa8, 0x14));
-  /* the body, lit from above, a darker foot */
-  gfx_rrect_v(bx, by, bw, bh, bh * 0.46f, RGB(0xcf, 0xf5, 0x72), RGB(0x86, 0xc9, 0x1e));
-  gfx_rrect_v(bx + bw * 0.12f, by + bh * 0.07f, bw * 0.36f, bh * 0.2f, bh * 0.1f, WHITE_A(150), WHITE_A(0));
-  /* the eyes: they blink for a moment every few seconds */
-  float ph = fmodf((float)t, 3.6f), ek = ph > 3.45f ? 0.12f + 0.88f * fabsf(ph - 3.525f) / 0.075f : 1; if (ek > 1) ek = 1;
-  float ew = 0.2f * bw, eh = 0.27f * bh * ek, ey = by + bh * 0.30f + (mood == 1 ? -0.02f * bh : 0), ex[2] = { cx - 0.19f * bw - ew / 2, cx + 0.19f * bw - ew / 2 };
-  for (int i = 0; i < 2; i++) {
-    gfx_rrect(ex[i], ey + (0.27f * bh - eh) / 2, ew, eh, ew / 2 < eh / 2 ? ew / 2 : eh / 2, WHITE_A(255));
-    float pw = ew * 0.56f, ph2 = eh * 0.6f, lx = mood == 1 ? 0.12f * ew : 0.04f * ew * sinf((float)t * 0.9f), ly = mood == 1 ? -0.1f * eh : 0.05f * eh;
-    gfx_rrect(ex[i] + (ew - pw) / 2 + lx, ey + (0.27f * bh - eh) / 2 + (eh - ph2) / 2 + ly, pw, ph2, pw / 2 < ph2 / 2 ? pw / 2 : ph2 / 2, RGB(0x1b, 0x2a, 0x0a));
-    if (ek > 0.6f) gfx_circle(ex[i] + ew * 0.62f + lx, ey + 0.27f * bh * 0.38f + ly, ew * 0.09f, WHITE_A(240)); }
-  /* the cheeks and the mouth */
-  for (int i = 0; i < 2; i++) gfx_circle(cx + (i ? 1 : -1) * 0.33f * bw, by + bh * 0.62f, 0.05f * bw, RGBA(255, 110, 130, 140));
-  float mw = mood == 1 ? 0.1f * bw : 0.2f * bw, mh = mood == 1 ? 0.1f * bh : 0.11f * bh;
-  gfx_rrect(cx - mw / 2, by + bh * 0.64f, mw, mh, mh / 2 < mw / 2 ? mh / 2 : mw / 2, RGB(0x2b, 0x3a, 0x12));
-  if (mood == 0) gfx_rrect(cx - mw * 0.32f, by + bh * 0.64f + mh * 0.5f, mw * 0.64f, mh * 0.4f, mh * 0.2f, RGB(0xff, 0x7a, 0x8c));
 }

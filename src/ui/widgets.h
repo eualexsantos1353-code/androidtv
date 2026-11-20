@@ -22,7 +22,7 @@ float meta_draw_p(const MetaParts *p, float x, float y, uint32_t color, int alig
 /* a poster card (264x396) or a wide Continue Watching card (430x242). label: the title under the art (library rows) */
 #define CARD_W 264
 #define CARD_H 396
-#define CARD_R 22
+#define CARD_R 14
 #define WIDE_W 430
 #define WIDE_H 242
 #define CARD_GAP 24
@@ -49,7 +49,6 @@ int  ph_hold(void);   /* development (SB_PH_HOLD=1): pictures are held back, eve
 
 /* the floating focus copy over a card: lifted 6px, 1.06 from its top edge, a 5px white ring, popping up on each move */
 typedef struct { Timer1 pop; int which; } FocusPop;
-void mascot_draw(float cx, float cy, float s, int mood); /* Lima, the lime mascot, for empty screens (bobs and blinks; mood 0 happy, 1 curious) */
 void card_mark_pop(const char *id);   /* that title was just marked watched: its badge pops in on its card */
 void focus_pop(FocusPop *f);                      /* restart the pop (a new card) */
 void focus_tick(FocusPop *f, float dt);
