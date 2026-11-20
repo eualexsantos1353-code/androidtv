@@ -143,7 +143,7 @@ static const uint32_t ACCENTS[18][4] = {
   { 0xf97316, 0xfdba74, 0xfed7aa, 0xc2410c },
   { 0xf59e0b, 0xfcd34d, 0xfde68a, 0xb45309 },
   { 0xeab308, 0xfde047, 0xfef08a, 0xa16207 },
-  { 0x84cc16, 0xbef264, 0xd9f99d, 0x4d7c0f },
+  { 0xa6e22e, 0xc6f066, 0xe1f8a6, 0x5e8f0e }, /* lime: the green of the ASTRAL look (bright, a touch yellow) */
   { 0x22c55e, 0x86efac, 0xbbf7d0, 0x15803d },
   { 0x10b981, 0x6ee7b7, 0xa7f3d0, 0x047857 },
   { 0x14b8a6, 0x5eead4, 0xb5f5ea, 0x0f766e },
@@ -174,7 +174,7 @@ static void accent_tick(float dt) {
   ACC = col_mix(accFrom[0], accTo[0], k); ACC2 = col_mix(accFrom[1], accTo[1], k); ACC3 = col_mix(accFrom[2], accTo[2], k); ACC_D = col_mix(accFrom[3], accTo[3], k); ACC_FG = col_mix(accFrom[4], accTo[4], k);
 }
 uint32_t acc_a(float a) { return col_alpha(ACC, a); }
-static const char *accent_mode(void) { const char *a = store_get("accent", "logo"); if (!strcmp(a, "duo")) a = "adaptive"; return a; }
+static const char *accent_mode(void) { const char *a = store_get("accent", "lime"); if (!strcmp(a, "duo")) a = "adaptive"; return a; }
 int accent_dynamic(void) { const char *a = accent_mode(); return !strcmp(a, "adaptive") || !strcmp(a, "logo"); }
 static const uint32_t *fixed_accent(void) { const char *a = accent_mode(); for (int i = 0; i < 18; i++) if (!strcmp(a, ACCENT_KEYS[i])) return ACCENTS[i]; return ACCENTS[0]; }
 /* a swatch made usable as an accent: its own hue and character, lightness/saturation brought into range */
