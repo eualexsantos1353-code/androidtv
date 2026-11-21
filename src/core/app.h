@@ -97,7 +97,8 @@ float app_hold_k(double since);        /* 0..1 of a hold begun then, on the same
 #define NAV_DISC 2
 #define NAV_HOME 3
 #define NAV_LIB 4
-typedef struct { int idx, active; int want; double swAt; Nudge nudge; Tween px, pw, pill; float pillShown; Tween cornerF[2], cornerS[2], dotK[2]; Tween setRot; float chipX[5], chipW[5]; int laidOut; } TopNav;
+#define NAV_TV 5        /* the TV tab: not a page, it opens All channels (the live hub) */
+typedef struct { int idx, active; int want; double swAt; Nudge nudge; Tween px, pw, pill; float pillShown; Tween cornerF[2], cornerS[2], dotK[2]; Tween setRot; float chipX[6], chipW[6]; int laidOut; } TopNav;
 extern TopNav topNav;
 void topnav_focus(void);
 void topnav_draw(void);
