@@ -81,15 +81,16 @@ static void build(void) {
   char keepTab[96] = "", keepId[64] = ""; if (H.ntab && H.cur < H.ntab) { snprintf(keepTab, sizeof keepTab, "%s", H.tab[H.cur].name); if (H.idx < H.tab[H.cur].n) snprintf(keepId, sizeof keepId, "%s", H.tab[H.cur].p[H.idx]->id); }
   for (int i = 0; i < H.ntab; i++) tab_free(&H.tab[i]); H.ntab = 0;
   int tot = 0; for (int c = 0; c < live_catalogs(); c++) { int n = live_catalog(c, NULL, NULL); if (n > 0) tot += n; }
+  ItemList p; if (live_pins(&p)) tab_items(T("Favorites"), &p); itemlist_clear(&p);
+  ItemList r; if (live_recent(&r)) tab_items(T("Recent"), &r); itemlist_clear(&r);
   Tab *all = tab_new(T("All channels"), tot); /* every catalog's channels, catalog after catalog (pointers: nothing copied) */
   if (all) for (int c = 0; c < live_catalogs(); c++) { const LiveCh *ch; int n = live_catalog(c, NULL, &ch); for (int i = 0; i < n; i++) all->p[all->n++] = &ch[i]; }
   int allAt = all ? H.ntab - 1 : -1;
-  ItemList p; if (live_pins(&p)) tab_items(T("Favorites"), &p); itemlist_clear(&p);
-  ItemList r; if (live_recent(&r)) tab_items(T("Recent"), &r); itemlist_clear(&r);
   for (int c = 0; c < live_catalogs(); c++) { const char *tt; const LiveCh *ch; char b[96]; int n = live_catalog(c, &tt, &ch); if (n <= 0) continue; Tab *t = tab_new(short_name(tt, b, sizeof b), n); if (t) for (int i = 0; i < n; i++) t->p[t->n++] = &ch[i]; }
   if (allAt >= 0 && H.tab[allAt].n > 1) { Tab *az = tab_new("A–Z", H.tab[allAt].n); if (az) { memcpy(az->p, H.tab[allAt].p, sizeof(LiveCh *) * (size_t)H.tab[allAt].n); az->n = H.tab[allAt].n; qsort(az->p, (size_t)az->n, sizeof(LiveCh *), cmp_name); } }
   H.liveN = tot;
-  H.cur = 0; H.idx = 0; for (int i = 0; i < H.ntab; i++) if (keepTab[0] && !strcmp(H.tab[i].name, keepTab)) H.cur = i;
+  H.cur = 0; H.idx = 0; if (H.playing[0] && allAt >= 0) H.cur = allAt; /* (Favorites and Recent come first and it opens on them; over a channel playing: on All channels) */
+  for (int i = 0; i < H.ntab; i++) if (keepTab[0] && !strcmp(H.tab[i].name, keepTab)) H.cur = i;
   if (keepId[0] && H.cur < H.ntab) for (int i = 0; i < H.tab[H.cur].n; i++) if (!strcmp(H.tab[H.cur].p[i]->id, keepId)) { H.idx = i; break; }
   if (!keepId[0] && H.playing[0] && H.cur < H.ntab) for (int i = 0; i < H.tab[H.cur].n; i++) if (!strcmp(H.tab[H.cur].p[i]->id, H.playing)) { H.idx = i; break; } /* opened over a channel: on it */
 }
