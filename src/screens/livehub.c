@@ -28,12 +28,13 @@
 #include <math.h>
 
 #define MAXTAB 170
-#define COLS 6
+#define COLS 5
 #define TW 252.0f
 #define TH 142.0f
 #define TGAP 26.0f
 #define PITCH (TH + 26 + 30 + 22)       /* a tile, its name, the gap */
-#define GRID_TOP 650.0f
+#define GRID_TOP 560.0f
+#define GX0 430.0f                      /* the grid's left edge: the categories list is at its left */
 #define PX 1048.0f                      /* the preview */
 #define PY 76.0f
 #define PW 776.0f
@@ -157,14 +158,14 @@ int hub_key(int k) {
   if (k == K_BACK || (k == K_YELLOW && H.inPlayer)) { hub_close(); return 1; } /* (on the catalogs: away; the yellow key brought it over the picture: it takes it away too) */
   if (k == K_GREEN) { const LiveCh *f = focused(); if (f) { Item one; live_item(f, &one); const Item *it = &one; int on = !live_pinned(it->id); live_pin(it, on); toast(T(on ? "Added to favorites" : "Removed from favorites"), 1600, NULL); sound_play(SND_TOGGLE); build(); } return 1; }
   if (H.zone == 1) { /* the tabs */
-    if (k == K_LEFT || k == K_RIGHT) { int d = app_mirror_key(k) == K_RIGHT ? 1 : -1; if (H.cur + d >= 0 && H.cur + d < H.ntab) { H.cur += d; H.idx = 0; tween_set(&H.gridY, 0); timer_start(&H.swap, 0.6f); focus_moved(); sound_focus(); } return 1; }
-    if (k == K_DOWN || k == K_OK) { if (n) { H.zone = 0; focus_moved(); } return 1; }
+    if (k == K_UP || k == K_DOWN) { int d = k == K_DOWN ? 1 : -1; if (H.cur + d >= 0 && H.cur + d < H.ntab) { H.cur += d; H.idx = 0; tween_set(&H.gridY, 0); timer_start(&H.swap, 0.6f); focus_moved(); sound_focus(); } return 1; }
+    if (k == K_RIGHT || k == K_OK) { if (n) { H.zone = 0; focus_moved(); } return 1; } /* (the list is at the left: right goes into the channels) */
     return 1; }
   int i0 = H.idx;
   if (k == K_RIGHT) { if ((H.idx % COLS) < COLS - 1 && H.idx + 1 < n) H.idx++; }
-  else if (k == K_LEFT) { if (H.idx % COLS) H.idx--; }
+  else if (k == K_LEFT) { if (H.idx % COLS) H.idx--; else { H.zone = 1; sound_focus(); return 1; } } /* (the first column: left goes to the categories) */
   else if (k == K_DOWN) { if (H.idx + COLS < n) H.idx += COLS; else if (H.idx / COLS < (n - 1) / COLS) H.idx = n - 1; }
-  else if (k == K_UP) { if (H.idx >= COLS) H.idx -= COLS; else { H.zone = 1; sound_focus(); return 1; } }
+  else if (k == K_UP) { if (H.idx >= COLS) H.idx -= COLS; }
   else if (k == K_OK) { if (H.inPlayer) { if (!H.okDown) { H.okDown = 1; H.holdFired = 0; H.okAt = app_now(); } } else watch(); return 1; } /* (over the picture: a tap or a hold, decided as OK is let go) */
   else if (k == K_CH_UP || k == K_CH_DOWN) return 0; /* (the player switches) */
   else return 1;
@@ -268,7 +269,7 @@ static void hub_draw_body(void) {
        once the focused channel plays, its picture full screen behind instead, dark where the words and the row are */
     float v = lpk_full_a();
     if (v < 0.999f) { if (!(baseCleared && a >= 0.999f && !gfx_in_target())) gfx_rect(0, 0, SB_W, SB_H, dk); /* (the frame was cleared to it) */ if (!hskip("wall")) livewall_backdrop(0.24f);
-      if (!hskip("grad")) { gfx_rrect_h(0, 0, 760, 560, 0, col_alpha(dk, 0.85f), col_alpha(dk, 0)); gfx_rrect_v(0, 330, SB_W, 220, 0, col_alpha(dk, 0), col_alpha(dk, 0.96f)); gfx_rect(0, 550, SB_W, 620 - 550, col_alpha(dk, 0.96f)); } }
+      if (!hskip("grad")) { gfx_rrect_h(0, 0, 760, 560, 0, col_alpha(dk, 0.85f), col_alpha(dk, 0)); gfx_rrect_v(0, 330, SB_W, 230, 0, col_alpha(dk, 0), col_alpha(dk, 0.96f)); gfx_rect(0, 560, SB_W, SB_H - 560, col_alpha(dk, 0.96f)); gfx_rect(0, 0, 410, 560, col_alpha(dk, 0.8f)); } }
     if (v > 0.003f) { if (v < 0.999f) gfx_hole(0, 0, SB_W, SB_H, 0, v); gfx_opacity_push(v);
       gfx_rrect_h(0, 0, 1240, SB_H, 0, col_alpha(dk, 0.92f), col_alpha(dk, 0)); gfx_rrect_v(0, 0, SB_W, 220, 0, col_alpha(dk, 0.5f), col_alpha(dk, 0));
       gfx_rrect_v(0, 380, SB_W, 200, 0, col_alpha(dk, 0), col_alpha(dk, 0.94f)); gfx_rect(0, 580, SB_W, SB_H - 580, col_alpha(dk, 0.94f)); gfx_opacity_pop(); } }
@@ -279,7 +280,7 @@ static void hub_draw_body(void) {
   if (!H.inPlayer && !hskip("peek") && f && H.open) { Item it; live_item(f, &it); lpk_want(&it, 0, 0, SB_W, SB_H); }
   if (out) { float s = 0.985f + 0.015f * a; gfx_scale_push(s, s, SB_W / 2, SB_H / 2); gfx_offset_push(0, 26 * (1 - a)); }
   /* the focused channel */
-  { float k = in_k(0, 0.45); gfx_opacity_push(k); gfx_offset_push(0, 22 * (1 - k)); float lx = 120, ly = 96, mw = 1100 - lx - 60;
+  { float k = in_k(0, 0.45); gfx_opacity_push(k); gfx_offset_push(0, 22 * (1 - k)); float lx = GX0, ly = 96, mw = SB_W - GX0 - 120;
     reach_mark(lx, ly, f ? f->id : NULL); ly += 64 + 14;
     static LiveCh curC, prevC; static double swapAt; static int hasPrev;
     if (f && strcmp(curC.id, f->id)) { if (curC.id[0]) { prevC = curC; hasPrev = 1; } curC = *f; swapAt = now; } /* a move: the old channel's logo and words go as the new ones come */
@@ -304,7 +305,7 @@ static void hub_draw_body(void) {
       gfx_opacity_pop(); }
     gfx_offset_pop(); gfx_opacity_pop(); }
   /* the keys: under the preview (over a channel: at the right, the yellow key closing it) */
-  { float k = in_k(0.2, 0.4); gfx_opacity_push(k); float hx = PX + PW, hy = 536;
+  { float k = in_k(0.2, 0.4); gfx_opacity_push(k); float hx = SB_W - 90, hy = 56;
     { /* Back: on the channels it goes up to the catalogs, on them it closes; the two words crossfade where it stands */
       static float bz; bz += ((H.zone == 1 ? 1.f : 0.f) - bz) * fminf(1, app_dt() * 8); const char *l0 = T("Catalogs"), *l1 = T("Close");
       float w0 = key_hint(-9999, hy, K_BACK, l0, 0, 1), w1 = key_hint(-9999, hy, K_BACK, l1, 0, 1), bw = w0 > w1 ? w0 : w1; /* (measured: drawn off screen) */
@@ -314,47 +315,24 @@ static void hub_draw_body(void) {
     hx -= key_hint(hx, hy, K_GREEN, T(f && live_pinned(f->id) ? "Unfavorite" : "Favorite"), WHITE_A(200), 1) + 22;
     hx -= key_hint(hx, hy, K_OK, T("Hold: Streams"), WHITE_A(200), 1) + 22; key_hint(hx, hy, K_OK, T("Play"), WHITE_A(200), 1); /* (short: the keys say it) */
     gfx_opacity_pop(); }
-  /* the catalogs: quiet words, the chosen one on a pill tinted with the accent that glides to it; with the focus on
-     them, that pill fills with the accent. Each name carries its count, fainter */
-  { float x = 120 + H.tabX.v, ty = 574, th = 50; gfx_clip_push(80, ty - 24, SB_W - 160, th + 48); int fz = H.zone == 1; float dt = app_dt(); (void)dt;
-    float wsel = 0, xsel = 0;
-    for (int i = 0; i < H.ntab; i++) { char cn[16]; snprintf(cn, sizeof cn, "%d", H.tab[i].n); float nw = text_width(H.tab[i].name, 22, 700, 0), cw = text_width(cn, 19, 600, 0.4f), w = 26 + nw + 10 + cw + 26;
-      H.tabPx[i] = x - H.tabX.v; H.tabW[i] = w; if (i == H.cur) { xsel = x; wsel = w; } x += w + 8; }
-    /* each pill keeps its own place and width from frame to frame, found again by its name (in a copy of last frame's:
-       the list is rewritten as it goes): one just added (Favorites, Recent) opens from nothing where it goes, its
-       words fading in as it widens, while the others glide aside; one taken away goes at once */
-    static char pvName[MAXTAB][96]; static float pvX[MAXTAB], pvW[MAXTAB]; static int pvN; static double pvOpen = -1;
-    static float tX[MAXTAB], tW[MAXTAB], tA[MAXTAB];
-    { char (*oN)[96] = malloc(sizeof pvName); float oX[MAXTAB], oW[MAXTAB]; int oN0 = pvN, snap = pvOpen != H.openAt || !oN; pvOpen = H.openAt;
-      if (oN) memcpy(oN, pvName, sizeof pvName); memcpy(oX, pvX, sizeof oX); memcpy(oW, pvW, sizeof oW);
-      float kk = fminf(1, app_dt() * 14), cx = 0;
-      for (int i = 0; i < H.ntab; i++) { int f = -1; if (!snap) for (int j = 0; j < oN0; j++) if (!strcmp(oN[j], H.tab[i].name)) { f = j; break; }
-        float tw = H.tabW[i];
-        if (snap) { tX[i] = H.tabPx[i]; tW[i] = tw; }
-        else if (f < 0) { tX[i] = cx; tW[i] = 0; } /* new: from nothing, where the row has it now */
-        else { tX[i] = oX[f] + (H.tabPx[i] - oX[f]) * kk; tW[i] = oW[f] + (tw - oW[f]) * kk; if (fabsf(tX[i] - H.tabPx[i]) < 0.3f) tX[i] = H.tabPx[i]; if (fabsf(tW[i] - tw) < 0.3f) tW[i] = tw; }
-        if (f < 0 && !snap) { tW[i] = tw * kk; } /* (its first step open) */
-        tA[i] = tw > 0 ? tW[i] / tw : 1; tA[i] = tA[i] * tA[i]; cx = tX[i] + tW[i] + 8;
-        snprintf(pvName[i], sizeof pvName[i], "%s", H.tab[i].name); pvX[i] = tX[i]; pvW[i] = tW[i]; }
-      pvN = H.ntab; free(oN); }
-    if (H.cur < H.ntab) { if (!H.selSet) { tween_set(&H.selX, xsel - H.tabX.v); tween_set(&H.selW, wsel); H.selSet = 1; }
-      else { if (fabsf(H.selX.to - (xsel - H.tabX.v)) > 0.5f) tween_to(&H.selX, xsel - H.tabX.v, 0.3f, EASE_ROW); if (fabsf(H.selW.to - wsel) > 0.5f) tween_to(&H.selW, wsel, 0.3f, EASE_ROW); }
-      tween_tick(&H.selX, app_dt()); tween_tick(&H.selW, app_dt());
-      float k = in_k(0.1, 0.4), sx = H.selX.v + H.tabX.v, sw = H.selW.v; gfx_opacity_push(k);
-      if (fz) { gfx_rrect_v(sx, ty, sw, th, th / 2, col_mix(ac, WHITE_A(255), 0.10f), ac); }
-      else { gfx_rrect(sx, ty, sw, th, th / 2, col_alpha(ac, 0.16f)); gfx_ring(sx, ty, sw, th, th / 2, 1.5f, col_alpha(ac, 0.42f)); }
+  /* the categories: a list at the left, the chosen one on a pill (filled with the accent while the list has the focus), each with its count */
+  { float sx0 = 60, sw = 320, ty0 = 96, rh = 62, vis = 15; int fz = H.zone == 1; gfx_clip_push(sx0 - 20, ty0 - 12, sw + 40, vis * rh + 24);
+    if (H.cur < H.ntab) { float want = H.cur * rh; if (!H.selSet) { tween_set(&H.selX, want); H.selSet = 1; } else if (fabsf(H.selX.to - want) > 0.5f) tween_to(&H.selX, want, 0.25f, EASE_ROW); tween_tick(&H.selX, app_dt());
+      float k = in_k(0.1, 0.4), sy = ty0 + H.selX.v + H.tabX.v; gfx_opacity_push(k);
+      if (fz) gfx_rrect_v(sx0, sy, sw, rh - 8, 16, col_mix(ac, WHITE_A(255), 0.10f), ac);
+      else { gfx_rrect(sx0, sy, sw, rh - 8, 16, col_alpha(ac, 0.16f)); gfx_ring(sx0, sy, sw, rh - 8, 16, 1.5f, col_alpha(ac, 0.42f)); }
       gfx_opacity_pop(); }
-    for (int i = 0; i < H.ntab; i++) { float d = 0.1 + 0.03 * i, k = in_k(d > 0.5 ? 0.5 : d, 0.4) * tA[i]; if (k <= 0.003f) continue; float px = tX[i] + H.tabX.v, w = tW[i];
-      if (px > SB_W || px + w < 0) { hit_add(px, ty, w, th, tab_pick, NULL, i, 0); continue; }
-      int sel = i == H.cur; uint32_t tc = sel && fz ? ACC_FG : sel ? WHITE_A(255) : WHITE_A(150); char cn[16]; snprintf(cn, sizeof cn, "%d", H.tab[i].n);
-      gfx_opacity_push(k); gfx_offset_push(0, 12 * (1 - k)); float ly = ty + th / 2 - text_line_height(22) / 2;
-      float nw = text_draw(H.tab[i].name, px + 26, ly, 22, 700, tc, 0, 0, ALIGN_LEFT);
-      text_draw(cn, px + 26 + nw + 10, ty + th / 2 - text_line_height(19) / 2, 19, 600, col_alpha(tc, sel ? 0.62f : 0.5f), 0.4f, 0, ALIGN_LEFT);
-      gfx_offset_pop(); gfx_opacity_pop(); hit_add(px, ty, w, th, tab_pick, NULL, i, 0); }
+    for (int i = 0; i < H.ntab; i++) { float y = ty0 + i * rh + H.tabX.v; if (y + rh < ty0 - 12 || y > ty0 + vis * rh) continue;
+      float d = 0.1 + 0.02 * i, k = in_k(d > 0.4 ? 0.4 : d, 0.4); if (k <= 0.003f) continue;
+      int sel = i == H.cur; uint32_t tc = sel && fz ? ACC_FG : sel ? WHITE_A(255) : WHITE_A(170); char cn[16]; snprintf(cn, sizeof cn, "%d", H.tab[i].n);
+      float cw = text_width(cn, 19, 600, 0.4f); gfx_opacity_push(k); float ty = y + (rh - 8) / 2;
+      text_draw(H.tab[i].name, sx0 + 22, ty - text_line_height(22) / 2, 22, 700, tc, 0, sw - 44 - cw - 12, ALIGN_LEFT);
+      text_draw(cn, sx0 + sw - 22 - cw, ty - text_line_height(19) / 2, 19, 600, col_alpha(tc, sel ? 0.62f : 0.5f), 0.4f, 0, ALIGN_LEFT);
+      gfx_opacity_pop(); hit_add(sx0, y, sw, rh - 8, tab_pick, NULL, i, 0); }
     gfx_clip_pop();
-    if (H.cur < H.ntab) { float r = H.tabPx[H.cur] + H.tabW[H.cur], want = r > SB_W - 160 ? -(r - (SB_W - 160)) : 0; if (H.tabPx[H.cur] + want < 120) want = 120 - H.tabPx[H.cur]; tween_to(&H.tabX, want, 0.25f, EASE_ROW); } }
+    if (H.cur < H.ntab) { float cy = H.cur * rh + rh, want = cy > vis * rh ? -(cy - vis * rh) : 0; tween_to(&H.tabX, want, 0.25f, EASE_ROW); } }
   /* the grid */
-  const Tab *l = cur_tab(); float gx = (SB_W - (COLS * TW + (COLS - 1) * TGAP)) / 2;
+  const Tab *l = cur_tab(); float gx = GX0 + (SB_W - GX0 - 60 - (COLS * TW + (COLS - 1) * TGAP)) / 2;
   gfx_clip_push(0, GRID_TOP - 24, SB_W, SB_H - GRID_TOP + 24); /* (under the pills, never behind them; room for a held tile's line) */
   if (l) { static float fk[1024]; float dt = app_dt();
     { const char *ids[32], *tys[32]; int nv = 0; const LiveCh *fc = focused(); if (fc) { ids[nv] = fc->id; tys[nv++] = fc->type; } /* the channels on screen, the focused one first: tried in the background */
