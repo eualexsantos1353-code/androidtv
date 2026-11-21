@@ -40,7 +40,7 @@
 #define PW 776.0f
 #define PH 436.5f
 
-typedef struct { char name[96]; const LiveCh **p; LiveCh *own; int n; } Tab; /* p: the tab's channels (pointing at the catalogs', or at own: the pinned and recent ones) */
+typedef struct { char name[96]; const LiveCh **p; LiveCh *own; int n; int rest, more, hid; } Tab; /* p: the tab's channels (pointing at the catalogs', or at own: the pinned and recent ones) */
 static struct {
   int open, inPlayer, zone; /* zone 0 the grid, 1 the tabs */ Tab tab[MAXTAB]; int ntab, cur, idx; double focusAt, openAt; int tunedFor; char playing[64];
   int liveN; Tween a, gridY, tabX, ring; Timer1 swap; double introAt; /* introAt: the switch-on, opened from Home */ int okDown, holdFired; double okAt; /* over the picture: OK held on a channel (the player's keys come here) */ int ptrHold; float tabPx[MAXTAB], tabW[MAXTAB]; int partial; Tween selX, selW; int selSet; int leaving; double leaveAt; /* leaving: a channel picked from Home, the hub stays until the player's art covers it */ /* sel: the chosen tab's pill, gliding */
@@ -80,6 +80,7 @@ static const char *short_name(const char *t, char *buf, size_t cap) { /* "TvVoo 
   snprintf(buf, cap, "%s", t); char *c = strstr(buf, " · "); if (c) *c = 0;
   if (!strncmp(buf, "Canais | ", 9)) memmove(buf, buf + 9, strlen(buf + 9) + 1); /* (a list's own prefix: the name says it) */
   return buf; }
+static int moreOpen; static void tabs_group(void);
 static void build(void) {
   char keepTab[96] = "", keepId[64] = ""; if (H.ntab && H.cur < H.ntab) { snprintf(keepTab, sizeof keepTab, "%s", H.tab[H.cur].name); if (H.idx < H.tab[H.cur].n) snprintf(keepId, sizeof keepId, "%s", H.tab[H.cur].p[H.idx]->id); }
   for (int i = 0; i < H.ntab; i++) tab_free(&H.tab[i]); H.ntab = 0;
@@ -91,12 +92,29 @@ static void build(void) {
   int allAt = all ? H.ntab - 1 : -1;
   for (int c = 0; c < live_catalogs(); c++) { const char *tt; const LiveCh *ch; char b[96]; int n = live_catalog(c, &tt, &ch); if (n <= 0) continue; Tab *t = tab_new(short_name(tt, b, sizeof b), n); if (t) for (int i = 0; i < n; i++) t->p[t->n++] = &ch[i]; }
   if (allAt >= 0 && H.tab[allAt].n > 1) { Tab *az = tab_new("A–Z", H.tab[allAt].n); if (az) { memcpy(az->p, H.tab[allAt].p, sizeof(LiveCh *) * (size_t)H.tab[allAt].n); az->n = H.tab[allAt].n; qsort(az->p, (size_t)az->n, sizeof(LiveCh *), cmp_name); } }
-  H.liveN = tot;
+  H.liveN = tot; tabs_group(); allAt = -1; for (int i = 0; i < H.ntab; i++) if (!strcmp(H.tab[i].name, T("All channels"))) allAt = i;
   H.cur = 0; H.idx = 0; if (H.playing[0] && allAt >= 0) H.cur = allAt; /* (Favorites and Recent come first and it opens on them; over a channel playing: on All channels) */
-  for (int i = 0; i < H.ntab; i++) if (keepTab[0] && !strcmp(H.tab[i].name, keepTab)) H.cur = i;
+  for (int i = 0; i < H.ntab; i++) if (keepTab[0] && !strcmp(H.tab[i].name, keepTab)) { H.cur = i; if (H.tab[i].rest) moreOpen = 1; }
   if (keepId[0] && H.cur < H.ntab) for (int i = 0; i < H.tab[H.cur].n; i++) if (!strcmp(H.tab[H.cur].p[i]->id, keepId)) { H.idx = i; break; }
   if (!keepId[0] && H.playing[0] && H.cur < H.ntab) for (int i = 0; i < H.tab[H.cur].n; i++) if (!strcmp(H.tab[H.cur].p[i]->id, H.playing)) { H.idx = i; break; } /* opened over a channel: on it */
 }
+/* the short list: Favorites, Recent, All channels and the few catalogs people look for; the rest sit under "More categories" */
+static int moreOpen;
+static int ci_has(const char *s, const char *w) { size_t n = strlen(w); for (; *s; s++) if (!strncasecmp(s, w, n)) return 1; return 0; }
+static int tab_fixed(const char *name) {
+  if (!strcmp(name, T("Favorites")) || !strcmp(name, T("Recent")) || !strcmp(name, T("All channels"))) return 1;
+  static const char *const W[] = { "esport", "sport", "jogos", "cias", "news", "filme", "movie", "telecine", "pipoca", "infantil", "kids", "anima", "canais de tv" };
+  for (unsigned i = 0; i < sizeof W / sizeof *W; i++) if (ci_has(name, W[i])) return 1; return 0; }
+static void tabs_group(void) { /* the short list first, then "More categories", then the rest */
+  static Tab tmp[MAXTAB]; int n = 0, nf = 0, nr = 0, fx = 0; static char fixd[MAXTAB];
+  for (int i = 0; i < H.ntab; i++) { fixd[i] = (char)(tab_fixed(H.tab[i].name) && fx < 9); if (fixd[i]) fx++; }
+  for (int i = 0; i < H.ntab; i++) if (fixd[i]) { tmp[n] = H.tab[i]; tmp[n].rest = 0; n++; nf++; }
+  for (int i = 0; i < H.ntab; i++) if (!fixd[i]) nr++;
+  if (nr > 0 && n < MAXTAB - 1) { memset(&tmp[n], 0, sizeof tmp[n]); snprintf(tmp[n].name, sizeof tmp[n].name, "%s", T("More categories")); tmp[n].more = 1; tmp[n].hid = nr; n++; }
+  for (int i = 0; i < H.ntab && n < MAXTAB; i++) if (!fixd[i]) { tmp[n] = H.tab[i]; tmp[n].rest = 1; n++; }
+  (void)nf; memcpy(H.tab, tmp, sizeof(Tab) * (size_t)n); H.ntab = n; }
+static int tab_vis(int i) { return i >= 0 && i < H.ntab && (!H.tab[i].rest || moreOpen); }
+static int tab_row(int i) { int r = 0; for (int j = 0; j < i && j < H.ntab; j++) if (tab_vis(j)) r++; return r; }
 static const Tab *cur_tab(void) { return H.cur < H.ntab ? &H.tab[H.cur] : NULL; }
 static const LiveCh *focused(void) { const Tab *t = cur_tab(); return t && H.idx < t->n ? t->p[H.idx] : NULL; }
 
@@ -116,7 +134,7 @@ static void preview_place(int on) {
   else { extern void player_reapply_window(void); player_reapply_window(); }
 }
 void hub_open(int inPlayer, const char *playingId) {
-  H.leaving = 0; live_refresh(0); memset(&H.tabPx, 0, sizeof H.tabPx); H.open = 1; H.inPlayer = inPlayer; H.zone = 0; H.ptrHold = 0; H.openAt = app_now(); H.tunedFor = -1;
+  H.leaving = 0; moreOpen = 0; live_refresh(0); memset(&H.tabPx, 0, sizeof H.tabPx); H.open = 1; H.inPlayer = inPlayer; H.zone = 0; H.ptrHold = 0; H.openAt = app_now(); H.tunedFor = -1;
   snprintf(H.playing, sizeof H.playing, "%s", playingId ? playingId : ""); build(); H.focusAt = app_now();
   tween_set(&H.a, 0); tween_to(&H.a, 1, 0.32f, EASE_CSS_EASEOUT); tween_set(&H.gridY, 0); tween_set(&H.tabX, 0); timer_start(&H.swap, 0.6f);
   H.partial = 0; H.selSet = 0; /* (over a channel: its picture stays full screen behind the hub) */ H.introAt = inPlayer ? 0 : app_now();
@@ -160,7 +178,8 @@ int hub_key(int k) {
   if (k == K_BACK || (k == K_YELLOW && H.inPlayer)) { hub_close(); return 1; } /* (on the catalogs: away; the yellow key brought it over the picture: it takes it away too) */
   if (k == K_GREEN) { const LiveCh *f = focused(); if (f) { Item one; live_item(f, &one); const Item *it = &one; int on = !live_pinned(it->id); live_pin(it, on); toast(T(on ? "Added to favorites" : "Removed from favorites"), 1600, NULL); sound_play(SND_TOGGLE); build(); } return 1; }
   if (H.zone == 1) { /* the tabs */
-    if (k == K_UP || k == K_DOWN) { int d = k == K_DOWN ? 1 : -1; if (H.cur + d >= 0 && H.cur + d < H.ntab) { H.cur += d; H.idx = 0; tween_set(&H.gridY, 0); timer_start(&H.swap, 0.6f); focus_moved(); sound_focus(); } return 1; }
+    if (k == K_UP || k == K_DOWN) { int d = k == K_DOWN ? 1 : -1, nx = H.cur + d; while (nx >= 0 && nx < H.ntab && !tab_vis(nx)) nx += d; if (nx >= 0 && nx < H.ntab) { H.cur = nx; H.idx = 0; tween_set(&H.gridY, 0); timer_start(&H.swap, 0.6f); focus_moved(); sound_focus(); } return 1; }
+    if ((k == K_RIGHT || k == K_OK) && tb && tb->more) { moreOpen = !moreOpen; sound_focus(); return 1; } /* ("More categories": opens or closes the rest) */
     if (k == K_RIGHT || k == K_OK) { if (n) { H.zone = 0; focus_moved(); } return 1; } /* (the list is at the left: right goes into the channels) */
     return 1; }
   int i0 = H.idx;
@@ -175,7 +194,7 @@ int hub_key(int k) {
   return 1;
 }
 static void tile_focus(int i, int b) { (void)b; if (!H.open) return; if (H.zone != 0 || H.idx != i) { H.zone = 0; H.idx = i; H.focusAt = app_now(); H.tunedFor = -1; H.ptrHold = 1; } }
-static void tab_pick(int i, int b) { (void)b; if (!H.open || i >= H.ntab) return; if (H.cur != i) { H.cur = i; H.idx = 0; tween_set(&H.gridY, 0); timer_start(&H.swap, 0.6f); } H.zone = 1; }
+static void tab_pick(int i, int b) { (void)b; if (!H.open || i >= H.ntab) return; if (H.cur != i) { H.cur = i; H.idx = 0; tween_set(&H.gridY, 0); timer_start(&H.swap, 0.6f); } else if (H.tab[i].more) moreOpen = !moreOpen; H.zone = 1; }
 
 /* ---- tick ---- */
 void hub_tick(float dt) {
@@ -320,20 +339,20 @@ static void hub_draw_body(void) {
     gfx_opacity_pop(); }
   /* the categories: a list at the left, the chosen one on a pill (filled with the accent while the list has the focus), each with its count */
   { float sx0 = 60, sw = 320, ty0 = 96, rh = 62, vis = 15; int fz = H.zone == 1; gfx_clip_push(sx0 - 20, ty0 - 12, sw + 40, vis * rh + 24);
-    if (H.cur < H.ntab) { float want = H.cur * rh; if (!H.selSet) { tween_set(&H.selX, want); H.selSet = 1; } else if (fabsf(H.selX.to - want) > 0.5f) tween_to(&H.selX, want, 0.25f, EASE_ROW); tween_tick(&H.selX, app_dt());
+    if (H.cur < H.ntab) { float want = tab_row(H.cur) * rh; if (!H.selSet) { tween_set(&H.selX, want); H.selSet = 1; } else if (fabsf(H.selX.to - want) > 0.5f) tween_to(&H.selX, want, 0.25f, EASE_ROW); tween_tick(&H.selX, app_dt());
       float k = in_k(0.1, 0.4), sy = ty0 + H.selX.v + H.tabX.v; gfx_opacity_push(k);
       if (fz) gfx_rrect_v(sx0, sy, sw, rh - 8, 16, col_mix(ac, WHITE_A(255), 0.10f), ac);
       else { gfx_rrect(sx0, sy, sw, rh - 8, 16, col_alpha(ac, 0.16f)); gfx_ring(sx0, sy, sw, rh - 8, 16, 1.5f, col_alpha(ac, 0.42f)); }
       gfx_opacity_pop(); }
-    for (int i = 0; i < H.ntab; i++) { float y = ty0 + i * rh + H.tabX.v; if (y + rh < ty0 - 12 || y > ty0 + vis * rh) continue;
+    for (int i = 0; i < H.ntab; i++) { if (!tab_vis(i)) continue; float y = ty0 + tab_row(i) * rh + H.tabX.v; if (y + rh < ty0 - 12 || y > ty0 + vis * rh) continue;
       float d = 0.1 + 0.02 * i, k = in_k(d > 0.4 ? 0.4 : d, 0.4); if (k <= 0.003f) continue;
-      int sel = i == H.cur; uint32_t tc = sel && fz ? ACC_FG : sel ? WHITE_A(255) : WHITE_A(170); char cn[16]; snprintf(cn, sizeof cn, "%d", H.tab[i].n);
+      int sel = i == H.cur; uint32_t tc = sel && fz ? ACC_FG : sel ? WHITE_A(255) : WHITE_A(170); char cn[16]; snprintf(cn, sizeof cn, "%d", H.tab[i].more ? H.tab[i].hid : H.tab[i].n);
       float cw = text_width(cn, 19, 600, 0.4f); gfx_opacity_push(k); float ty = y + (rh - 8) / 2;
-      text_draw(H.tab[i].name, sx0 + 22, ty - text_line_height(22) / 2, 22, 700, tc, 0, sw - 44 - cw - 12, ALIGN_LEFT);
+      text_draw(H.tab[i].more && moreOpen ? T("Fewer categories") : H.tab[i].name, sx0 + 22, ty - text_line_height(22) / 2, 22, 700, tc, 0, sw - 44 - cw - 12, ALIGN_LEFT);
       text_draw(cn, sx0 + sw - 22 - cw, ty - text_line_height(19) / 2, 19, 600, col_alpha(tc, sel ? 0.62f : 0.5f), 0.4f, 0, ALIGN_LEFT);
       gfx_opacity_pop(); hit_add(sx0, y, sw, rh - 8, tab_pick, NULL, i, 0); }
     gfx_clip_pop();
-    if (H.cur < H.ntab) { float cy = H.cur * rh + rh, want = cy > vis * rh ? -(cy - vis * rh) : 0; tween_to(&H.tabX, want, 0.25f, EASE_ROW); } }
+    if (H.cur < H.ntab) { float cy = tab_row(H.cur) * rh + rh, want = cy > vis * rh ? -(cy - vis * rh) : 0; tween_to(&H.tabX, want, 0.25f, EASE_ROW); } }
   /* the grid */
   const Tab *l = cur_tab(); float gx = GX0 + (SB_W - GX0 - 60 - (COLS * TW + (COLS - 1) * TGAP)) / 2;
   gfx_clip_push(0, GRID_TOP - 24, SB_W, SB_H - GRID_TOP + 24); /* (under the pills, never behind them; room for a held tile's line) */
@@ -350,7 +369,8 @@ static void hub_draw_body(void) {
       if (!hskip("tiles")) tile(l->p[i], x, y, isf, k, H.inPlayer ? !strcmp(l->p[i]->id, H.playing) : !strcmp(l->p[i]->id, lpk_full_id()));
       gfx_offset_pop(); gfx_opacity_pop(); hit_add(x, y, TW, TH, tile_focus, NULL, i, 0); } }
   { static XLine xl; static WlSlot ws; static unsigned gen; static int had; int empty = !l || !l->n; if (had && empty) gen++; had = !empty; /* (a light line over it while the list comes, core/waitlines) */
-    if (empty) xline_draw_w(&xl, xline_wait(&ws, gen, T("Loading channels…"), 1, WL_LIVE, WL_ACT_NONE, 0), SB_W / 2, GRID_TOP + 80, 27, 600, 0, WHITE_A(170), 0, ALIGN_CENTER); else xl.cur[0] = xl.old[0] = 0; }
+    if (empty && l && l->more) text_draw(T(moreOpen ? "Press OK to hide the other categories" : "Press OK to see the other categories"), GX0 + 40, GRID_TOP + 40, 27, 600, WHITE_A(170), 0, 0, ALIGN_LEFT);
+    else if (empty) xline_draw_w(&xl, xline_wait(&ws, gen, T("Loading channels…"), 1, WL_LIVE, WL_ACT_NONE, 0), SB_W / 2, GRID_TOP + 80, 27, 600, 0, WHITE_A(170), 0, ALIGN_CENTER); else xl.cur[0] = xl.old[0] = 0; }
   gfx_clip_pop();
   if (out) { gfx_offset_pop(); gfx_scale_pop(); }
   gfx_opacity_pop();
