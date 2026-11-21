@@ -108,7 +108,7 @@ static void slide_row(Row *r) {
 }
 /* ---- Discover's filters: a type, a genre, a decade (the rows asked again with them; the decade sorts the answers) ---- */
 static struct { char type[16], genre[48]; int cat, decade; /* the type, which of its catalogs, its genre (as the official Discover); decade: 0 (unused now) */
-  int open, which, idx, n, top; float listW, roomMax, ow[200], ox[200], rx0, rroom, rfull, hx, hw, sxd; Tween wt[3]; double restAt; Tween sx; int hFrom, hTo; Tween hk, ha; char opt[200][96]; Tween a; float cx[4], cw[4], y; int nchip; } FL;
+  int open, which, idx, n, top; float listW, roomMax, ow[200], ox[200], rx0, rroom, rfull, hx, hw, sxd; Tween wt[4]; double restAt; Tween sx; int hFrom, hTo; Tween hk, ha; char opt[200][96]; Tween a; float cx[4], cw[4], y; int nchip; } FL;
 static int item_year(const Item *it) { for (const char *p = it->metaLine; *p; p++) if (p[0] >= '1' && p[0] <= '2' && p[1] >= '0' && p[1] <= '9' && p[2] >= '0' && p[2] <= '9' && p[3] >= '0' && p[3] <= '9') { int y = atoi(p); if (y >= 1890 && y <= 2100) return y; } return 0; }
 static int year_ok(const Item *it) { if (!FL.decade) return 1; int y = item_year(it); if (!y) return 0; return FL.decade == 1 ? y < 1980 : y >= FL.decade && y < FL.decade + 10; }
 static void year_keep(ItemList *l) { if (!FL.decade || !l) return; int k = 0; for (int i = 0; i < l->n; i++) if (year_ok(&l->items[i])) l->items[k++] = l->items[i]; l->n = k; }
@@ -661,7 +661,7 @@ static int board_key(Board *b, int k) {
   if (k == K_RIGHT) move_h(b, 1);
   else if (k == K_LEFT) move_h(b, -1);
   else if (k == K_DOWN) { int n = first_visible_row(b, b->rowIdx + 1, 1); if (n >= 0) { grid_carry(b, b->rowIdx, n); b->rowIdx = n; hero_soon(b, 150); disc_more(b); } else nudge_start(&r->nudge, K_DOWN); }
-  else if (k == K_UP) { int n = first_visible_row(b, b->rowIdx - 1, -1); if (n >= 0) { grid_carry(b, b->rowIdx, n); b->rowIdx = n; hero_soon(b, 150); } else if (b->kind == 1) { b->featOn = 1; hero_soon(b, 150); feat_arm(b); } else topnav_focus(); }
+  else if (k == K_UP) { int n = first_visible_row(b, b->rowIdx - 1, -1); if (n >= 0) { grid_carry(b, b->rowIdx, n); b->rowIdx = n; hero_soon(b, 150); } else topnav_focus(); }
   else if (k == K_OK) { const Item *it = focused_of(b); if (it) app_open_item(it); }
   else if (k == K_BACK && b->kind == 1 && r->grid) { int f = 0; while (f < b->n && !b->rows[f].filt) f++; if (f >= b->n) return 0; /* Discover's grid: Back goes to its top, the first pill (Back there: the bar) */
     b->rowIdx = f; b->rows[f].col = 0; hero_soon(b, 150); }
@@ -769,8 +769,10 @@ void board_playing_mark(float x, float y, float h, float a) {
    pill with its value; OK on one opens its list under it */
 static int curOpt; static char optType[16][16]; /* the list's choice in use; the types behind the type list */
 static int disc_genres(char (*out)[48], int max, int *req) { return disc_cat_genres(out, max, req); }
+static int filt_chips(void);
 static const char *type_txt(const char *t) { return !strcmp(t, "*") ? T("All") : !strcmp(t, "movie") ? T("Films") : !strcmp(t, "series") ? T("Series") : t; }
 static const char *chip_txt(int i, char *buf, size_t cap) {
+  if (i == filt_chips() - 1) return T("Roulette");
   if (FL.open && FL.which == i && FL.idx >= 0 && FL.idx < FL.n) { /* open: the choice the highlight is on (a catalog without its addon) */
     if (i == 1) { static CatalogDef cs[64]; int nc = disc_cats(cs, NULL, 64); if (FL.idx < nc) { snprintf(buf, cap, "%s", cs[FL.idx].title); return buf; } }
     return FL.opt[FL.idx]; }
@@ -778,7 +780,7 @@ static const char *chip_txt(int i, char *buf, size_t cap) {
   if (i == 1) { static CatalogDef cs[64]; int nc = disc_cats(cs, NULL, 64); if (!nc) return T("Catalog"); snprintf(buf, cap, "%s", cs[FL.cat < nc ? FL.cat : 0].title); return buf; }
   return FL.genre[0] ? FL.genre : T("All genres");
 }
-static int filt_chips(void) { char g[2][48]; int req; return disc_genres(g, 2, &req) > 0 ? 3 : 2; }
+static int filt_chips(void) { char g[2][48]; int req; return (disc_genres(g, 2, &req) > 0 ? 3 : 2) + 1; } /* (+ the Roulette's pill, always last) */
 static void filt_chip_focus(int r, int c) { Board *b = cur(); if (!b || r >= b->n) return; if (FL.open) { if (c == FL.which) FL.idx = -1; return; } /* (open: the pointer on its pill puts the highlight back on it) */ topNav.active = 0; if (spotOn(b)) { b->featOn = 0; b->featAt = 0; } b->rowIdx = r; b->rows[r].col = c; hero_soon(b, 150); }
 #define FL_PAD 12.0f        /* an open list: its gap from its pill */
 #define OPT_TW 520.0f       /* a choice's words at most this wide (an ellipsis after) */
@@ -801,7 +803,7 @@ static void hl_rect(int c, float *x, float *w) {
 }
 static float hl_over(float hx, float hw, float x, float w) { float l = hx > x ? hx : x, r = hx + hw < x + w ? hx + hw : x + w; return w > 0 && r > l ? (r - l) / w : 0; } /* how much of a box the highlight covers */
 static void filt_draw(Board *b, Row *r, int ri, float y, float rowA, int active) {
-  int rtl = app_rtl(), n = filt_chips(); if (r->col >= n) r->col = n - 1; float h = 56, cy = y + 24; char buf[3][96]; const char *t[3]; float tw[3], w[3], tot = 0;
+  int rtl = app_rtl(), n = filt_chips(); if (r->col >= n) r->col = n - 1; float h = 56, cy = y + 24; char buf[4][96]; const char *t[4]; float tw[4], w[4], tot = 0;
   gfx_opacity_push(rowA); FL.y = cy; FL.nchip = n;
   for (int i = 0; i < n; i++) { t[i] = chip_txt(i, buf[i], sizeof buf[i]); tw[i] = text_width(t[i], 24, 700, 0); float ww = 26 + tw[i] + 10 + 18 + 26;
     if (FL.wt[i].v < 1) tween_set(&FL.wt[i], ww); else if (fabsf(FL.wt[i].to - ww) > 0.5f) tween_to(&FL.wt[i], ww, 0.24f, EASE_ROW); tween_tick(&FL.wt[i], app_dt()); w[i] = FL.wt[i].v; /* (its words changed: it widens or narrows smoothly) */
@@ -827,7 +829,7 @@ static void filt_draw(Board *b, Row *r, int ri, float y, float rowA, int active)
     uint32_t tc = col_mix(WHITE_A(set ? 255 : 225), ACC_FG, u); float tx = rtl ? px + w[i] - 26 - tw[i] : px + 26;
     gfx_clip_push(px + 12, cy, w[i] - 24 - 18, h); text_draw(t[i], tx, cy + h / 2 - text_line_height(24) / 2, 24, 700, tc, 0, 0, ALIGN_LEFT); gfx_clip_pop(); /* (inside its pill while it changes size) */
     float ax = rtl ? px + 26 - 2 : px + w[i] - 26 - 18 + 2, ay = cy + h / 2 - 9, rk = i == FL.which ? FL.a.v : 0;
-    chev_draw(ax + 9, ay + 9, ease_apply(EASE_CSS_EASEOUT, rk), rtl, tc); /* its chevron turns over as its choices open and close */
+    if (i < n - 1) chev_draw(ax + 9, ay + 9, ease_apply(EASE_CSS_EASEOUT, rk), rtl, tc); /* its chevron turns over as its choices open and close */
     hit_add(px, cy, w[i], h, filt_chip_focus, NULL, ri, i); }
   FL.hx = hx; FL.hw = hw;
   gfx_opacity_pop();
@@ -901,7 +903,7 @@ static int filt_key(Board *b, int k) { /* the strip's own keys; 0: as any row */
     return 1; }
   int n = filt_chips();
   if (k == K_RIGHT || k == K_LEFT) { int d = app_mirror_key(k) == K_RIGHT ? 1 : -1; if (r->col + d < 0 || r->col + d >= n) nudge_start(&r->nudge, k); else r->col += d; return 1; }
-  if (k == K_OK) { filt_open(r->col); return 1; }
+  if (k == K_OK) { if (r->col == n - 1) { roleta_open(); return 1; } filt_open(r->col); return 1; } /* (the last pill is the Roulette) */
   return 0;
 }
 /* a card's place while its row reorders: from where it stood (at the row's scroll then) to where it is now, eased; a
@@ -1033,7 +1035,7 @@ void tabs_warm_tick(void) {
 void board_invalidate(void) { boards[0].built = 0; }
 /* the bar hands the focus down: the first row (Discover: its spotlight) */
 void board_from_bar(void) { Board *b = cur(); if (!b) return; int n = first_visible_row(b, 0, 1); b->rowIdx = n >= 0 ? n : 0;
-  if (b->kind == 1) { b->featOn = 1; feat_arm(b); } hero_soon(b, 150); }
+  hero_soon(b, 150); } /* (Discover opens on its strip and posters, not on a spotlight) */
 /* the titles of the moment for the screensaver: the spotlight, then the first rows of Home and Discover (6 of each) */
 int board_saver_items(Item *out, int max) {
   int n = 0; Board *d = &boards[1];
@@ -1071,7 +1073,7 @@ int board_row_items(const char *id, const Item **items) {
 }
 Screen homeScreen = { enter_home, NULL, key_home, board_tick, board_draw, focused_cur, NULL, NULL, board_origin };
 Screen discScreen = { enter_disc, NULL, key_disc, board_tick, board_draw, focused_cur, NULL, NULL, board_origin };
-__attribute__((constructor)) static void board_kinds(void) { boards[0].kind = 0; boards[1].kind = 1; boards[1].featOn = 1; tween_set(&boards[1].rowsA, 1); for (int i = 0; i < 2; i++) tween_set(&boards[i].logoIn, 1); } /* Discover opens on its spotlight */
+__attribute__((constructor)) static void board_kinds(void) { boards[0].kind = 0; boards[1].kind = 1; boards[1].featOn = 0; tween_set(&boards[1].rowsA, 1); for (int i = 0; i < 2; i++) tween_set(&boards[i].logoIn, 1); } /* Discover opens on its spotlight */
 int board_sample(Item *out, int max, char *rowTitle, int cap) {
   int n = 0; if (cap > 0) rowTitle[0] = 0;
   for (int k = 0; k < 2 && !n; k++) { Board *b = &boards[k];
