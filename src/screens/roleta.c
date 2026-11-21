@@ -90,6 +90,7 @@ static Req *req_new(float w) { Req *r = malloc(sizeof *r); if (r) { r->gen = R.g
 static void on_page(ItemList *l, int more, void *ud) {
   (void)more; Req *r = ud; int ok = r && r->gen == R.gen && R.open; float w = r ? r->w : 1; free(r);
   if (!ok) { if (l) itemlist_free(l); return; }
+  fprintf(stderr, "[roleta] page answered: %d titles\n", l ? l->n : -1);
   if (l) { for (int i = 0; i < l->n; i++) add_cand(&l->items[i], w); itemlist_free(l); }
   done_one();
 }
@@ -106,8 +107,8 @@ static void on_trakt(int st, const unsigned char *b, size_t len, void *ud) {
 static void start_surprise(int first, float w) {
   for (int t = 0; t < 2; t++) {
     if ((t == 0 && R.kind == 2) || (t == 1 && R.kind == 1)) continue;
-    CatalogDef d[8]; int n = sb_disc_defs_f(d, 8, t == 0 ? "movie" : "series", genre_name()); if (n <= 0) continue;
-    int skip = (!first && d[0].skip) ? rnd(4) * 100 : 0; Req *r = req_new(w); if (!r) continue;
+    CatalogDef d[8]; int n = sb_disc_defs_f(d, 8, t == 0 ? "movie" : "series", genre_name()); fprintf(stderr, "[roleta] %s genre '%s': %d catalogs%s%s\n", t == 0 ? "movie" : "series", genre_name(), n, n > 0 ? ", first: " : "", n > 0 ? d[0].title : ""); if (n <= 0) continue;
+    int skip = (!first && d[0].skip) ? rnd(4) * 100 : 0; Req *r = req_new(w); if (!r) continue; fprintf(stderr, "[roleta] asks %s skip %d (pages %d, extra '%s')\n", d[0].path, skip, d[0].skip, d[0].extra);
     R.pending++; sb_catalog_page(&d[0], skip, on_page, r);
   }
 }
@@ -125,6 +126,7 @@ static void finish(void) {
   if (R.npool < 6 && !R.retried) { R.retried = 1; R.pending = 1; start_surprise(1, 0.5f); done_one(); return; }
   static int left[MAXPOOL], fresh[MAXPOOL]; int nl = 0, nf = 0;
   for (int i = 0; i < R.npool; i++) if (!lib_item_watched(&R.pool[i].it)) left[nl++] = i;
+  fprintf(stderr, "[roleta] pool %d, not watched %d (mode %d)\n", R.npool, nl, R.eff);
   if (!nl) { R.phase = PH_SETUP; snprintf(R.note, sizeof R.note, "%s", T("Nothing matches these filters")); return; }
   for (int i = 0; i < nl; i++) if (!hist_has(R.pool[left[i]].it.id, NOT_AGAIN)) fresh[nf++] = left[i];
   if (!nf) for (int i = 0; i < nl; i++) if (!hist_has(R.pool[left[i]].it.id, 3)) fresh[nf++] = left[i]; /* (never the last ones) */
