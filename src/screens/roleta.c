@@ -38,7 +38,7 @@ enum { MODE_SURPRISE, MODE_PERSONAL };
 typedef struct { unsigned gen; float w; } Req;
 
 static struct {
-  int open, phase, mode, eff, kind, gi, ngen, zone, fi, pending, retried, filled, win;
+  int open, phase, mode, eff, kind, gi, ngen, zone, fi, pending, retried, filled, win, pick, pi;
   unsigned gen; double openAt, outAt, t0, resAt, loadAt; float scroll;
   char genres[48][48], note[200];
   Cand *pool; int npool;
@@ -54,8 +54,11 @@ static float rndf(void) { return (float)(rnd_u() % 100000u) / 100000.0f; }
 
 static const char *kind_type(int k) { return k == 1 ? "movie" : k == 2 ? "series" : ""; }
 static const char *genre_name(void) { return R.gi > 0 && R.gi <= R.ngen ? R.genres[R.gi - 1] : ""; }
+static const char *const GEN_LIST[] = { "Action", "Adventure", "Animation", "Comedy", "Crime", "Documentary", "Drama", "Family", "Fantasy", "History", "Horror", "Mystery", "Romance", "Sci-Fi", "Thriller", "War", "Western" };
+static int genre_ok(const char *g) { /* only the genres some installed catalog really offers (not years, languages and the like) */
+  CatalogDef d[1]; int n = 0; if (R.kind != 2) n += sb_disc_defs_f(d, 1, "movie", g) > 0; if (R.kind != 1) n += sb_disc_defs_f(d, 1, "series", g) > 0; return n > 0; }
 static void genres_load(const char *want) {
-  R.ngen = sb_disc_genres(R.genres, 48, kind_type(R.kind)); if (R.ngen < 0) R.ngen = 0; if (R.ngen > 48) R.ngen = 48;
+  R.ngen = 0; for (int i = 0; i < (int)(sizeof GEN_LIST / sizeof *GEN_LIST) && R.ngen < 48; i++) if (genre_ok(GEN_LIST[i])) snprintf(R.genres[R.ngen++], 48, "%s", GEN_LIST[i]);
   R.gi = 0; for (int i = 0; want && *want && i < R.ngen; i++) if (!strcmp(R.genres[i], want)) R.gi = i + 1;
 }
 static void prefs_save(void) {
@@ -155,10 +158,10 @@ void roleta_open(void) {
   R.mode = !strcmp(store_get("roletaMode", "0"), "1") ? MODE_PERSONAL : MODE_SURPRISE;
   { const char *k = store_get("roletaKind", "0"); R.kind = !strcmp(k, "1") ? 1 : !strcmp(k, "2") ? 2 : 0; }
   genres_load(store_get("roletaGenre", ""));
-  R.open = 1; R.openAt = app_now(); R.phase = PH_SETUP; R.zone = 0; R.fi = 3; R.note[0] = 0; R.gen++; R.scroll = 0;
+  R.open = 1; R.pick = 0; R.openAt = app_now(); R.phase = PH_SETUP; R.zone = 0; R.fi = 3; R.note[0] = 0; R.gen++; R.scroll = 0;
   app_overlay = &roletaScreen;
 }
-static void close_it(void) { if (!R.open) return; R.open = 0; R.outAt = app_now(); R.gen++; prefs_save(); }
+static void close_it(void) { if (!R.open) return; R.open = 0; R.pick = 0; R.outAt = app_now(); R.gen++; prefs_save(); }
 int roleta_covers(void) { return R.open && app_now() - R.openAt > 0.3; }
 
 static void open_winner(void) {
@@ -169,11 +172,17 @@ static void press(void) {
   if (R.zone == 1) { if (R.fi == 0) open_winner(); else spin(); return; }
   if (R.fi == 0) { R.mode = R.mode == MODE_SURPRISE ? MODE_PERSONAL : MODE_SURPRISE; prefs_save(); }
   else if (R.fi == 1) { R.kind = (R.kind + 1) % 3; genres_load(NULL); prefs_save(); }
-  else if (R.fi == 2) { if (R.ngen > 0) R.gi = (R.gi + 1) % (R.ngen + 1); prefs_save(); }
+  else if (R.fi == 2) { if (R.ngen > 0 && R.mode != MODE_PERSONAL) { R.pick = 1; R.pi = R.gi; } } /* (the genres: a page of their own) */
   else spin();
 }
 static int key(int k) {
   if (!R.open) { if (app_overlay == &roletaScreen) app_overlay = NULL; app_key(app_mirror_key(k), 1, 0); return 1; }
+  if (R.pick) { int n = R.ngen + 1, cols = 4;
+    if (k == K_BACK) R.pick = 0;
+    else if (k == K_LEFT) { if (R.pi > 0) R.pi--; } else if (k == K_RIGHT) { if (R.pi < n - 1) R.pi++; }
+    else if (k == K_UP) { if (R.pi >= cols) R.pi -= cols; } else if (k == K_DOWN) { if (R.pi + cols < n) R.pi += cols; else if (R.pi < n - 1 && R.pi / cols < (n - 1) / cols) R.pi = n - 1; }
+    else if (k == K_OK) { R.gi = R.pi; R.pick = 0; prefs_save(); }
+    return 1; }
   if (k == K_BACK || k == K_YELLOW) { close_it(); return 1; }
   int z0 = R.zone, f0 = R.fi; int busy = R.phase == PH_LOAD || R.phase == PH_SPIN;
   if (k == K_LEFT) { if (R.fi > 0) R.fi--; }
@@ -209,6 +218,21 @@ static void button(float x, float y, float w, float h, int id, const char *label
   else text_draw(label, x + w / 2, y + (h - text_line_height(32)) / 2.0f, 32, 800, fg, 0, w - 30, ALIGN_CENTER);
   gfx_scale_pop(); hit_add(x, y, w, h, on_focus, on_act, id, 0);
 }
+static void pk_focus(int a, int b) { (void)b; R.pi = a; }
+static void pk_act(int a, int b) { (void)b; R.gi = a; R.pick = 0; prefs_save(); }
+static void picker_draw(void) {
+  float cx = SB_W / 2, pw = 290, ph = 68, gx = 22, gy = 18; int n = R.ngen + 1, cols = 4, rows = (n + cols - 1) / cols;
+  float W = cols * pw + (cols - 1) * gx + 120, H = rows * ph + (rows - 1) * gy + 170, x0 = cx - W / 2, y0 = (SB_H - H) / 2;
+  gfx_rect(0, 0, SB_W, SB_H, BLACK_A(160)); hit_shield(0, 0, SB_W, SB_H);
+  gfx_shadow(x0, y0 + 30, W, H, 32, 80, BLACK_A(150)); gfx_rrect(x0, y0, W, H, 32, RGB(30, 26, 46)); gfx_ring(x0, y0, W, H, 32, 1, WHITE_A(30));
+  text_draw(T("Genre"), cx, y0 + 36, 36, 800, WHITE_A(255), 0, 0, ALIGN_CENTER);
+  for (int i = 0; i < n; i++) {
+    float x = x0 + 60 + (i % cols) * (pw + gx), y = y0 + 110 + (i / cols) * (ph + gy); int foc = i == R.pi, sel = i == R.gi;
+    gfx_rrect(x, y, pw, ph, ph / 2, WHITE_A(foc ? 46 : 20)); if (foc) gfx_ring(x, y, pw, ph, ph / 2, 2.5f, ACC | 0xff000000u); else if (sel) gfx_ring(x, y, pw, ph, ph / 2, 1.5f, col_alpha(ACC | 0xff000000u, 0.6f));
+    text_draw(i == 0 ? T("All") : T(R.genres[i - 1]), x + pw / 2, y + (ph - text_line_height(28)) / 2.0f, 28, foc ? 800 : 600, WHITE_A(foc ? 255 : 205), 0, pw - 30, ALIGN_CENTER);
+    hit_add(x, y, pw, ph, pk_focus, pk_act, i, 0);
+  }
+}
 static void draw(void) {
   float op;
   if (R.open) { float k = ease_quint((float)((app_now() - R.openAt) / 0.35)); op = k; }
@@ -225,7 +249,7 @@ static void draw(void) {
   float bw = 360, bh = 92, gap = 24, bx = (SB_W - (3 * bw + 3 * gap + 300)) / 2, by = 196;
   button(bx, by, bw, bh, 0, T("Mode"), T(R.mode == MODE_PERSONAL ? "Personalized" : "Surprise"), 0, 0);
   button(bx + bw + gap, by, bw, bh, 1, T("Type"), R.kind == 1 ? T("Movies") : R.kind == 2 ? T("Series") : T("All"), 0, 0);
-  button(bx + 2 * (bw + gap), by, bw, bh, 2, T("Genre"), genre_name()[0] ? genre_name() : T("All"), 0, R.mode == MODE_PERSONAL);
+  button(bx + 2 * (bw + gap), by, bw, bh, 2, T("Genre"), genre_name()[0] ? T(genre_name()) : T("All"), 0, R.mode == MODE_PERSONAL);
   button(bx + 3 * (bw + gap), by, 300, bh, 3, T(R.phase == PH_LOAD || R.phase == PH_SPIN ? "Spinning…" : R.phase == PH_RESULT ? "Spin again" : "Spin"), NULL, 1, 0);
   gfx_offset_pop();
   /* the reel */
@@ -259,6 +283,7 @@ static void draw(void) {
     const char *m = R.note[0] ? R.note : R.phase == PH_LOAD ? T("Picking one…") : R.phase == PH_SPIN ? "" : T("Set your filters and spin");
     if (*m) text_draw(m, cx, ty + 20, 28, 500, WHITE_A(R.note[0] ? 190 : 150), 0, SB_W - 300, ALIGN_CENTER);
   }
+  if (R.pick && R.open) picker_draw();
   gfx_opacity_pop();
 }
 Screen roletaScreen = { NULL, NULL, key, tick, draw, NULL, NULL, NULL };

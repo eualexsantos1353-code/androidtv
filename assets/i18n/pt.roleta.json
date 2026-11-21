@@ -15,5 +15,22 @@
  "Nothing matches these filters": "Nada combina com esses filtros",
  "Couldn’t reach the catalogs. Try again.": "Não consegui falar com os catálogos. Tente de novo.",
  "Connect Trakt in Settings for personalized spins; this one was a surprise.": "Conecte o Trakt nos Ajustes para sorteios personalizados; este foi uma surpresa.",
- "Few titles match your profile; popular ones filled in.": "Poucos títulos combinam com o seu perfil; completei com populares."
+ "Few titles match your profile; popular ones filled in.": "Poucos títulos combinam com o seu perfil; completei com populares.",
+ "Action": "Ação",
+ "Adventure": "Aventura",
+ "Animation": "Animação",
+ "Comedy": "Comédia",
+ "Crime": "Crime",
+ "Documentary": "Documentário",
+ "Drama": "Drama",
+ "Family": "Família",
+ "Fantasy": "Fantasia",
+ "History": "História",
+ "Horror": "Terror",
+ "Mystery": "Mistério",
+ "Romance": "Romance",
+ "Sci-Fi": "Ficção científica",
+ "Thriller": "Suspense",
+ "War": "Guerra",
+ "Western": "Faroeste"
 }
