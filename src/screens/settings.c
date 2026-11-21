@@ -38,6 +38,7 @@
 #include "ui/qrcard.h"
 #include "core/update.h"
 #include "screens/logcard.h"
+#include "screens/roleta.h"
 #include "screens/welcome.h"
 #include "ui/qr.h"
 #include "ui/support.h"
@@ -194,6 +195,7 @@ static int about_opts(void) {
   /* the rows say what they do and no more: only the support row has words under it (an install says how it goes, while it goes) */
   if (av) { Setting *s = &supS[n++]; set_act(s, "__upd", st == UPD_INSTALLING ? T1("Installing version {v}…", "v", av) : T1("Install version {v}", "v", av), update_msg()); s->raw = 1; }
   { Setting *s = &supS[n++]; set_act(s, "__check", T("Check for updates"), ""); s->raw = 1; } /* (its answer comes as a toast) */
+  set_act(&supS[n++], "__roleta", "Roulette", "Can't decide? Spin the roulette");
   set_act(&supS[n++], "__logs", "Share logs", "");
   set_act(&supS[n++], "__discord", "Join our Discord", ""); /* Discord's mark beside it; OK: a card with its code (before the support row: that one takes the room left) */
   if (welcome_support_url()[0]) set_act(&supS[n++], "__support", "Support the project / Request a feature", "Your support keeps it going, and feature requests are welcome there. A star helps others find it"); /* its codes in view (sized as if last) */
@@ -526,7 +528,7 @@ static int key(int k) {
       if (!strcmp(op->k, "__traktOff")) { trakt_key_clear(); relang(); toast(T("The Trakt id is gone"), 2000, NULL); return 1; }
       if (!strcmp(op->k, "__keys")) { settings_open_keys(); return 1; }
       if (!strcmp(op->k, "__traktUnlink")) { scrobble_unlink(); board_invalidate(); trakt_relayout(); toast(T("Trakt is disconnected"), 2000, NULL); return 1; }
-      if (!strcmp(op->k, "__sync")) sync_now(); else if (!strcmp(op->k, "__logs")) logcard_show(); else if (!strcmp(op->k, "__guide")) welcome_show_guide();
+      if (!strcmp(op->k, "__sync")) sync_now(); else if (!strcmp(op->k, "__roleta")) roleta_open(); else if (!strcmp(op->k, "__logs")) logcard_show(); else if (!strcmp(op->k, "__guide")) welcome_show_guide();
       else if (!strcmp(op->k, "__support")) { if (welcome_github_url()[0]) { supWant = !supWant; tween_to(&supK, (float)supWant, 0.5f, EASE_IN_OUT); orbs_pulse(supWant ? ORB_RIGHT : ORB_LEFT, 0.6f); } } /* the other code, turned over */ else if (!strcmp(op->k, "__upd")) update_install(); else if (!strcmp(op->k, "__check")) { if (update_state() != UPD_CHECKING) toast(T("Checking for updates…"), 1500, NULL); update_check(1); } else if (!strcmp(op->k, "__discord")) discord_card(); else if (!strcmp(op->k, "__logout")) logout(); return 1; } /* (only Log out signs out: a row with no action of its own does nothing) */
     if (is_switch(op)) { set_val(op, !strcmp(cur_val(op), "true") ? "false" : "true", 0); return 1; } /* a switch: OK flips it */
     open_pick(); return 1; }

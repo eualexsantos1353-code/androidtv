@@ -4,6 +4,7 @@
 #include "core/scrobble.h"
 #include "core/live.h"
 #include "screens/livehub.h"
+#include "screens/roleta.h"
 #include "platform/plat.h"
 #include "core/bgtrailer.h"
 #include "core/best.h"
@@ -955,6 +956,7 @@ static void key_dispatch(int k, int repeat) {
     if (SCR == chipScr(t) && colorFromSet) { Scr p = colorFrom; colorFromSet = 0; int ci = -1; for (int j = 0; j < 5; j++) if (chipScr(j) == p) ci = j; /* pressed on its own page: back where it was opened from */
       topnav_flush(1); navf.kind = NAV_BACKZ; navf.x = topNav.chipX[t] + topNav.chipW[t] / 2; navf.y = 50; topNav.idx = ci >= 0 ? ci : NAV_HOME;
       app_go(p, NULL, 1); topNav.active = 0; topnav_paint(); return; } topnav_flush(1); if (chipScr(t) != SCR) { topNav.idx = -1; topnav_switch(t); } topNav.idx = t; topnav_enter_content(); return; } /* the remote's colour keys: red Settings, green Search */
+  if (k == K_YELLOW && (SCR == SCR_HOME || SCR == SCR_DISC || SCR == SCR_LIB) && !topNav.active) { sound_play(SND_TAB); roleta_open(); return; } /* the remote's yellow key: the Roulette */
   if (topNav.active) { topnav_key(k); return; }
   if (k == K_OK && screens[SCR] && screens[SCR]->focused) { const Item *fi = screens[SCR]->focused();
     if (fi) { if (!okHold.down) { okHold.down = 1; okHold.menu = 0; okHold.item = *fi; okHold.has = 1; okHold.at = NOW; okHold.ov = NULL; } return; } }
@@ -1084,7 +1086,7 @@ int app_snapshot_ready(void) { return (pgSnapReady && *pgSnapReady && drawN != p
 static void page_draw(void) {
   if (welcome_covers() && app_overlay && app_overlay->draw) { app_overlay->draw(); return; } /* the guide's page hides all of it */
   { extern int supportcard_covers(void); if (supportcard_covers() && app_overlay && app_overlay->draw) { app_overlay->draw(); return; } } /* the support card's frosted picture hides all of it */
-  if (app_overlay && app_overlay->draw && hub_covers_page()) { /* All channels covers it all: only it, and what closes over it */
+  if (app_overlay && app_overlay->draw && (hub_covers_page() || roleta_covers())) { /* All channels covers it all: only it, and what closes over it */
     for (int k = 0; k < nseenOv; k++) if (seenOv[k] != app_overlay && seenOv[k]->draw && !(ovOpener[k] == app_overlay)) seenOv[k]->draw();
     app_overlay->draw();
     for (int k = 0; k < nseenOv; k++) if (seenOv[k] != app_overlay && seenOv[k]->draw && ovOpener[k] == app_overlay) seenOv[k]->draw();
