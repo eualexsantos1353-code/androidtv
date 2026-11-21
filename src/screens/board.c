@@ -274,7 +274,7 @@ static void disc_presets(Board *b) {
   static const struct { const char *title, *type, *what, *key; } P[] = {
     { "Popular · Movies", "movie", "top", "dp_m_top" }, { "Popular · Series", "series", "top", "dp_s_top" },
     { "Top Rated · Movies", "movie", "imdbRating", "dp_m_ir" }, { "Top Rated · Series", "series", "imdbRating", "dp_s_ir" } };
-  int all = !strcmp(FL.type, "*"); int nr = 0;
+  int all = strcmp(FL.type, "movie") && strcmp(FL.type, "series"); int nr = 0;
   for (int i = 0; i < 4; i++) {
     if (!all && strcmp(FL.type, P[i].type)) continue;
     Row *r = row_add(b, P[i].title, 0, 0); if (!r) break; int ri = (int)(r - b->rows); CatalogDef *d = &r->def; memset(d, 0, sizeof *d);
@@ -297,6 +297,7 @@ static void load_catalog_rows(Board *b, int disc, int keep) {
   if (disc) { Row *f = row_add(b, "", 0, 0); if (f) { f->filt = 1; f->hidden = 0; } } /* Discover: the filter strip under the spotlight's dots */
   static CatalogDef defs[MAXROWS]; int nd = disc ? 0 : sb_home_defs(defs, MAXROWS - 1); /* (Discover: its listing, below) */
   if (disc) { DS.gen++; itemlist_clear(&DS.all); for (int i = 0; i < DMEM; i++) { itemlist_clear(&DS.part[i]); DS.used[i] = DS.has[i] = DS.mMore[i] = DS.mSkip[i] = DS.mWait[i] = 0; } DS.more = DS.paging = 0; DS.skipAt = 0; DS.pageAt = 0; DS.askAt = 0;
+    disc_catalog(); /* (settles the strip's type first) */
     disc_presets(b); /* (ready lists under the strip: Cinemeta's popular and top rated, of the strip's type and genre) */
     if (0 && disc_catalog()) { DS.askAt = app_now(); for (int i = 0; i < DS.nm; i++) sb_catalog_url(DS.m[i].url, DS.m[i].type, 100, on_disc, DUD(i)); fprintf(stderr, "[disc] %s %s (%d catalog%s)%s%s\n", FL.type, DS.m[0].title, DS.nm, DS.nm == 1 ? "" : "s", FL.genre[0] ? " · " : "", FL.genre); } } /* (one row kept for Continue Watching, or the strip) */
   int band = !disc && live_catalogs() > 0; /* the live row holds live: its catalogs are in the hub (All channels) */
