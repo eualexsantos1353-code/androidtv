@@ -801,6 +801,7 @@ void app_open_external(const char *url, const char *name) {
 }
 void app_play(const Stream *s, const char *type, const char *id, const char *vid, int fromStart);
 void app_open_item(const Item *it) {
+  if (!strcmp(it->id, ROLETA_ID)) { roleta_open(); return; } /* Home's Roulette card */
   if (live_type(it->type)) { /* a channel: straight to a stream that sends a picture (All channels: its page) */
     if (!strcmp(it->id, LIVE_ALL_ID)) { hub_open(0, NULL); return; } /* the live hub */
     const Item *row = NULL; int n = (SCR == SCR_HOME || SCR == SCR_DISC) ? board_row_items(it->id, &row) : 0; live_start(it, row, n, 0); return; }

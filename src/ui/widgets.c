@@ -1,4 +1,5 @@
 #include "ui/widgets.h"
+#include "screens/roleta.h"
 #include "ui/palette.h"
 #include "ui/sound.h"
 #include "ui/shared.h"
@@ -286,7 +287,19 @@ void card_standin(const Item *it, float x, float y, float w, float h, float r, i
 }
 /* the Live now band's last card: All channels, a quiet glass tile with the live mark and its words */
 static void allch_tile(float x, float y, float w, float h) { livewall_card(x, y, w, h, CARD_R, 0); }
+/* Home's Roulette card: a medallion with a question mark, its name and what it does */
+static void roleta_tile(float x, float y, float w, float h) {
+  gfx_rrect_v(x, y, w, h, CARD_R, RGB(62, 46, 112), RGB(22, 17, 40));
+  float d = h * 0.46f, cx = x + 30 + d / 2, cy = y + h / 2; int fs = (int)(d * 0.72f);
+  gfx_circle(cx, cy, d / 2 + 7, WHITE_A(24)); gfx_circle(cx, cy, d / 2, ACC | 0xff000000u);
+  text_draw("?", cx, cy - text_line_height(fs) / 2.0f, fs, 800, ACC_FG, 0, 0, ALIGN_CENTER);
+  float tx = x + 30 + d + 26, mw = x + w - 22 - tx;
+  text_draw(T("Roulette"), tx, y + h / 2 - 46, 40, 800, WHITE_A(255), -0.6f, mw, ALIGN_LEFT);
+  text_draw_wrapped(T("Can't decide? Spin the roulette"), tx, y + h / 2 + 4, mw, 2, 20, 500, WHITE_A(190), 0, ALIGN_LEFT, 26);
+  gfx_ring(x, y, w, h, CARD_R, 1, WHITE_A(30));
+}
 static int card_body(const Item *it, const CardPrep *cp, float x, float y, float w, float h, int wide, int label, int loadArt) {
+  if (!strcmp(it->id, ROLETA_ID)) { roleta_tile(x, y, w, h); return 1; }
   int shown; CardPrep own;
   if (!strcmp(it->id, LIVE_ALL_ID)) { allch_tile(x, y, w, h); return 1; }
   if (!cp) { card_prep(&own, it, wide, NULL); cp = &own; } /* a card without its own: resolved here, as before */

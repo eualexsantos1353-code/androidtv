@@ -2,6 +2,7 @@
 #include "screens/board.h"
 #include "ui/strip.h"
 #include "screens/btrailer.h"
+#include "screens/roleta.h"
 #include "core/notify.h"
 #include "core/live.h"
 #include "ui/livewall.h"
@@ -148,9 +149,16 @@ static const KeptRow *kept_row(const KeptRow *kp, int nk, const char *title) { f
 static void closing_row(Board *b, const KeptRow *kp, int nk, const char *title, int wide, int round) {
   const KeptRow *k = kept_row(kp, nk, title); if (!k || !k->nwas) return; Row *z = row_add(b, title, wide, 0); if (!z) return;
   z->hidden = 0; z->closing = 1; z->closeAt = app_now(); z->hk = 1; z->round = round; row_ghosts(z, k, NULL); }
+/* Home's Roulette row: the Roulette, one wide card (OK opens it) */
+static void board_roleta_row(Board *b) {
+  ItemList l; memset(&l, 0, sizeof l); l.items = calloc(1, sizeof(Item)); if (!l.items) return;
+  Item *a = &l.items[l.n++]; snprintf(a->id, sizeof a->id, "%s", ROLETA_ID); snprintf(a->type, sizeof a->type, "movie"); snprintf(a->name, sizeof a->name, "%s", T("Roulette")); snprintf(a->description, sizeof a->description, "%s", T("Can't decide? Spin the roulette")); l.total = 1;
+  Row *r = row_add(b, "Roulette", 1, 0); if (r) { r->items = l; r->hidden = 0; } else itemlist_clear(&l);
+}
 static void board_cw_row(Board *b, const KeptRow *kp, int nk) {
   ItemList cw; if (lib_cw_items(&cw) > 0) { Row *r = row_add(b, "Continue Watching", 1, 0); if (r) { r->items = cw; r->hidden = 0; } else itemlist_clear(&cw); } else { itemlist_clear(&cw); closing_row(b, kp, nk, "Continue Watching", 1, 0); }
   ItemList up; if (notify_upcoming(&up) > 0) { Row *r = row_add(b, "Upcoming episodes", 1, 0); if (r) { r->items = up; r->hidden = 0; } else itemlist_clear(&up); } else closing_row(b, kp, nk, "Upcoming episodes", 1, 0); /* the library's series airing in the next two weeks */
+  if (b->kind == 0) board_roleta_row(b); /* (under Continue Watching and Upcoming, over the live band and the catalogs) */
   ItemList lv; if (b->kind == 0 && live_band(&lv) > 0) { Row *r = row_add(b, "Live TV", 0, 0); if (r) { r->items = lv; r->hidden = 0; r->round = 1; } else itemlist_clear(&lv); } else { itemlist_clear(&lv); if (b->kind == 0) closing_row(b, kp, nk, "Live TV", 0, 1); } /* a live addon installed: All channels, the pinned, a few more */
 }
 /* ---- Discover's listing: the catalog chosen in the strip, asked with its genre, as lines of posters; its next page
