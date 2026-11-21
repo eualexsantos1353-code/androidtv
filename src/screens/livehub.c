@@ -77,7 +77,9 @@ static void tab_items(const char *name, const ItemList *l) { /* the pinned or re
     snprintf(c->logo, sizeof c->logo, "%s", l->items[i].logo); snprintf(c->poster, sizeof c->poster, "%s", l->items[i].poster[0] ? l->items[i].poster : l->items[i].background); t->p[t->n++] = c; } }
 static int cmp_name(const void *a, const void *b) { return strcasecmp((*(const LiveCh *const *)a)->name, (*(const LiveCh *const *)b)->name); }
 static const char *short_name(const char *t, char *buf, size_t cap) { /* "TvVoo • Italia · tv" -> "TvVoo • Italia" */
-  snprintf(buf, cap, "%s", t); char *c = strstr(buf, " · "); if (c) *c = 0; return buf; }
+  snprintf(buf, cap, "%s", t); char *c = strstr(buf, " · "); if (c) *c = 0;
+  if (!strncmp(buf, "Canais | ", 9)) memmove(buf, buf + 9, strlen(buf + 9) + 1); /* (a list's own prefix: the name says it) */
+  return buf; }
 static void build(void) {
   char keepTab[96] = "", keepId[64] = ""; if (H.ntab && H.cur < H.ntab) { snprintf(keepTab, sizeof keepTab, "%s", H.tab[H.cur].name); if (H.idx < H.tab[H.cur].n) snprintf(keepId, sizeof keepId, "%s", H.tab[H.cur].p[H.idx]->id); }
   for (int i = 0; i < H.ntab; i++) tab_free(&H.tab[i]); H.ntab = 0;
@@ -268,7 +270,7 @@ static void hub_draw_body(void) {
   else { /* from Home: the channels' wall, panning slowly (baked once: one picture), dark under the words and the row;
        once the focused channel plays, its picture full screen behind instead, dark where the words and the row are */
     float v = lpk_full_a();
-    if (v < 0.999f) { if (!(baseCleared && a >= 0.999f && !gfx_in_target())) gfx_rect(0, 0, SB_W, SB_H, dk); /* (the frame was cleared to it) */ if (!hskip("wall")) livewall_backdrop(0.24f);
+    if (v < 0.999f) { if (!(baseCleared && a >= 0.999f && !gfx_in_target())) gfx_rect(0, 0, SB_W, SB_H, dk); /* (the frame was cleared to it) */ 
       if (!hskip("grad")) { gfx_rrect_h(0, 0, 760, 560, 0, col_alpha(dk, 0.85f), col_alpha(dk, 0)); gfx_rrect_v(0, 330, SB_W, 230, 0, col_alpha(dk, 0), col_alpha(dk, 0.96f)); gfx_rect(0, 560, SB_W, SB_H - 560, col_alpha(dk, 0.96f)); gfx_rect(0, 0, 410, 560, col_alpha(dk, 0.8f)); } }
     if (v > 0.003f) { if (v < 0.999f) gfx_hole(0, 0, SB_W, SB_H, 0, v); gfx_opacity_push(v);
       gfx_rrect_h(0, 0, 1240, SB_H, 0, col_alpha(dk, 0.92f), col_alpha(dk, 0)); gfx_rrect_v(0, 0, SB_W, 220, 0, col_alpha(dk, 0.5f), col_alpha(dk, 0));
@@ -277,10 +279,11 @@ static void hub_draw_body(void) {
     gfx_alpha_tex(glow_tex(), -200 + 120 * sinf(ph), -260 + 60 * cosf(ph), 1300, 1000, col_alpha(c1 | 0xff000000u, 0.55f * gk));
     gfx_alpha_tex(glow_tex(), 900 + 100 * cosf(ph * 0.7f), 520 + 80 * sinf(ph), 1400, 900, col_alpha(c2 | 0xff000000u, 0.7f * gk)); }
   /* from Home: the focused channel plays full screen behind it once the remote rests on it (the square box is gone) */
-  if (!H.inPlayer && !hskip("peek") && f && H.open) { Item it; live_item(f, &it); lpk_want(&it, 0, 0, SB_W, SB_H); }
+  if (!H.inPlayer && !hskip("peek") && f && H.open) { Item it; live_item(f, &it); float bx = SB_W - 64 - LPK_W; lpk_want(&it, bx, LPK_Y, LPK_W, LPK_H); /* the focused channel plays in a window at the top right */
+    gfx_opacity_push(in_k(0.1, 0.4)); lpk_draw(f->id, art_of(f), bx, LPK_Y, LPK_W, LPK_H, 28, 1, RGB(22, 20, 30), RGB(12, 11, 17)); gfx_opacity_pop(); }
   if (out) { float s = 0.985f + 0.015f * a; gfx_scale_push(s, s, SB_W / 2, SB_H / 2); gfx_offset_push(0, 26 * (1 - a)); }
   /* the focused channel */
-  { float k = in_k(0, 0.45); gfx_opacity_push(k); gfx_offset_push(0, 22 * (1 - k)); float lx = GX0, ly = 96, mw = SB_W - GX0 - 120;
+  { float k = in_k(0, 0.45); gfx_opacity_push(k); gfx_offset_push(0, 22 * (1 - k)); float lx = GX0, ly = 96, mw = SB_W - GX0 - 120 - (H.inPlayer ? 0 : LPK_W + 40);
     reach_mark(lx, ly, f ? f->id : NULL); ly += 64 + 14;
     static LiveCh curC, prevC; static double swapAt; static int hasPrev;
     if (f && strcmp(curC.id, f->id)) { if (curC.id[0]) { prevC = curC; hasPrev = 1; } curC = *f; swapAt = now; } /* a move: the old channel's logo and words go as the new ones come */
