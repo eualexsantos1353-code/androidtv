@@ -243,7 +243,7 @@ static void on_innertube(int st, const unsigned char *body, size_t len, void *ud
       if (itag == 22) hi = u; else if (itag == 18) lo = u; else if (!*lo) lo = u;
     }
     /* the separate files: the sharpest H.264 picture up to YT_MAXH, the sound in the app's language (else the video's own) */
-    char mix[4400] = ""; if (r->cl < 3) { const char *vu = "", *au = ""; double vsc = -1, asc = -1; int vh = 0, aln = 0; const char *aid = "";
+    char mix[4400] = ""; if (r->cl < 3) { const char *vu = "", *au = "", *du = ""; double vsc = -1, asc = -1, dsc = -1; int vh = 0, aln = 0; const char *aid = "";
       cJSON_ArrayForEach(f, js_arr(js_obj(j, "streamingData"), "adaptiveFormats")) {
         const char *u = js_str(f, "url", ""), *mt = js_str(f, "mimeType", ""); if (!*u) continue;
         if (!strncmp(mt, "video/mp4", 9)) {
@@ -257,8 +257,9 @@ static void on_innertube(int st, const unsigned char *body, size_t len, void *ud
           const cJSON *at = js_obj(f, "audioTrack"); const char *id = js_str(at, "id", ""); int def = at ? js_bool(at, "audioIsDefault", 0) : 1;
           int ls = audio_lang_score(id); double br = js_num(f, "bitrate", js_num(f, "averageBitrate", 0)), sc = ls * 1e12 + (def ? 1e11 : 0) + br;
           if (sc > asc) { asc = sc; au = u; aln = ls; aid = id; }
+          if (def && br > dsc) { dsc = br; du = u; } /* the video's own sound, for when the chosen one is refused */
         } }
-      if (*vu && *au && strlen(vu) + strlen(au) + 2 + strlen(YT_UAS[r->cl]) + 1 < sizeof mix) { snprintf(mix, sizeof mix, "%s\n%s\n%s", vu, au, YT_UAS[r->cl]); fprintf(stderr, "[yt] %s picture %dp, sound %s%s\n", r->vid, vh, *aid ? aid : "(only one)", aln ? " (app language)" : ""); } }
+      if (*vu && *au && strlen(vu) + strlen(au) + strlen(du) + 3 + strlen(YT_UAS[r->cl]) + 1 < sizeof mix) { snprintf(mix, sizeof mix, "%s\n%s\n%s\n%s", vu, au, YT_UAS[r->cl], !strcmp(du, au) ? "" : du); fprintf(stderr, "[yt] %s picture %dp, sound %s%s\n", r->vid, vh, *aid ? aid : "(only one)", aln ? " (app language)" : ""); } }
     cJSON *subs = cJSON_CreateArray(); const cJSON *c;
     cJSON_ArrayForEach(c, js_arr(js_obj(js_obj(j, "captions"), "playerCaptionsTracklistRenderer"), "captionTracks")) {
       const char *bu = js_str(c, "baseUrl", ""); if (!*bu) continue;

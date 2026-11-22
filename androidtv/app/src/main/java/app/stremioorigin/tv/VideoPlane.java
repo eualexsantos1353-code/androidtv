@@ -129,6 +129,10 @@ public final class VideoPlane {
             @Override public void onPlaybackStateChanged(int s) { readState(); }
             @Override public void onIsPlayingChanged(boolean p) { readState(); }
             @Override public void onPlayerError(PlaybackException e) {
+                String[] pa = curPa; /* the chosen sound (a dub) refused: the same picture with the video's own sound, from where it was */
+                if (pa != null && pa.length > 3 && !pa[3].isEmpty() && !paRetried) { paRetried = true; MainActivity.log("[video] the chosen sound was refused (" + e.getErrorCodeName() + "): the picture goes on with the video's own sound");
+                    try { DefaultMediaSourceFactory mf = new DefaultMediaSourceFactory(new YtChunked(pa[2])); long at = player.getCurrentPosition();
+                        player.setMediaSource(new MergingMediaSource(mf.createMediaSource(MediaItem.fromUri(Uri.parse(pa[0]))), mf.createMediaSource(MediaItem.fromUri(Uri.parse(pa[3])))), at); player.prepare(); player.setPlayWhenReady(wantPlay); return; } catch (Exception x) { /* falls through to the error below */ } }
                 error = e.getErrorCodeName() + (e.getCause() != null ? ": " + e.getCause().getMessage() : ""); state = 6; changed = 1;
                 MainActivity.log("[video] " + error); MainActivity.keepScreen(false); }
             @Override public void onRenderedFirstFrame() { firstFrame = 1; }
@@ -220,6 +224,7 @@ public final class VideoPlane {
 
     /* ---- calls from the native side (any thread) ---- */
     private static DefaultMediaSourceFactory msfS;
+    private static String[] curPa; private static boolean paRetried; /* YouTube's picture and sound as asked for, and whether the video's own sound was already tried */
     public static void load(final String url, final long startMs, final boolean isLive) {
         state = 1; firstFrame = 0; hasMedia = 1; error = ""; hdr = ""; vw = vh = 0; pos = startMs; dur = 0; buf = 0; unsup = 0; seeking = 0; changed = 1;
         audioLines = ""; textLines = ""; audioCur = -1; wantPlay = true; live = isLive;
@@ -229,7 +234,7 @@ public final class VideoPlane {
             /* no subtitle of the file's own until the app picks one (a track flagged "default" was shown by itself) */
             selector.setParameters(selector.buildUponParameters().clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true));
             if (url.indexOf('\n') > 0) { /* "picture\naudio": YouTube's two files, played together */
-                String[] pa = url.split("\n");
+                String[] pa = url.split("\n"); curPa = pa; paRetried = false;
                 DefaultMediaSourceFactory mf = pa[0].contains("googlevideo.com") ? new DefaultMediaSourceFactory(new YtChunked(pa.length > 2 ? pa[2] : "")) : msfS; /* (YouTube's own files: in pieces, with the user agent of the client that asked) */
                 MediaSource ms = new MergingMediaSource(mf.createMediaSource(MediaItem.fromUri(Uri.parse(pa[0]))), mf.createMediaSource(MediaItem.fromUri(Uri.parse(pa[1]))));
                 player.setVolume(volTarget / 100f);
@@ -238,6 +243,7 @@ public final class VideoPlane {
                 cues(java.util.Collections.emptyList());
                 return;
             }
+            curPa = null;
             MediaItem.Builder b = new MediaItem.Builder().setUri(Uri.parse(url));
             if (isLive) b.setLiveConfiguration(new MediaItem.LiveConfiguration.Builder().build());
             player.setVolume(volTarget / 100f);
