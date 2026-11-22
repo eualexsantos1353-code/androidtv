@@ -42,7 +42,7 @@ public final class YtChunked implements DataSource.Factory {
 
     private static final class Source implements DataSource {
         private final DataSource up;
-        private boolean yt; private DataSpec orig; private long total = C.LENGTH_UNSET, start, end, got;
+        private boolean yt, plain; private DataSpec orig; private long total = C.LENGTH_UNSET, start, end, got;
         Source(DataSource up) { this.up = up; }
         @Override public void addTransferListener(TransferListener l) { up.addTransferListener(l); }
         @Override public long open(DataSpec spec) throws IOException {
@@ -77,14 +77,17 @@ public final class YtChunked implements DataSource.Factory {
         private long next() throws IOException {
             try { return open1(good); }
             catch (IOException e) {
-                Log.i("StremioOrigin", "[ytfile] refused: " + e.getMessage());
+                Log.i("StremioOrigin", "[ytfile] refused: " + e.getMessage() + " (sound track " + orig.uri.getQueryParameter("xtags") + ", client " + orig.uri.getQueryParameter("c") + ")");
                 if (good != null || start != orig.position) throw e; /* only the first piece looks for another server */
-                for (String h : others()) { try { up.close(); long r = open1(h); good = h; return r; } catch (IOException ignore) { } }
+                for (String h : others()) { try { up.close(); long r = open1(h); good = h; return r; } catch (IOException x) { Log.i("StremioOrigin", "[ytfile] " + h + " refused: " + x.getMessage()); } }
+                /* the file as one request, no "range" parameter (the sound's small files, and the ones that the pieces' form does not suit) */
+                try { up.close(); Log.i("StremioOrigin", "[ytfile] itag " + orig.uri.getQueryParameter("itag") + " as one request"); long r = up.open(orig); plain = true; return r; }
+                catch (IOException x) { Log.i("StremioOrigin", "[ytfile] as one request: " + x.getMessage()); }
                 throw e;
             }
         }
         @Override public int read(byte[] b, int off, int len) throws IOException {
-            if (!yt) return up.read(b, off, len);
+            if (!yt || plain) return up.read(b, off, len);
             int n = up.read(b, off, len);
             if (n == C.RESULT_END_OF_INPUT) {
                 long have = got; up.close();
