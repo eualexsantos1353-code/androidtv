@@ -36,12 +36,34 @@ public final class YtChunked implements DataSource.Factory {
             orig = spec; start = spec.position; total = spec.length;
             return next();
         }
-        private long next() throws IOException {
+        private String good; /* the server that answered the first piece: the next pieces go to it too */
+        private long open1(String host) throws IOException {
             end = total != C.LENGTH_UNSET ? Math.min(start + CHUNK - 1, start + total - 1) : start + CHUNK - 1;
-            Uri u = orig.uri.buildUpon().appendQueryParameter("range", start + "-" + end).build();
+            Uri b = orig.uri; if (host != null) b = b.buildUpon().authority(host).build();
+            Uri u = b.buildUpon().appendQueryParameter("range", start + "-" + end).build();
             got = 0;
             up.open(orig.buildUpon().setUri(u).setPosition(0).setLength(C.LENGTH_UNSET).build());
             return total != C.LENGTH_UNSET ? total : C.LENGTH_UNSET;
+        }
+        /* The other servers of the same video (the "mn" list), as NuvioTV tries them: some of them refuse (403). */
+        private java.util.List<String> others() {
+            java.util.List<String> out = new java.util.ArrayList<>();
+            String mn = orig.uri.getQueryParameter("mn"), host = orig.uri.getHost(); if (mn == null || host == null) return out;
+            String[] sv = mn.split(",");
+            for (int i = 0; i < sv.length; i++) {
+                String s = sv[i].trim(); if (s.isEmpty()) continue;
+                String alt = host.replaceFirst("^rr\\d+---", "rr" + (i + 1) + "---").replaceFirst("sn-[a-z0-9]+-[a-z0-9]+", s);
+                if (!alt.equals(host) && !out.contains(alt)) out.add(alt);
+            }
+            return out;
+        }
+        private long next() throws IOException {
+            try { return open1(good); }
+            catch (IOException e) {
+                if (good != null || start != orig.position) throw e; /* only the first piece looks for another server */
+                for (String h : others()) { try { up.close(); long r = open1(h); good = h; return r; } catch (IOException ignore) { } }
+                throw e;
+            }
         }
         @Override public int read(byte[] b, int off, int len) throws IOException {
             if (!yt) return up.read(b, off, len);
