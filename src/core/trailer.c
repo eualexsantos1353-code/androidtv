@@ -283,7 +283,9 @@ static void on_innertube(int st, const unsigned char *body, size_t len, void *ud
       fprintf(stderr, "[yt] %s: no separate files from client %d, trying the next\n", r->vid, r->cl); if (out && !r->out) r->out = out; else if (out) cJSON_Delete(out); r->cl++; yt_post(r); return; }
     if (r->cl < 3 && !hasRm) { r->out = out; r->cl = 3; yt_post(r); return; } /* separate files found: the Android client's ready-made one too, to fall back to if they do not play */
     if (r->cl == 3 && r->out) { cJSON *base = r->out; r->out = NULL; int bm = *js_str(base, "mix", "") != 0;
-      if (bm) { if (out) { cJSON_ReplaceItemInObjectCaseSensitive(base, "lo", cJSON_CreateString(js_str(out, "lo", ""))); cJSON_ReplaceItemInObjectCaseSensitive(base, "hi", cJSON_CreateString(js_str(out, "hi", ""))); cJSON_Delete(out); } out = base; }
+      if (bm) { if (out) { const char *m0 = js_str(base, "mix", ""), *mu = *js_str(out, "lo", "") ? js_str(out, "lo", "") : js_str(out, "hi", ""); /* the Android client's ready-made file (picture and sound in one) is the last sound to try for the sharp picture */
+          if (*mu && strlen(m0) + strlen(mu) + strlen(YT_UA) + 3 < 4800) { char mm[4800]; snprintf(mm, sizeof mm, "%s\n%s\n%s", m0, mu, YT_UA); cJSON_ReplaceItemInObjectCaseSensitive(base, "mix", cJSON_CreateString(mm)); }
+          cJSON_ReplaceItemInObjectCaseSensitive(base, "lo", cJSON_CreateString(js_str(out, "lo", ""))); cJSON_ReplaceItemInObjectCaseSensitive(base, "hi", cJSON_CreateString(js_str(out, "hi", ""))); cJSON_Delete(out); } out = base; }
       else if (out && hasRm) cJSON_Delete(base); else { if (out) cJSON_Delete(out); out = base; } } }
   r->cb(out, r->ud); free(r);
 }
