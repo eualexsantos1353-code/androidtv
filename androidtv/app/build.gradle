@@ -86,6 +86,9 @@ dependencies {
     implementation "androidx.media3:media3-exoplayer-hls:$media3"
     implementation "androidx.media3:media3-exoplayer-dash:$media3"
     implementation "androidx.media3:media3-ui:$media3"
+    /* YouTube's picture files are tied to the IPv4 address that asked for them: the pieces go over OkHttp, IPv4 only */
+    implementation "androidx.media3:media3-datasource-okhttp:$media3"
+    implementation "com.squareup.okhttp3:okhttp:4.12.0"
     /* DTS, TrueHD, AC-3/E-AC-3 and more decoded in the app when the box cannot pass them through (FFmpeg, built by Jellyfin) */
     implementation "org.jellyfin.media3:media3-ffmpeg-decoder:$media3+1"
 }

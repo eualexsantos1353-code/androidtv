@@ -6,7 +6,16 @@ import androidx.media3.common.C;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.datasource.DataSource;
 import androidx.media3.datasource.DataSpec;
-import androidx.media3.datasource.DefaultHttpDataSource;
+import androidx.media3.datasource.okhttp.OkHttpDataSource;
+import android.util.Log;
+import okhttp3.Dns;
+import okhttp3.OkHttpClient;
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
 import androidx.media3.datasource.TransferListener;
 import java.io.IOException;
 
@@ -19,15 +28,22 @@ public final class YtChunked implements DataSource.Factory {
     private final String ua;
     public YtChunked(String ua) { this.ua = ua; }
 
+    /* IPv4 only: the address in the file's link (ip=...) is the one that asked for it, and a piece asked for over IPv6 is refused (403). */
+    private static final OkHttpClient HTTP = new OkHttpClient.Builder()
+        .dns(new Dns() { @Override public List<InetAddress> lookup(String host) throws UnknownHostException {
+            List<InetAddress> v4 = new ArrayList<>(); for (InetAddress a : Dns.SYSTEM.lookup(host)) if (a instanceof Inet4Address) v4.add(a);
+            if (v4.isEmpty()) throw new UnknownHostException("no IPv4 address for " + host); return v4; } })
+        .connectTimeout(15, TimeUnit.SECONDS).readTimeout(15, TimeUnit.SECONDS).followRedirects(true).followSslRedirects(true).build();
+
     @Override public DataSource createDataSource() {
-        DefaultHttpDataSource up = new DefaultHttpDataSource.Factory().setUserAgent(ua != null && !ua.isEmpty() ? ua : "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15").setConnectTimeoutMs(15000).setReadTimeoutMs(15000).setAllowCrossProtocolRedirects(true).createDataSource();
+        OkHttpDataSource up = new OkHttpDataSource.Factory(HTTP).setUserAgent(ua != null && !ua.isEmpty() ? ua : "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15").createDataSource();
         return new Source(up);
     }
 
     private static final class Source implements DataSource {
-        private final DefaultHttpDataSource up;
+        private final DataSource up;
         private boolean yt; private DataSpec orig; private long total = C.LENGTH_UNSET, start, end, got;
-        Source(DefaultHttpDataSource up) { this.up = up; }
+        Source(DataSource up) { this.up = up; }
         @Override public void addTransferListener(TransferListener l) { up.addTransferListener(l); }
         @Override public long open(DataSpec spec) throws IOException {
             String host = spec.uri.getHost();
@@ -42,12 +58,13 @@ public final class YtChunked implements DataSource.Factory {
             Uri b = orig.uri; if (host != null) b = b.buildUpon().authority(host).build();
             Uri u = b.buildUpon().appendQueryParameter("range", start + "-" + end).build();
             got = 0;
+            Log.i("StremioOrigin", "[ytfile] itag " + b.getQueryParameter("itag") + " " + b.getHost() + " from " + start);
             up.open(orig.buildUpon().setUri(u).setPosition(0).setLength(C.LENGTH_UNSET).build());
             return total != C.LENGTH_UNSET ? total : C.LENGTH_UNSET;
         }
         /* The other servers of the same video (the "mn" list), as NuvioTV tries them: some of them refuse (403). */
-        private java.util.List<String> others() {
-            java.util.List<String> out = new java.util.ArrayList<>();
+        private List<String> others() {
+            List<String> out = new ArrayList<>();
             String mn = orig.uri.getQueryParameter("mn"), host = orig.uri.getHost(); if (mn == null || host == null) return out;
             String[] sv = mn.split(",");
             for (int i = 0; i < sv.length; i++) {
@@ -60,6 +77,7 @@ public final class YtChunked implements DataSource.Factory {
         private long next() throws IOException {
             try { return open1(good); }
             catch (IOException e) {
+                Log.i("StremioOrigin", "[ytfile] refused: " + e.getMessage());
                 if (good != null || start != orig.position) throw e; /* only the first piece looks for another server */
                 for (String h : others()) { try { up.close(); long r = open1(h); good = h; return r; } catch (IOException ignore) { } }
                 throw e;
