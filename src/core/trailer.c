@@ -260,7 +260,7 @@ static void on_innertube(int st, const unsigned char *body, size_t len, void *ud
           if (sc > asc) { asc = sc; au = u; aln = ls; aid = id; }
           if (def && br > dsc) { dsc = br; du = u; } /* the video's own sound, for when the chosen one is refused */
         } }
-      if (*vu && *au && strlen(vu) + strlen(au) + strlen(du) + 3 + strlen(YT_UAS[r->cl]) + 1 < sizeof mix) { snprintf(mix, sizeof mix, "%s\n%s\n%s\n%s", vu, au, YT_UAS[r->cl], !strcmp(du, au) ? "" : du); fprintf(stderr, "[yt] %s picture %dp, sound %s%s\n", r->vid, vh, *aid ? aid : "(only one)", aln ? " (app language)" : ""); } }
+      if (*vu && *au && strlen(vu) + strlen(au) + 2 + strlen(YT_UAS[r->cl]) + 1 < sizeof mix) { (void)du; snprintf(mix, sizeof mix, "%s\n%s\n%s", vu, au, YT_UAS[r->cl]); /* (the video's own sound left out: the player's address holds 4 KB, and it is refused when the chosen one is) */ fprintf(stderr, "[yt] %s picture %dp, sound %s%s\n", r->vid, vh, *aid ? aid : "(only one)", aln ? " (app language)" : ""); } }
     cJSON *subs = cJSON_CreateArray(); const cJSON *c;
     cJSON_ArrayForEach(c, js_arr(js_obj(js_obj(j, "captions"), "playerCaptionsTracklistRenderer"), "captionTracks")) {
       const char *bu = js_str(c, "baseUrl", ""); if (!*bu) continue;
@@ -285,7 +285,12 @@ static void on_innertube(int st, const unsigned char *body, size_t len, void *ud
     if (r->cl < 3 && !hasRm) { r->out = out; r->cl = 3; yt_post(r); return; } /* separate files found: the Android client's ready-made one too, to fall back to if they do not play */
     if (r->cl == 3 && r->out) { cJSON *base = r->out; r->out = NULL; int bm = *js_str(base, "mix", "") != 0;
       if (bm) { if (out) { const char *m0 = js_str(base, "mix", ""), *mu = *js_str(out, "lo", "") ? js_str(out, "lo", "") : js_str(out, "hi", ""); /* the Android client's ready-made file (picture and sound in one) is the last sound to try for the sharp picture */
-          if (*mu && strlen(m0) + strlen(mu) + strlen(YT_UA) + 3 < 4800) { char mm[4800]; snprintf(mm, sizeof mm, "%s\n%s\n%s", m0, mu, YT_UA); cJSON_ReplaceItemInObjectCaseSensitive(base, "mix", cJSON_CreateString(mm)); }
+          if (*mu) { char mm[4096]; const char *a = strchr(m0, '\n'), *b = a ? strchr(a + 1, '\n') : NULL; /* picture / sound / agent / the ready-made file: the last sound to try; the address must fit in 4 KB */
+            if (strlen(m0) + strlen(mu) + 2 < sizeof mm) snprintf(mm, sizeof mm, "%s\n%s", m0, mu);
+            else if (a && b && (size_t)(a - m0) + strlen(mu) + strlen(b) + 2 < sizeof mm) snprintf(mm, sizeof mm, "%.*s\n%s%s", (int)(a - m0), m0, mu, b); /* too long: the ready-made file's sound in place of the chosen one */
+            else mm[0] = 0;
+            fprintf(stderr, "[yt] sharp picture with %s\n", !mm[0] ? "its own sound only (too long)" : strlen(m0) + strlen(mu) + 2 < sizeof mm ? "the chosen sound, then the ready-made file's" : "the ready-made file's sound");
+            if (mm[0]) cJSON_ReplaceItemInObjectCaseSensitive(base, "mix", cJSON_CreateString(mm)); }
           cJSON_ReplaceItemInObjectCaseSensitive(base, "lo", cJSON_CreateString(js_str(out, "lo", ""))); cJSON_ReplaceItemInObjectCaseSensitive(base, "hi", cJSON_CreateString(js_str(out, "hi", ""))); cJSON_Delete(out); } out = base; }
       else if (out && hasRm) cJSON_Delete(base); else { if (out) cJSON_Delete(out); out = base; } } }
   r->cb(out, r->ud); free(r);

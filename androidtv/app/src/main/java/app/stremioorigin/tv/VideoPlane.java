@@ -224,14 +224,13 @@ public final class VideoPlane {
     private static DefaultMediaSourceFactory msfS;
     private static String[] curPa; private static int paStage; /* YouTube's picture and sound as asked for, and whether the video's own sound was already tried */
     /* lines of "picture / sound / agent / own sound / ready-made file / its agent": the next sound to try with the same picture */
+    /* lines of "picture / sound / agent / the ready-made file": that file's sound with the same sharp picture, once */
     private static boolean nextSound(String[] pa) {
-        String au = null, ua = pa.length > 2 ? pa[2] : "";
-        while (au == null && paStage < 2) { paStage++;
-            if (paStage == 1 && pa.length > 3 && !pa[3].isEmpty()) au = pa[3];
-            else if (paStage == 2 && pa.length > 5 && !pa[4].isEmpty()) { au = pa[4]; ua = pa[5]; } }
-        if (au == null) return false;
-        try { DefaultMediaSourceFactory mv = new DefaultMediaSourceFactory(new YtChunked(pa[2])), ma = new DefaultMediaSourceFactory(new YtChunked(ua)); long at = player.getCurrentPosition();
-            player.setMediaSource(new MergingMediaSource(mv.createMediaSource(MediaItem.fromUri(Uri.parse(pa[0]))), ma.createMediaSource(MediaItem.fromUri(Uri.parse(au)))), at); player.prepare(); player.setPlayWhenReady(wantPlay); return true;
+        if (paStage > 0 || pa.length < 4 || pa[3].isEmpty()) return false; paStage = 1;
+        try { DefaultMediaSourceFactory mf = new DefaultMediaSourceFactory(new YtChunked(pa[2])); long at = player.getCurrentPosition();
+            DefaultTrackSelector.Parameters keep = selector.getParameters(); /* the sharp picture, never the ready-made file's 360p one */
+            selector.setParameters(keep.buildUpon().setForceHighestSupportedBitrate(true));
+            player.setMediaSource(new MergingMediaSource(mf.createMediaSource(MediaItem.fromUri(Uri.parse(pa[0]))), mf.createMediaSource(MediaItem.fromUri(Uri.parse(pa[3])))), at); player.prepare(); player.setPlayWhenReady(wantPlay); return true;
         } catch (Exception x) { return false; }
     }
     public static void load(final String url, final long startMs, final boolean isLive) {
@@ -241,7 +240,7 @@ public final class VideoPlane {
         run(() -> {
             ensure(); if (player == null) { state = 6; error = "no player"; return; }
             /* no subtitle of the file's own until the app picks one (a track flagged "default" was shown by itself) */
-            selector.setParameters(selector.buildUponParameters().clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true));
+            selector.setParameters(selector.buildUponParameters().clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).setForceHighestSupportedBitrate(false));
             if (url.indexOf('\n') > 0) { /* "picture\naudio": YouTube's two files, played together */
                 String[] pa = url.split("\n"); curPa = pa; paStage = 0;
                 DefaultMediaSourceFactory mf = pa[0].contains("googlevideo.com") ? new DefaultMediaSourceFactory(new YtChunked(pa.length > 2 ? pa[2] : "")) : msfS; /* (YouTube's own files: in pieces, with the user agent of the client that asked) */
