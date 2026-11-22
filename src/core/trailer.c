@@ -527,14 +527,15 @@ static void on_yt_first(Job *j, const char *url, const char *err) {
 static void on_tm_videos(int st, const unsigned char *body, size_t len, void *ud) {
   Job *j = ud; cJSON *r = st > 0 ? net_json(body) : NULL; char ll[4]; snprintf(ll, sizeof ll, "%.2s", i18n_lang()); const cJSON *v; int n = 0; char ids[8][20];
   cJSON_ArrayForEach(v, js_arr(r, "results")) { const char *nm = js_str(v, "name", ""); /* (what the list holds in the language: its names tell a dubbed cut from a subtitled one) */
-    if (!strcmp(js_str(v, "iso_639_1", ""), ll) || nm_has(nm, "dublad") || nm_has(nm, "dubbed")) fprintf(stderr, "[trailer] TMDB video: \"%.60s\" (%s, %s)\n", nm, js_str(v, "iso_639_1", "?"), js_str(v, "type", "?")); }
+    if (!strcmp(js_str(v, "iso_639_1", ""), ll) || nm_has(nm, "dublad") || nm_has(nm, "dubbed") || nm_has(nm, "dobrad")) fprintf(stderr, "[trailer] TMDB video: \"%.60s\" (%s, %s)\n", nm, js_str(v, "iso_639_1", "?"), js_str(v, "type", "?")); }
   for (int pass = -1; pass < 3; pass++) cJSON_ArrayForEach(v, js_arr(r, "results")) {
     const char *ty = js_str(v, "type", ""), *nm = js_str(v, "name", ""); /* a dubbed cut first (pass -1: by its name, whatever language TMDB filed it under); a trailer next; a teaser or a clip only when nothing better (pass 2) */
     if (n >= 5 || strcasecmp(js_str(v, "site", ""), "YouTube")) continue;
-    if (pass < 0) { if (strcmp(ll, "pt") || !(nm_has(nm, "dublad") || nm_has(nm, "dubbed")) || (strcasecmp(ty, "Trailer") && strcasecmp(ty, "Teaser"))) continue; }
+    if (pass < 0) { if (strcmp(ll, "pt") || !(nm_has(nm, "dublad") || nm_has(nm, "dubbed") || nm_has(nm, "dobrad")) || (strcasecmp(ty, "Trailer") && strcasecmp(ty, "Teaser"))) continue; }
     else if (strcmp(js_str(v, "iso_639_1", ""), ll)) continue;
     if (pass >= 0 && pass < 2 && strcasecmp(ty, "Trailer")) continue; if (pass == 2 && (n || (strcasecmp(ty, "Teaser") && strcasecmp(ty, "Clip")))) continue;
     if (pass == 0 && !js_bool(v, "official", 0)) continue; /* the official ones first */
+    if (pass >= 0 && !strcmp(ll, "pt") && (nm_has(nm, "legendad") || nm_has(nm, "subtitled"))) continue; /* (English sound with captions: not what was asked for) */
     const char *k = js_str(v, "key", ""); if (!valid_yt(k)) continue; int dup = 0; for (int i = 0; i < n; i++) if (!strcmp(ids[i], k)) dup = 1;
     if (!dup) cpy(ids[n++], sizeof ids[0], k); }
   cJSON *r0 = r; 
