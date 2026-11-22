@@ -98,7 +98,7 @@ typedef struct Job {
   int got; cJSON *imdbList, *caps;   /* IMDb and the captioned YouTube cuts, asked side by side */
   int imdbTry; double imdbRetryAt;
   int capsLeft, capsFired; double capsCapAt;
-  int cineTi; char ytIn[200]; int ytFirst; char title[120]; int srch; /* title: the film's name and year, for the YouTube search of a dubbed trailer */ /* the meta's YouTube ids; ytFirst: a trailer in the app's language from TMDB, tried before IMDb's */
+  int cineTi; char ytIn[200]; int ytFirst; char title[120], loc[100]; int srch; /* title: the film's name and year, for the YouTube search of a dubbed trailer */ /* the meta's YouTube ids; ytFirst: a trailer in the app's language from TMDB, tried before IMDb's */
   struct Job *next;
 } Job;
 static Job *jobs; static unsigned nextTok = 1;
@@ -198,7 +198,7 @@ static void yt_post(YtReq *r) {
   cJSON *b = cJSON_CreateObject(), *ctx = cJSON_AddObjectToObject(b, "context"), *cl = cJSON_AddObjectToObject(ctx, "client"); char hd[900];
   cJSON_AddStringToObject(b, "videoId", r->vid); cJSON_AddTrueToObject(b, "contentCheckOk"); cJSON_AddTrueToObject(b, "racyCheckOk");
   cJSON_AddStringToObject(cl, "hl", hl); cJSON_AddStringToObject(cl, "gl", gl);
-  if (r->cl == 0) {
+  if (r->cl == 1) {
     cJSON_AddStringToObject(cl, "clientName", "VISIONOS"); cJSON_AddStringToObject(cl, "clientVersion", "1.02"); cJSON_AddStringToObject(cl, "deviceMake", "Apple");
     cJSON_AddStringToObject(cl, "deviceModel", "RealityDevice17,1"); cJSON_AddStringToObject(cl, "osName", "visionOS"); cJSON_AddStringToObject(cl, "osVersion", "26.5.23O471");
     cJSON *pc = cJSON_AddObjectToObject(b, "playbackContext"), *cp = cJSON_AddObjectToObject(pc, "contentPlaybackContext"); cJSON_AddStringToObject(cp, "html5Preference", "HTML5_PREF_WANTS");
@@ -260,8 +260,9 @@ static void on_innertube(int st, const unsigned char *body, size_t len, void *ud
     } else cJSON_Delete(subs);
     net_json_free(j);
   } else fprintf(stderr, "[yt] %s client %d answered %d\n", r->vid, r->cl, st);
-  if (r->cl == 0 && (!out || (!*js_str(out, "mix", "") && !*js_str(out, "hi", "")))) { /* the VisionOS client gave no usable file: the Android one */
-    fprintf(stderr, "[yt] %s: no separate files, trying the Android client\n", r->vid); if (out) cJSON_Delete(out); r->cl = 1; yt_post(r); return; }
+  if (r->cl == 0 && (!out || !*js_str(out, "mix", ""))) { /* the Android client gave no separate files: VisionOS's (its ready-made ones are kept if it has none) */
+    fprintf(stderr, "[yt] %s: no separate files, trying the VisionOS client\n", r->vid); cJSON *keep = out; r->cl = 1; r->out = keep; yt_post(r); return; }
+  if (r->cl == 1 && r->out) { if (!out || !*js_str(out, "mix", "")) { if (out) cJSON_Delete(out); out = r->out; } else cJSON_Delete(r->out); r->out = NULL; }
   r->cb(out, r->ud); free(r);
 }
 static void yt_innertube(const char *vid, YtCb cb, void *ud) {
@@ -561,22 +562,22 @@ static void tm_start(Job *j) {
 static int nm_has(const char *s, const char *w) { size_t n = strlen(w); for (; *s; s++) if (!strncasecmp(s, w, n)) return 1; return 0; }
 /* ---- a dubbed trailer from YouTube's own search ("<title> trailer oficial dublado"): TMDB lists few cuts in Portuguese ---- */
 static void tm_usual(Job *j) { if (valid_tt(j->imdb, 5, 10) && tmdb_wanted(j->imdb)) tm_start(j); else tm_go(j); }
-static void yt_hits(const cJSON *n, const char *name, char ids[][20], int *cnt) {
+static void yt_hits(const cJSON *n, const char *name, const char *loc, char ids[][20], int *cnt) {
   if (!n || *cnt >= 4) return;
   if (cJSON_IsObject(n)) {
     const char *vid = js_str(n, "videoId", "");
     if (valid_yt(vid)) {
       const cJSON *t = js_obj(n, "title"); if (!t) t = js_obj(n, "headline");
       const char *tt = js_str(cJSON_GetArrayItem(js_arr(t, "runs"), 0), "text", js_str(t, "simpleText", ""));
-      if (*tt && nm_has(tt, "dublad") && (nm_has(tt, "trailer") || nm_has(tt, "teaser")) && !nm_has(tt, "react") && !nm_has(tt, "rea\xc3\xa7\xc3\xa3o") && nm_has(tt, name)) {
+      if (*tt && nm_has(tt, "dublad") && (nm_has(tt, "trailer") || nm_has(tt, "teaser")) && !nm_has(tt, "react") && !nm_has(tt, "rea\xc3\xa7\xc3\xa3o") && (nm_has(tt, name) || (*loc && nm_has(tt, loc)))) {
         int dup = 0; for (int i = 0; i < *cnt; i++) if (!strcmp(ids[i], vid)) dup = 1;
         if (!dup) { cpy(ids[(*cnt)++], 20, vid); fprintf(stderr, "[trailer] search hit: \"%.70s\" (%s)\n", tt, vid); } } } }
-  for (const cJSON *c = n->child; c; c = c->next) yt_hits(c, name, ids, cnt);
+  for (const cJSON *c = n->child; c; c = c->next) yt_hits(c, name, loc, ids, cnt);
 }
 static void on_search(int st, const unsigned char *body, size_t len, void *ud) {
   Job *j = ud; cJSON *r = st > 0 ? net_json(body) : NULL; char ids[4][20]; int n = 0; char nm[100]; cpy(nm, sizeof nm, j->title);
   { char *y = strrchr(nm, ' '); if (y && strlen(y) == 5 && y[1] >= '1' && y[1] <= '2') *y = 0; } /* (the year is in the query, not in the title that must be in the video's) */
-  if (r) yt_hits(r, nm, ids, &n);
+  if (r) yt_hits(r, nm, j->loc, ids, &n);
   cJSON_Delete(r); fprintf(stderr, "[trailer] YouTube search \"%s\" answered %d, %d dubbed trailer(s)\n", j->title, st, n);
   if (!n) tm_usual(j);
   else { j->nyt = 0; for (int i = 0; i < n; i++) cpy(j->yt[j->nyt++], sizeof j->yt[0], ids[i]); j->ytFirst = 1; j->srch = 1; yt_resolve(j, j->yt[0], on_yt_first); }
@@ -585,7 +586,7 @@ static void on_search(int st, const unsigned char *body, size_t len, void *ud) {
 static void search_start(Job *j) {
   cJSON *b = cJSON_CreateObject(), *ctx = cJSON_AddObjectToObject(b, "context"), *cl = cJSON_AddObjectToObject(ctx, "client"); char q[200];
   cJSON_AddStringToObject(cl, "clientName", "WEB"); cJSON_AddStringToObject(cl, "clientVersion", "2.20250101.00.00"); cJSON_AddStringToObject(cl, "hl", "pt"); cJSON_AddStringToObject(cl, "gl", "BR");
-  snprintf(q, sizeof q, "%s trailer oficial dublado", j->title); cJSON_AddStringToObject(b, "query", q); cJSON_AddStringToObject(b, "params", "EgIQAQ==");
+  snprintf(q, sizeof q, "%s trailer oficial dublado", j->loc[0] ? j->loc : j->title); /* (the name people know it by here: "A Casa do Dragão") */ cJSON_AddStringToObject(b, "query", q); cJSON_AddStringToObject(b, "params", "EgIQAQ==");
   char *body = cJSON_PrintUnformatted(b); cJSON_Delete(b); if (!body) { tm_usual(j); return; }
   j->refs++;
   net_post_hdr_t("https://www.youtube.com/youtubei/v1/search?prettyPrint=false", body, "application/json",
@@ -594,7 +595,7 @@ static void search_start(Job *j) {
 }
 
 /* ---- the API ----------------------------------------------------------------------------------------- */
-static char pendTitle[120]; /* trailer_find_meta's title for the trailer_find it calls */
+static char pendTitle[120], pendLoc[100]; /* trailer_find_meta's title for the trailer_find it calls */
 unsigned trailer_find(const char *imdbId, const char *ytIds, int lowQuality, TrailerCb cb, void *ud) {
   Job *j = calloc(1, sizeof *j); j->tok = nextTok++; j->lq = !!lowQuality; j->cb = cb; j->ud = ud; j->refs = 1; j->next = jobs; jobs = j;
   cpy(j->imdb, sizeof j->imdb, imdbId); snprintf(j->key, sizeof j->key, "%s|%s|%d", j->imdb, ytIds ? ytIds : "", j->lq);
@@ -603,7 +604,7 @@ unsigned trailer_find(const char *imdbId, const char *ytIds, int lowQuality, Tra
   if (tc) { j->sent = 1; j->out = cJSON_Duplicate(tc, 1); j->deliver = 1; j->refs++; }
   else {
     cpy(j->ytIn, sizeof j->ytIn, ytIds ? ytIds : "");
-    cpy(j->title, sizeof j->title, pendTitle);
+    cpy(j->title, sizeof j->title, pendTitle); cpy(j->loc, sizeof j->loc, pendLoc);
     if (j->title[0] && !strncmp(i18n_lang(), "pt", 2)) search_start(j); /* a dubbed cut from YouTube first, then TMDB's, then IMDb's */
     else if (valid_tt(j->imdb, 5, 10) && tmdb_wanted(j->imdb)) tm_start(j); else tm_go(j);
   }
@@ -625,8 +626,9 @@ unsigned trailer_find_meta(const cJSON *meta, const char *id, int lowQuality, Tr
     return j->tok; }
   { const char *nm = js_str(meta, "name", ""), *yr = js_str(meta, "year", js_str(meta, "releaseInfo", "")); char y4[8] = "";
     if (strlen(yr) >= 4 && yr[0] >= '1' && yr[0] <= '2' && yr[1] >= '0' && yr[1] <= '9' && yr[2] >= '0' && yr[2] <= '9' && yr[3] >= '0' && yr[3] <= '9') { memcpy(y4, yr, 4); y4[4] = 0; }
-    if (*nm) snprintf(pendTitle, sizeof pendTitle, "%.100s%s%s", nm, y4[0] ? " " : "", y4); else pendTitle[0] = 0; }
-  unsigned tk = trailer_find(imdb, yt, lowQuality, cb, ud); pendTitle[0] = 0; return tk;
+    if (*nm) snprintf(pendTitle, sizeof pendTitle, "%.100s%s%s", nm, y4[0] ? " " : "", y4); else pendTitle[0] = 0;
+    { const char *ln = js_str(meta, "locName", ""); if (*ln && strcmp(ln, nm)) snprintf(pendLoc, sizeof pendLoc, "%.95s", ln); else pendLoc[0] = 0; } }
+  unsigned tk = trailer_find(imdb, yt, lowQuality, cb, ud); pendTitle[0] = 0; pendLoc[0] = 0; return tk;
 }
 void trailer_cancel(unsigned tok) { for (Job *j = jobs; j; j = j->next) if (j->tok == tok) j->cancelled = 1; }
 void trailer_tick(void) {
