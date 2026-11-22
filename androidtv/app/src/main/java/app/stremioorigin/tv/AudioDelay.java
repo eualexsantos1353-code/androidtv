@@ -1,6 +1,5 @@
 package app.stremioorigin.tv;
 
-import androidx.annotation.Nullable;
 import androidx.annotation.OptIn;
 import androidx.media3.common.C;
 import androidx.media3.common.MimeTypes;
@@ -42,7 +41,7 @@ final class AudioDelay {
         @Override public void maybeThrowPrepareError() throws IOException { inner.maybeThrowPrepareError(); }
         @Override public TrackGroupArray getTrackGroups() { return inner.getTrackGroups(); }
         @Override public List<StreamKey> getStreamKeys(List<ExoTrackSelection> s) { return inner.getStreamKeys(s); }
-        @Override public long selectTracks(@Nullable ExoTrackSelection[] sel, boolean[] keep, @Nullable SampleStream[] streams, boolean[] reset, long posUs) {
+        @Override public long selectTracks(ExoTrackSelection[] sel, boolean[] keep, SampleStream[] streams, boolean[] reset, long posUs) {
             SampleStream[] child = new SampleStream[streams.length];
             for (int i = 0; i < streams.length; i++) child[i] = streams[i] instanceof Shifted ? ((Shifted) streams[i]).child : streams[i];
             long r = inner.selectTracks(sel, keep, child, reset, posUs);
