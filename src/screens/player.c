@@ -1444,7 +1444,7 @@ static void swatch_draw(int which, int v, float cx, float cy, float r) {
 #define COL_LH 520.0f        /* the subtitle columns' window (about seven entries) */
 #define TAB_FS 28            /* the trays' tabs: their words, and the pill around them */
 #define TAB_PAD 60.0f
-#define TAB_GAP 14.0f
+#define TAB_GAP 6.0f
 #define SRC_RW (SRC_W - 62)  /* a row */
 #define SRC_LH 630.0f        /* the list's window at most (the tray stays clear of the clock) */
 #define SRC_VH SRC_LH /* the list window: always the same height, so the tray keeps one size on every tab */
@@ -3086,14 +3086,17 @@ static void draw_tray(void) {
   x = SB_W - 72 - W; y = SB_H - 178 - H;
   PG.tray = P.tray.kind > 0 && P.tray.openA.v > 0.5f; PG.x = x; PG.y = y; PG.w = W; PG.h = H;
   float sc = P.tray.open.v; gfx_opacity_push(P.tray.openA.v); gfx_scale_push(sc, sc, P.tray.ox, P.tray.oy);
-  gfx_rrect(x, y, W, H, 28, RGBA(18, 16, 28, 250)); /* (nearly opaque: on some TVs the 204 let a bright picture through and the white rows vanished) */ gfx_rrect_v(x, y, W, H, 28, WHITE_A(20), WHITE_A(5)); gfx_ring(x, y, W, H, 28, 1, WHITE_A(31));
+  gfx_shadow(x, y + 14, W, H, 28, 56, BLACK_A(150)); /* the tray lifts off the picture */
+  gfx_rrect_v(x, y, W, H, 28, RGBA(32, 28, 48, 252), RGBA(14, 12, 22, 252)); /* (nearly opaque: on some TVs the 204 let a bright picture through and the white rows vanished) */
+  { gfx_clip_push(x, y, W, 96); gfx_rrect_v(x, y, W, 96, 28, WHITE_A(15), WHITE_A(0)); gfx_clip_pop(); } /* a soft sheen along the top */
+  gfx_ring(x, y, W, H, 28, 1, WHITE_A(26)); gfx_ring(x + 1, y + 1, W - 2, H - 2, 27, 1, WHITE_A(9));
   gfx_offset_push(nudge_x(&P.nudge) * (P.mode == 2), nudge_y(&P.nudge) * (P.mode == 2));
   float ix = x + 1, cy = y + 1 + 22;
   if (P.tray.ntabs) { if (ak == 5 || ak == 2) { text_draw(P.tray.title, ix + 30, cy, 24, 800, WHITE_A(209), 0, W - 62, ALIGN_LEFT); cy += L24 + 14; }
     float vw = W - 2 - 60, xt[40], tx = 0; for (int i = 0; i < P.tray.ntabs; i++) { xt[i] = tx; tx += tabW[i] + TAB_GAP; }
     float want = 0; if (P.tray.tab < P.tray.ntabs) { want = xt[P.tray.tab] + tabW[P.tray.tab] / 2 - vw / 2; if (want > tabsW - vw) want = tabsW - vw; if (want < 0) want = 0; } mo_to(&P.tray.tabsX, want, .25f, C_EASE, 0); /* the chosen tab stays in view */
     float bh = 28 + text_line_height(TAB_FS); gfx_clip_push(ix + 30, cy - 4, vw, bh + 8);
-    for (int i = 0; i < P.tray.ntabs; i++) { float bx = ix + 30 + xt[i] - P.tray.tabsX.v; gfx_rrect(bx, cy, tabW[i], bh, bh / 2, WHITE_A(16)); gfx_ring(bx, cy, tabW[i], bh, bh / 2, 1.5f, WHITE_A(46)); } /* every tab its own pill: plainly something to choose */
+    { float tw0 = tabsW - TAB_GAP - P.tray.tabsX.v; if (tw0 > vw) tw0 = vw; gfx_rrect(ix + 30 - 6, cy - 6, tw0 + 12, bh + 12, (bh + 12) / 2, WHITE_A(12)); gfx_ring(ix + 30 - 6, cy - 6, tw0 + 12, bh + 12, (bh + 12) / 2, 1, WHITE_A(18)); } /* one track for all the tabs: a segmented choice, not a row of boxes */
     /* one pill under the chosen tab, gliding from tab to tab; lit with the accent while the tabs have the focus */
     if (P.tray.tab < P.tray.ntabs) { int tf = P.tray.zone == 1 && !P.tray.onBtn && P.tray.kind > 0;
       if (!TM.tabSeen) { mo_set(&TM.tabX, xt[P.tray.tab]); mo_set(&TM.tabW, tabW[P.tray.tab]); mo_set(&TM.tabF, tf); TM.tabSeen = 1; }
@@ -3105,7 +3108,7 @@ static void draw_tray(void) {
     for (int i = 0; i < P.tray.ntabs; i++) { float bx = ix + 30 + xt[i] - P.tray.tabsX.v;
       PG.tabX[i] = bx; PG.tabW[i] = tabW[i]; PG.tabY = cy; PG.tabH = bh; PG.ntab = i + 1;
       float u = 1 - fabsf(pc - (bx + tabW[i] / 2)) / tabW[i]; if (u < 0) u = 0; /* the words under the pill take its colours as it passes */
-      text_draw(P.tray.tabs[i], bx + tabW[i] / 2, cy + 14, TAB_FS, 700, col_mix(WHITE_A(224), col_mix(WHITE_A(255), ACC_FG, TM.tabF.v), u), 0, 0, ALIGN_CENTER); }
+      text_draw(P.tray.tabs[i], bx + tabW[i] / 2, cy + 14, TAB_FS, 700, col_mix(WHITE_A(168), col_mix(WHITE_A(255), ACC_FG, TM.tabF.v), u), 0, 0, ALIGN_CENTER); }
     gfx_clip_pop(); cy += bh + 22; }
   else if (P.tray.title[0]) { text_draw(P.tray.title, ix + 30, cy, 30, 800, WHITE_A(255), 0, W - 62, ALIGN_LEFT); cy += L30 + 18; }
   float lstTop = cy;
