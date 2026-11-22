@@ -27,6 +27,7 @@
 #include "core/parental.h"
 #include "core/rating.h"
 #include "core/mdblist.h"
+#include "core/eprating.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -36,7 +37,7 @@
 #include "core/coll.h"
 
 #define EP_W 617.0f   /* episode card 589 + gap */
-#define MAXBTN 7
+#define MAXBTN 8
 #define MAXSEASON 64
 #define MAXPPL 7 /* the first of the cast (TMDB's, in billing order): seven faces, clear of the poster */
 #define PP_VIS 10
@@ -168,7 +169,7 @@ static void play_best(void) {
 }
 
 /* ---- buttons: Play (best stream on), Trailer, Similar, Library, Reviews, the watched eye ---- */
-enum { B_PLAY, B_TRAILER, B_SIMILAR, B_LIB, B_EYE, B_REVIEWS, B_COLL };
+enum { B_PLAY, B_TRAILER, B_SIMILAR, B_LIB, B_EYE, B_REVIEWS, B_COLL, B_SHUFFLE, B_KINDS };
 static void btn_label_now(int kind, char *out, size_t cap, const char **icon) {
   switch (kind) {
     case B_PLAY: { cJSON *lb = lib_get(ID()); int rs = js_num(js_obj(lb, "state"), "timeOffset", 0) > 60000; *icon = "play"; snprintf(out, cap, "%s", T(rs ? "Resume" : "Play")); break; }
@@ -176,6 +177,7 @@ static void btn_label_now(int kind, char *out, size_t cap, const char **icon) {
     case B_SIMILAR: *icon = "similar"; snprintf(out, cap, "%s", T("Similar")); break;
     case B_REVIEWS: *icon = "reviews"; snprintf(out, cap, "%s", T("Reviews")); break;
     case B_COLL: { char nb[16]; snprintf(nb, sizeof nb, "%d", D.collN); *icon = "collection"; snprintf(out, cap, "%s · %s", D.collName[0] ? D.collName : T("Collection"), nb); break; } /* its name and how many films */
+    case B_SHUFFLE: *icon = "shuffle"; snprintf(out, cap, "%s", T("Random episode")); break;
     case B_LIB: { int on = lib_has(ID()); *icon = on ? "check" : "plus"; snprintf(out, cap, "%s", T(on ? "In Library" : "Library")); break; }
     default: { int w = watched_now(); *icon = w ? "eyeOff" : "eye"; snprintf(out, cap, "%s", T(w ? "Mark as unwatched" : "Mark as watched")); }
   }
@@ -190,6 +192,7 @@ static void make_btns(void) {
   kinds[n++] = B_PLAY; /* always: the best stream on, it plays it (held: all of them); off, it opens the list */
   if (trailer_available(D.meta, ID())) kinds[n++] = B_TRAILER;
   if (D.collKey[0] && D.collN >= 2) kinds[n++] = B_COLL; /* (in a collection: before Similar) */
+  if (is_series() && D.nseasons > 0) kinds[n++] = B_SHUFFLE; /* a series: one of its aired episodes, drawn at random */
   kinds[n++] = B_SIMILAR; kinds[n++] = B_LIB; if (imdb_of(im, sizeof im)[0]) kinds[n++] = B_REVIEWS; kinds[n++] = B_EYE;
   int same = n == D.nbtn; for (int i = 0; same && i < n; i++) same = D.btn[i].kind == kinds[i];
   if (!same) { /* the buttons change (a trailer or the reviews became known): laid out again in place */
@@ -210,6 +213,14 @@ static void show_reviews(void) { if (revpanel_page_k() > 0) { revpanel_page_clos
 static int eye_ep(const char **lbl, const char **icon, float *w) {
   Item ep; if (!revpanel_page_episode(&ep)) return 0; int on = lib_is_marked_watched(&ep);
   *lbl = T(on ? "Mark episode as unwatched" : "Mark episode as watched"); *icon = on ? "eyeOff" : "eye"; *w = text_width(*lbl, 26, 600, 0); return 1; }
+/* Random episode: any aired episode of the regular seasons (no specials), played as Play would */
+static void play_random(void) {
+  const cJSON *vs = js_arr(D.meta, "videos"), *v; int n = 0; const char *pick = NULL;
+  cJSON_ArrayForEach(v, vs) { if (js_num(v, "season", 0) < 1 || unreleased(v) || !*js_str(v, "id", "")) continue; n++; if (rand() % n == 0) pick = js_str(v, "id", ""); } /* (reservoir: each one as likely) */
+  if (!pick) { toast(T("No episodes yet"), 2200, NULL); return; }
+  { const cJSON *w; cJSON_ArrayForEach(w, vs) if (!strcmp(js_str(w, "id", ""), pick)) { char m[160]; snprintf(m, sizeof m, "%s %d \xc2\xb7 %s %d", T("Season"), (int)js_num(w, "season", 0), T("Episode"), (int)js_num(w, "episode", js_num(w, "number", 0))); toast(m, 2500, NULL); break; } }
+  if (best_on()) play_best_vid(pick); else detail_open_streams(pick);
+}
 static void btn_act(int kind) {
   if (kind == B_PLAY) { if (best_on()) play_best(); else { char vid[80]; if (play_target(vid, sizeof vid)) detail_open_streams(vid); } }
   else if (kind == B_TRAILER) detail_trailer(D.p.it.type, ID(), mname());
@@ -218,6 +229,7 @@ static void btn_act(int kind) {
   else if (kind == B_LIB) { Item it = meta_item(); int was = lib_has(it.id); sound_play(SND_TOGGLE); cwmenu_fx_lib(!was, &it); lib_toggle(&it); app_refresh_boards(); } /* the chip, as from a card's menu */
   else if (kind == B_EYE) { Item ep; if (revpanel_page_episode(&ep)) { sound_play(SND_TOGGLE); lib_toggle_watched(&ep, js_arr(D.meta, "videos")); app_refresh_boards(); detail_refresh_watched(); } else toggle_watched_all(); } /* (in an episode's reviews: that episode) */
   else if (kind == B_REVIEWS) show_reviews();
+  else if (kind == B_SHUFFLE) play_random();
 }
 void detail_paint_lib(void) {}
 void detail_refresh_watched(void) { if (!D.meta) return; load_watched(); }
@@ -288,7 +300,7 @@ static float names_h_now(void) { int two = 0, role = 0; for (int i = 0; i < D.np
 typedef struct { int unrel, w, res, epNum; float tagW; const char *ov; char rel[64], src[512], tag[96], title[300], info[160], ovb[300]; } EpRec;
 static struct {
   int ok; unsigned ver, lv, lg, frame, mg; long mn, mnNow;
-  char btnLbl[7][64]; const char *btnIcon[7]; float btnW[7]; int wNow;   /* the buttons by kind */
+  char btnLbl[B_KINDS][64]; const char *btnIcon[B_KINDS]; float btnW[B_KINDS]; int wNow; unsigned eg;   /* the buttons by kind */
   char cover[512], fb[512]; const char *name, *desc; int nameN; float descH, namesH;
   MetaParts mp[2];                                                        /* the meta line: without / with the translated name */
   char sLbl[MAXSEASON][48]; float sW[MAXSEASON][2];                       /* the seasons, at 600 and 700 */
@@ -296,9 +308,9 @@ static struct {
 } DC;
 static void dc_check(void) {
   unsigned f = app_frame(); if (f != DC.frame || !DC.ok) { DC.frame = f; DC.mnNow = (long)(time(NULL) / 60); }
-  if (DC.ok && DC.ver == D.ver && DC.lv == lib_version() && DC.lg == i18n_gen() && DC.mn == DC.mnNow && DC.mg == mdb_generation()) return;
-  DC.ok = 1; DC.ver = D.ver; DC.lv = lib_version(); DC.lg = i18n_gen(); DC.mn = DC.mnNow; DC.mg = mdb_generation();
-  for (int k = 0; k < 7; k++) { btn_label_now(k, DC.btnLbl[k], sizeof DC.btnLbl[k], &DC.btnIcon[k]); DC.btnW[k] = text_width(DC.btnLbl[k], 26, 600, 0); }
+  if (DC.ok && DC.ver == D.ver && DC.lv == lib_version() && DC.lg == i18n_gen() && DC.mn == DC.mnNow && DC.mg == mdb_generation() && DC.eg == eprating_generation()) return;
+  DC.ok = 1; DC.ver = D.ver; DC.lv = lib_version(); DC.lg = i18n_gen(); DC.mn = DC.mnNow; DC.mg = mdb_generation(); DC.eg = eprating_generation();
+  for (int k = 0; k < B_KINDS; k++) { btn_label_now(k, DC.btnLbl[k], sizeof DC.btnLbl[k], &DC.btnIcon[k]); DC.btnW[k] = text_width(DC.btnLbl[k], 26, 600, 0); }
   DC.wNow = watched_now();
   { Item *it = malloc(sizeof *it); DC.cover[0] = DC.fb[0] = 0;
     if (it) { *it = meta_item(); char pu[512]; const char *lp = js_str(D.meta, "locPoster", NULL); const char *src = lp && *lp ? lp : sb_poster_of(it, pu, sizeof pu); snprintf(DC.cover, sizeof DC.cover, "%s", src ? src : "");
@@ -335,6 +347,8 @@ static void ep_make(EpRec *r, int i) {
   r->res = !strcmp(js_str(v, "id", ""), D.resVid);
   const char *nm = js_str(v, "name", js_str(v, "title", NULL)); if (nm && *nm) snprintf(r->title, sizeof r->title, "%d. %s", r->epNum, nm); else { char n[16]; snprintf(n, sizeof n, "%d", r->epNum); snprintf(r->title, sizeof r->title, "%d. %s", r->epNum, T1("Episode {n}", "n", n)); }
   { char rt[32] = ""; int mn = sb_runtime_min(js_str(v, "runtime", "")); if (mn) sb_fmt_runtime(mn, rt, sizeof rt); else snprintf(rt, sizeof rt, "%s", js_str(v, "runtime", "")); snprintf(r->info, sizeof r->info, "%s%s%s", r->rel, r->rel[0] && rt[0] ? "  ·  " : "", rt); }
+  { char im[32]; float er = season >= 0 && imdb_of(im, sizeof im)[0] ? eprating_get(im, season, r->epNum) : -1; /* its own IMDb rating (NuvioTV's episode ratings) */
+    if (er > 0) { size_t l = strlen(r->info); snprintf(r->info + l, sizeof r->info - l, "%sIMDb %.1f", l ? "  \xc2\xb7  " : "", er); } }
   r->ov = js_str(v, "overview", js_str(v, "description", ""));
   if (!*r->ov && r->unrel) { if (r->rel[0]) snprintf(r->ovb, sizeof r->ovb, "%s", T1("Expected air date: {d}", "d", r->rel)); else snprintf(r->ovb, sizeof r->ovb, "%s", T("Air date to be announced.")); r->ov = r->ovb; }
 }
