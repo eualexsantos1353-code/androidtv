@@ -117,7 +117,6 @@ public final class VideoPlane {
             .setUserAgent("StremioOrigin/1.1 (Android TV)").setConnectTimeoutMs(20000).setReadTimeoutMs(30000);
         DefaultExtractorsFactory ex = new DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true);
         DefaultMediaSourceFactory msf = new DefaultMediaSourceFactory(new DefaultDataSource.Factory(a, http), new MkvSeekHead.Factory(ex)); /* (Matroska: an index listed in a second SeekHead found too) */
-        msfYt = new DefaultMediaSourceFactory(new YtChunked());
         msfS = msf; /* (the separate picture and sound files of a Piped mirror: the app's own user agent) */
         player = new ExoPlayer.Builder(a, rf).setTrackSelector(selector).setLoadControl(lc).setMediaSourceFactory(msf)
             .setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS).build();
@@ -220,7 +219,7 @@ public final class VideoPlane {
     }
 
     /* ---- calls from the native side (any thread) ---- */
-    private static DefaultMediaSourceFactory msfS, msfYt; /* msfYt: YouTube's own files, in pieces */
+    private static DefaultMediaSourceFactory msfS;
     public static void load(final String url, final long startMs, final boolean isLive) {
         state = 1; firstFrame = 0; hasMedia = 1; error = ""; hdr = ""; vw = vh = 0; pos = startMs; dur = 0; buf = 0; unsup = 0; seeking = 0; changed = 1;
         audioLines = ""; textLines = ""; audioCur = -1; wantPlay = true; live = isLive;
@@ -231,7 +230,7 @@ public final class VideoPlane {
             selector.setParameters(selector.buildUponParameters().clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true));
             if (url.indexOf('\n') > 0) { /* "picture\naudio": YouTube's two files, played together */
                 String[] pa = url.split("\n");
-                DefaultMediaSourceFactory mf = pa[0].contains("googlevideo.com") ? msfYt : msfS;
+                DefaultMediaSourceFactory mf = pa[0].contains("googlevideo.com") ? new DefaultMediaSourceFactory(new YtChunked(pa.length > 2 ? pa[2] : "")) : msfS; /* (YouTube's own files: in pieces, with the user agent of the client that asked) */
                 MediaSource ms = new MergingMediaSource(mf.createMediaSource(MediaItem.fromUri(Uri.parse(pa[0]))), mf.createMediaSource(MediaItem.fromUri(Uri.parse(pa[1]))));
                 player.setVolume(volTarget / 100f);
                 if (startMs > 0) player.setMediaSource(ms, startMs); else player.setMediaSource(ms);

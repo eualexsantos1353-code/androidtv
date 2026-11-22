@@ -16,9 +16,11 @@ import java.io.IOException;
 @OptIn(markerClass = UnstableApi.class)
 public final class YtChunked implements DataSource.Factory {
     private static final long CHUNK = 10L * 1024 * 1024;
+    private final String ua;
+    public YtChunked(String ua) { this.ua = ua; }
 
     @Override public DataSource createDataSource() {
-        DefaultHttpDataSource up = new DefaultHttpDataSource.Factory().setUserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15").setConnectTimeoutMs(15000).setReadTimeoutMs(15000).setAllowCrossProtocolRedirects(true).createDataSource();
+        DefaultHttpDataSource up = new DefaultHttpDataSource.Factory().setUserAgent(ua != null && !ua.isEmpty() ? ua : "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15").setConnectTimeoutMs(15000).setReadTimeoutMs(15000).setAllowCrossProtocolRedirects(true).createDataSource();
         return new Source(up);
     }
 
