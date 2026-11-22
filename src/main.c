@@ -292,8 +292,9 @@ int main(int argc, char **argv) {
        a third of 1080p's pixels to fill and blend, the part a weak box's GPU spends most of its frame on. The window and
        the surface stay 1920x1080 (the pointer and the video plane read them as before). SB_RES=1080 (or "full") draws at
        the screen's size */
-    const char *r = getenv("SB_RES"); if (!r) r = store_get("uiRes", "full"); int want = r && !strcmp(r, "720"); /* sharp by default: the screen's own 1080p; "720" (SB_RES or the saved uiRes) goes back to the light 1280x720 picture */
-    if (want && dh > 720 && gfx_target_create(&atvLow, 1280, 720)) { gfx_set_screen_fbo(atvLow.fbo); gfx_resize(1280, 720); dw = 1280; dh = 720; }
+    const char *r = getenv("SB_RES"); if (!r) r = store_get("uiRes", "full"); /* sharp by default: the screen's own 1080p; "720" goes back to the light 1280x720 picture, "1440" draws at 2560x1440 and scales down (a 4K screen) */
+    int lw = r && !strcmp(r, "720") ? 1280 : r && !strcmp(r, "1440") ? 2560 : 0, lh = lw == 1280 ? 720 : lw == 2560 ? 1440 : 0;
+    if (lw && gfx_target_create(&atvLow, lw, lh)) { gfx_set_screen_fbo(atvLow.fbo); gfx_resize(lw, lh); dw = lw; dh = lh; }
     fprintf(stderr, "[start] drawing at %dx%d%s\n", dw, dh, atvLow.fbo ? ", scaled to the screen" : "");
     /* a frame the same as the last one is not drawn again: still on the screen (a page at rest, the background trailer
        under a still page), the GPU does nothing and the box's memory and CPU are the video's. SB_STILL=0: every frame drawn */
