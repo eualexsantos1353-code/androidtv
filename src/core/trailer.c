@@ -199,6 +199,7 @@ static void yt_post(YtReq *r);
 static void yt_fresh(YtReq *r);
 static void yt_post(YtReq *r) {
   const char *hl = "en", *gl = "US"; /* as NuvioTV: the visitor id comes from an English / US page, and another language or country makes YouTube ask for a login (the sound is chosen by us from the track list) */
+  char hlb[4], glb[3]; if (r->cl == 3) { const char *ul3 = i18n_lang(); snprintf(hlb, sizeof hlb, "%.2s", ul3); snprintf(glb, sizeof glb, "%s", strlen(ul3) == 5 && ul3[2] == '-' ? ul3 + 3 : !strncmp(ul3, "pt", 2) ? "BR" : "US"); hl = hlb; gl = glb; } /* the ready-made file (the last sound to try) comes with the app's language as its default track; the other clients stay as NuvioTV asks */
   cJSON *b = cJSON_CreateObject(), *ctx = cJSON_AddObjectToObject(b, "context"), *cl = cJSON_AddObjectToObject(ctx, "client"); char hd[900];
   cJSON_AddStringToObject(b, "videoId", r->vid); cJSON_AddTrueToObject(b, "contentCheckOk"); cJSON_AddTrueToObject(b, "racyCheckOk");
   cJSON_AddStringToObject(cl, "hl", hl); cJSON_AddStringToObject(cl, "gl", gl);
