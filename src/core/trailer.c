@@ -98,7 +98,7 @@ typedef struct Job {
   int got; cJSON *imdbList, *caps;   /* IMDb and the captioned YouTube cuts, asked side by side */
   int imdbTry; double imdbRetryAt;
   int capsLeft, capsFired; double capsCapAt;
-  int cineTi; char ytIn[200]; int ytFirst; char title[120], loc[100]; int srch; /* title: the film's name and year, for the YouTube search of a dubbed trailer */ /* the meta's YouTube ids; ytFirst: a trailer in the app's language from TMDB, tried before IMDb's */
+  int cineTi; char dubYt[20]; char ytIn[200]; int ytFirst; char title[120], loc[100]; int srch; /* title: the film's name and year, for the YouTube search of a dubbed trailer */ /* the meta's YouTube ids; ytFirst: a trailer in the app's language from TMDB, tried before IMDb's */
   struct Job *next;
 } Job;
 static Job *jobs; static unsigned nextTok = 1;
@@ -257,11 +257,17 @@ static void on_innertube(int st, const unsigned char *body, size_t len, void *ud
       if (itag == 22) hi = u; else if (itag == 18) lo = u; else if (!*lo) lo = u;
     }
     /* the separate files: the sharpest H.264 picture up to YT_MAXH, the sound in the app's language (else the video's own) */
-    char mix[4400] = ""; if (r->cl < 3) { const char *vu = "", *au = "", *du = ""; double vsc = -1, asc = -1, dsc = -1; int vh = 0, aln = 0; const char *aid = "";
+    char mix[4400] = "", mix4[4400] = ""; int outAln = 0; if (r->cl < 3) { const char *vu = "", *au = "", *du = "", *v4 = ""; double vsc = -1, asc = -1, dsc = -1, v4sc = -1; int vh = 0, aln = 0, v4h = 0; const char *aid = "", *v4c = "";
+      const TvCaps *tc = best_caps(); int cap4 = tc && tc->maxRes >= 2160 ? 2160 : 1080, av1ok = tc && tc->av1; /* the sharpest picture this TV shows: VP9 / AV1 above 1080p (YouTube has no H.264 there) */
       cJSON_ArrayForEach(f, js_arr(js_obj(j, "streamingData"), "adaptiveFormats")) {
         const char *u = js_str(f, "url", ""), *mt = js_str(f, "mimeType", ""); if (!*u) continue;
-        if (!strncmp(mt, "video/mp4", 9)) {
-          if (!strstr(mt, "avc1")) continue;
+        if (!strncmp(mt, "video/", 6)) {
+          { const char *qt = js_str(f, "qualityLabel", ""), *tr = js_str(js_obj(f, "colorInfo"), "transferCharacteristics", ""); int h = (int)js_num(f, "height", 0), fps = (int)js_num(f, "fps", 0);
+            int vp9 = !strncmp(mt, "video/webm", 10) && strstr(mt, "vp9") && !strstr(mt, "vp09.02"), av1 = !strncmp(mt, "video/mp4", 9) && strstr(mt, "av01") && av1ok, avc = !strncmp(mt, "video/mp4", 9) && strstr(mt, "avc1");
+            if ((vp9 || av1 || avc) && h && h <= cap4 && fps <= 30 && !strstr(qt, "HDR") && !strstr(tr, "SMPTEST2084") && !strstr(tr, "ARIB_STD_B67")) { /* (60 fps at 4K: too much for this box's decoder on a trailer) */
+              double br = js_num(f, "bitrate", js_num(f, "averageBitrate", 0)), sc = h * 1e9 + (avc ? 3 : vp9 ? 2 : 1) * 1e8 + br;
+              if (sc > v4sc) { v4sc = sc; v4 = u; v4h = h; v4c = avc ? "H.264" : vp9 ? "VP9" : "AV1"; } } }
+          if (strncmp(mt, "video/mp4", 9) || !strstr(mt, "avc1")) continue;
           const char *qt = js_str(f, "qualityLabel", ""); const char *tr = js_str(js_obj(f, "colorInfo"), "transferCharacteristics", "");
           if (strstr(qt, "HDR") || strstr(tr, "SMPTEST2084") || strstr(tr, "ARIB_STD_B67")) continue; /* (a TV's picture plane has no HDR for these) */
           int h = (int)js_num(f, "height", 0), fps = (int)js_num(f, "fps", 0); if (!h || h > yt_cap_h()) continue;
@@ -273,6 +279,8 @@ static void on_innertube(int st, const unsigned char *body, size_t len, void *ud
           if (sc > asc) { asc = sc; au = u; aln = ls; aid = id; }
           if (def && br > dsc) { dsc = br; du = u; } /* the video's own sound, for when the chosen one is refused */
         } }
+      outAln = aln;
+      if (*v4 && *au && v4h > vh && strlen(v4) + strlen(au) + 2 + strlen(YT_UAS[r->cl]) + 1 < sizeof mix4) { snprintf(mix4, sizeof mix4, "%s\n%s\n%s", v4, au, YT_UAS[r->cl]); fprintf(stderr, "[yt] %s sharpest picture %dp %s (this TV: up to %dp%s)\n", r->vid, v4h, v4c, cap4, av1ok ? ", AV1" : ""); }
       if (*vu && *au && strlen(vu) + strlen(au) + 2 + strlen(YT_UAS[r->cl]) + 1 < sizeof mix) { (void)du; snprintf(mix, sizeof mix, "%s\n%s\n%s", vu, au, YT_UAS[r->cl]); /* (the video's own sound left out: the player's address holds 4 KB, and it is refused when the chosen one is) */ fprintf(stderr, "[yt] %s picture %dp, sound %s%s\n", r->vid, vh, *aid ? aid : "(only one)", aln ? " (app language)" : ""); } }
     cJSON *subs = cJSON_CreateArray(); const cJSON *c;
     cJSON_ArrayForEach(c, js_arr(js_obj(js_obj(j, "captions"), "playerCaptionsTracklistRenderer"), "captionTracks")) {
@@ -284,8 +292,13 @@ static void on_innertube(int st, const unsigned char *body, size_t len, void *ud
       cJSON *s = cJSON_CreateObject(); cJSON_AddStringToObject(s, "name", snm); cJSON_AddStringToObject(s, "lang", lang); cJSON_AddStringToObject(s, "url", bu); cJSON_AddStringToObject(s, "kind", "timedtext");
       cJSON_AddItemToArray(subs, s);
     }
+    { const char *ul = i18n_lang(); int have = 0, n = cJSON_GetArraySize(subs); const cJSON *x; const char *want = "por"; /* none in Portuguese: YouTube's own translation of the first */
+      cJSON_ArrayForEach(x, subs) if (!strncasecmp(js_str(x, "lang", ""), want, 3)) have = 1;
+      if (!have && n && !strncmp(ul, "pt", 2)) { const cJSON *f0 = cJSON_GetArrayItem(subs, 0); char tu[1600]; snprintf(tu, sizeof tu, "%s&tlang=%.2s", js_str(f0, "url", ""), ul);
+        cJSON *s = cJSON_CreateObject(); cJSON_AddStringToObject(s, "name", "Portugu\xc3\xaas (traduzida)"); cJSON_AddStringToObject(s, "lang", want); cJSON_AddStringToObject(s, "url", tu); cJSON_AddStringToObject(s, "kind", "timedtext");
+        cJSON_InsertItemInArray(subs, 0, s); } }
     if (*lo || *hi || *mix || cJSON_GetArraySize(subs)) {
-      out = cJSON_CreateObject(); cJSON_AddStringToObject(out, "lo", lo); cJSON_AddStringToObject(out, "hi", hi); if (*mix) cJSON_AddStringToObject(out, "mix", mix);
+      out = cJSON_CreateObject(); cJSON_AddStringToObject(out, "lo", lo); cJSON_AddStringToObject(out, "hi", hi); if (*mix) cJSON_AddStringToObject(out, "mix", mix); if (*mix4) cJSON_AddStringToObject(out, "mix4", mix4); cJSON_AddNumberToObject(out, "aln", outAln); /* aln: its sound is in the app's language */
       cJSON_AddNumberToObject(out, "len", js_numstr(js_obj(j, "videoDetails"), "lengthSeconds", 0)); /* to match it against IMDb's cuts */
       cJSON_AddItemToObject(out, "subs", subs);
     } else cJSON_Delete(subs);
@@ -297,13 +310,12 @@ static void on_innertube(int st, const unsigned char *body, size_t len, void *ud
       fprintf(stderr, "[yt] %s: no separate files from client %d, trying the next\n", r->vid, r->cl); if (out && !r->out) r->out = out; else if (out) cJSON_Delete(out); r->cl++; yt_post(r); return; }
     if (r->cl < 3 && !hasRm) { r->out = out; r->cl = 3; yt_post(r); return; } /* separate files found: the Android client's ready-made one too, to fall back to if they do not play */
     if (r->cl == 3 && r->out) { cJSON *base = r->out; r->out = NULL; int bm = *js_str(base, "mix", "") != 0;
-      if (bm) { if (out) { const char *m0 = js_str(base, "mix", ""), *mu = *js_str(out, "lo", "") ? js_str(out, "lo", "") : js_str(out, "hi", ""); /* the Android client's ready-made file (picture and sound in one) is the last sound to try for the sharp picture */
-          if (*mu) { char mm[4096]; const char *a = strchr(m0, '\n'), *b = a ? strchr(a + 1, '\n') : NULL; /* picture / sound / agent / the ready-made file: the last sound to try; the address must fit in 4 KB */
+      if (bm) { if (out) { const char *mu = *js_str(out, "lo", "") ? js_str(out, "lo", "") : js_str(out, "hi", ""); /* the Android client's ready-made file (picture and sound in one) is the last sound to try for the sharp picture */
+          for (int k = 0; k < 2 && *mu; k++) { const char *key = k ? "mix4" : "mix", *m0 = js_str(base, key, ""); if (!*m0) continue; char mm[4096]; const char *a = strchr(m0, '\n'), *b = a ? strchr(a + 1, '\n') : NULL; /* the address must fit in 4 KB */
             if (strlen(m0) + strlen(mu) + 2 < sizeof mm) snprintf(mm, sizeof mm, "%s\n%s", m0, mu);
             else if (a && b && (size_t)(a - m0) + strlen(mu) + strlen(b) + 2 < sizeof mm) snprintf(mm, sizeof mm, "%.*s\n%s%s", (int)(a - m0), m0, mu, b); /* too long: the ready-made file's sound in place of the chosen one */
             else mm[0] = 0;
-            fprintf(stderr, "[yt] sharp picture with %s\n", !mm[0] ? "its own sound only (too long)" : strlen(m0) + strlen(mu) + 2 < sizeof mm ? "the chosen sound, then the ready-made file's" : "the ready-made file's sound");
-            if (mm[0]) cJSON_ReplaceItemInObjectCaseSensitive(base, "mix", cJSON_CreateString(mm)); }
+            if (mm[0]) cJSON_ReplaceItemInObjectCaseSensitive(base, key, cJSON_CreateString(mm)); }
           cJSON_ReplaceItemInObjectCaseSensitive(base, "lo", cJSON_CreateString(js_str(out, "lo", ""))); cJSON_ReplaceItemInObjectCaseSensitive(base, "hi", cJSON_CreateString(js_str(out, "hi", ""))); cJSON_Delete(out); } out = base; }
       else if (out && hasRm) cJSON_Delete(base); else { if (out) cJSON_Delete(out); out = base; } } }
   r->cb(out, r->ud); free(r);
@@ -357,6 +369,7 @@ typedef struct { Job *j; char vid[20]; YtUrlCb cb; } YtRes;
 static int bg_slow(void) { double m = best_net_mbps(); return m > 0 && m < 3; }
 static const char *yt_pick(const cJSON *c, int lq) {
   const char *lo = js_str(c, "lo", ""), *hi = js_str(c, "hi", ""), *mx = js_str(c, "mix", "");
+  { const char *m4 = js_str(c, "mix4", ""); if (*m4 && !lq) return m4; } /* the sharpest (VP9 / AV1 4K) for the trailer opened; the background one stays at 1080p (the box's decoder and the home's line) */
   if (*mx && !(lq && bg_slow())) return mx; /* picture and sound as two files ("video\naudio"): sharper, and the sound in the app's language */
   return lq && bg_slow() ? (*lo ? lo : hi) : (*hi ? hi : lo);
 }
@@ -463,6 +476,9 @@ static void on_cap(cJSON *yd, void *ud) {
   if (yd && cJSON_GetArraySize(js_arr(yd, "subs")) && js_num(yd, "len", 0) > 0) {
     v = cJSON_CreateObject(); cJSON_AddStringToObject(v, "id", r->id); cJSON_AddNumberToObject(v, "len", js_num(yd, "len", 0)); cJSON_AddItemToObject(v, "subs", cJSON_Duplicate(js_arr(yd, "subs"), 1)); }
   memo_put(ytCap, r->id, v ? cJSON_Duplicate(v, 1) : cJSON_CreateNull());
+  if (yd && js_num(yd, "aln", 0) > 0 && (*js_str(yd, "mix", "") || *js_str(yd, "mix4", ""))) { /* this official cut has a sound in the app's language (a studio's dub, or YouTube's): it goes before IMDb's English */
+    if (!j->dubYt[0]) { cpy(j->dubYt, sizeof j->dubYt, r->id); fprintf(stderr, "[trailer] %s has a sound in your language\n", r->id); }
+    memo_put(ytCache, r->id, cJSON_Duplicate(yd, 1)); }
   cJSON_Delete(yd);
   if (v) { if (!j->capsFired) cJSON_AddItemToArray(j->caps, v); else cJSON_Delete(v); }
   if (--j->capsLeft == 0) caps_fin(j);
@@ -498,12 +514,14 @@ static void on_yt_url(Job *j, const char *url, const char *err) {
   const cJSON *c = memo_get(ytCache, j->yt[0], 1e9), *subs = js_arr(c, "subs");
   cJSON *o = cJSON_CreateObject(); cJSON_AddStringToObject(o, "url", url); cJSON_AddStringToObject(o, "name", "Trailer"); cJSON_AddStringToObject(o, "source", "youtube");
   { const char *hl = js_str(c, "hls", ""); if (*hl && !j->lq) cJSON_AddStringToObject(o, "hls", hl); } /* (YouTube's own HLS, from the iOS client: sharpest picture, its sound) */
-  if (strchr(url, '\n')) { const char *fb = *js_str(c, "hi", "") ? js_str(c, "hi", "") : js_str(c, "lo", ""); if (*fb) cJSON_AddStringToObject(o, "alt", fb); } /* (the single file when the two do not play) */
+  if (strchr(url, '\n')) { const char *fb = !strcmp(url, js_str(c, "mix4", "")) && *js_str(c, "mix", "") ? js_str(c, "mix", "") : *js_str(c, "hi", "") ? js_str(c, "hi", "") : js_str(c, "lo", ""); if (*fb) cJSON_AddStringToObject(o, "alt", fb); } /* (4K that does not play: the 1080p pair; else the single file) */ /* (the single file when the two do not play) */
   { const char *lo = js_str(c, "lo", ""); if (j->lq && *lo && strcmp(lo, url)) { cJSON *dn = cJSON_AddArrayToObject(o, "down"); cJSON_AddItemToArray(dn, cJSON_CreateString(lo)); } } /* (the background trailer: the low one when the high one fails) */
   cJSON_AddItemToObject(o, "subs", subs ? cJSON_Duplicate(subs, 1) : cJSON_CreateArray());
   reply(j, o);
 }
+static void on_dub_url(Job *j, const char *url, const char *err) { if (*url) { on_yt_url(j, url, err); return; } j->dubYt[0] = 0; decide(j); } /* it did not resolve: IMDb's, as before */
 static void decide(Job *j) {
+  if (j->dubYt[0]) { cpy(j->yt[0], sizeof j->yt[0], j->dubYt); yt_resolve(j, j->yt[0], on_dub_url); return; } /* a cut in the app's language beats IMDb's English */
   const cJSON *list = j->imdbList; int nl = cJSON_GetArraySize(list), nc = cJSON_GetArraySize(j->caps);
   if (nl) {
     const cJSON *v0 = cJSON_GetArrayItem(list, 0), *s0 = js_arr(v0, "subs");
@@ -521,7 +539,7 @@ static void decide(Job *j) {
 }
 static void with_yt(Job *j) {
   j->got = 0;
-  if (j->nyt && !j->lq) yt_captioned(j); else { j->caps = cJSON_CreateArray(); j->capsFired = 1; j->got++; } /* no captions to match: no timer either */
+  if (j->nyt && (!j->lq || !strncmp(i18n_lang(), "pt", 2))) yt_captioned(j); /* (each cut asked once: its captions, and whether it has a Portuguese sound) */ else { j->caps = cJSON_CreateArray(); j->capsFired = 1; j->got++; } /* no captions to match: no timer either */
   imdb_trailers(j);
 }
 
@@ -610,6 +628,7 @@ static void tm_start(Job *j) {
 static int nm_has(const char *s, const char *w) { size_t n = strlen(w); for (; *s; s++) if (!strncasecmp(s, w, n)) return 1; return 0; }
 /* ---- a dubbed trailer from YouTube's own search ("<title> trailer oficial dublado"): TMDB lists few cuts in Portuguese ---- */
 static void tm_usual(Job *j) { if (valid_tt(j->imdb, 5, 10) && tmdb_wanted(j->imdb)) tm_start(j); else tm_go(j); }
+static int hitTier; /* 0: "dublado" in the title; 1: a Portuguese-titled official trailer (Brazilian channels' dubbed cuts often say only "Trailer Oficial") */
 static void yt_hits(const cJSON *n, const char *name, const char *loc, char ids[][20], int *cnt) {
   if (!n || *cnt >= 4) return;
   if (cJSON_IsObject(n)) {
@@ -617,7 +636,7 @@ static void yt_hits(const cJSON *n, const char *name, const char *loc, char ids[
     if (valid_yt(vid)) {
       const cJSON *t = js_obj(n, "title"); if (!t) t = js_obj(n, "headline");
       const char *tt = js_str(cJSON_GetArrayItem(js_arr(t, "runs"), 0), "text", js_str(t, "simpleText", ""));
-      if (*tt && nm_has(tt, "dublad") && (nm_has(tt, "trailer") || nm_has(tt, "teaser")) && !nm_has(tt, "react") && !nm_has(tt, "rea\xc3\xa7\xc3\xa3o") && (nm_has(tt, name) || (*loc && nm_has(tt, loc)))) {
+      if (*tt && (hitTier ? (nm_has(tt, "oficial") || nm_has(tt, "temporada")) && !nm_has(tt, "legendad") && !nm_has(tt, "dublad") : nm_has(tt, "dublad")) && (nm_has(tt, "trailer") || nm_has(tt, "teaser")) && !nm_has(tt, "react") && !nm_has(tt, "rea\xc3\xa7\xc3\xa3o") && (nm_has(tt, name) || (*loc && nm_has(tt, loc)))) {
         int dup = 0; for (int i = 0; i < *cnt; i++) if (!strcmp(ids[i], vid)) dup = 1;
         if (!dup) { cpy(ids[(*cnt)++], 20, vid); fprintf(stderr, "[trailer] search hit: \"%.70s\" (%s)\n", tt, vid); } } } }
   for (const cJSON *c = n->child; c; c = c->next) yt_hits(c, name, loc, ids, cnt);
@@ -625,7 +644,7 @@ static void yt_hits(const cJSON *n, const char *name, const char *loc, char ids[
 static void on_search(int st, const unsigned char *body, size_t len, void *ud) {
   Job *j = ud; cJSON *r = st > 0 ? net_json(body) : NULL; char ids[4][20]; int n = 0; char nm[100]; cpy(nm, sizeof nm, j->title);
   { char *y = strrchr(nm, ' '); if (y && strlen(y) == 5 && y[1] >= '1' && y[1] <= '2') *y = 0; } /* (the year is in the query, not in the title that must be in the video's) */
-  if (r) yt_hits(r, nm, j->loc, ids, &n);
+  if (r) { hitTier = 0; yt_hits(r, nm, j->loc, ids, &n); if (n < 2) { hitTier = 1; yt_hits(r, nm, j->loc, ids, &n); } hitTier = 0; }
   cJSON_Delete(r); fprintf(stderr, "[trailer] YouTube search \"%s\" answered %d, %d dubbed trailer(s)\n", j->title, st, n);
   if (!n) tm_usual(j);
   else { j->nyt = 0; for (int i = 0; i < n; i++) cpy(j->yt[j->nyt++], sizeof j->yt[0], ids[i]); j->ytFirst = 1; j->srch = 1; yt_resolve(j, j->yt[0], on_yt_first); }
