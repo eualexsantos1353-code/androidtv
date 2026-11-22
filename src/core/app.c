@@ -524,7 +524,7 @@ void topnav_draw(void) {
       /* the current tab, when the focus is elsewhere: a softer piece of glass inside it */
       static Tween mk[4]; /* (only while the focus is out of the bar: moving to Search or Settings, nothing is left lit on the tabs) */
       for (int i = NAV_DISC; i <= NAV_TV; i++) { tween_to(&mk[i - NAV_DISC], chipCur(i) && !topNav.active ? 1 : 0, 0.2f, EASE_CSS_EASE); tween_tick(&mk[i - NAV_DISC], DT); }
-      for (int i = NAV_DISC; i <= NAV_TV; i++) { float a = mk[i - NAV_DISC].v; if (a > 0.01f) { gfx_opacity_push(a); gfx_rrect(topNav.chipX[i], 50 - 30, topNav.chipW[i], 60, 30, WHITE_A(20)); gfx_ring(topNav.chipX[i], 50 - 30, topNav.chipW[i], 60, 30, 1, WHITE_A(46)); gfx_opacity_pop(); } } }
+      for (int i = NAV_DISC; i <= NAV_TV; i++) { float a = mk[i - NAV_DISC].v; if (a > 0.01f) { gfx_opacity_push(a); gfx_rrect_v(topNav.chipX[i], 50 - 30, topNav.chipW[i], 60, 30, WHITE_A(46), WHITE_A(24)); gfx_ring(topNav.chipX[i], 50 - 30, topNav.chipW[i], 60, 30, 1.5f, WHITE_A(84)); gfx_opacity_pop(); } } }
     /* the focus: liquid accent glass that stretches as it glides and settles back round (its speed, smoothed) */
     float pa = topNav.pill.v; if (pa > 0.001f) { static float lastX, sv, dir; float x = topNav.px.v, w = topNav.pw.v, h = 62, r = 31; float x0 = lastX; lglass_stretch(&sv, &lastX, x, DT); if (fabsf(x - x0) > 0.01f) dir = x > x0 ? 1 : -1; /* 0..1, and which way */
       float sw = w * (1 + 0.22f * sv), sh = h * (1 - 0.10f * sv), px = x + w / 2 - sw / 2, py = 50 - sh / 2;
@@ -542,7 +542,7 @@ void topnav_draw(void) {
       if (f) gfx_offset_push(nx, ny);
       { static Tween em[4]; Tween *e = &em[i - NAV_DISC]; tween_to(e, f || (cur && !topNav.active) ? 1 : 0, 0.22f, EASE_CSS_EASE); tween_tick(e, DT); /* bold while focused, or the page shown with the focus elsewhere: crossfaded both ways */
         float ty = 50 - text_line_height(32) / 2.0f, k = e->v;
-        if (k < 0.999f) text_draw(chipLabel(i), x + w / 2, ty, 32, 400, WHITE_A((int)(184 * (1 - k))), 0, 0, ALIGN_CENTER);
+        if (k < 0.999f) text_draw(chipLabel(i), x + w / 2, ty, 32, 400, WHITE_A((int)(214 * (1 - k))), 0, 0, ALIGN_CENTER);
         if (k > 0.001f) text_draw(chipLabel(i), x + w / 2, ty, 32, 700, WHITE_A((int)(255 * k)), 0, 0, ALIGN_CENTER); }
       if (f) gfx_offset_pop();
       if (opening) { gfx_opacity_pop(); gfx_offset_pop(); }
