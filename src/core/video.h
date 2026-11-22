@@ -25,6 +25,9 @@ const char *video_error(void);
 int    video_live(void);                     /* 1 once a first frame has been shown */
 int    video_has_media(void);            /* the TV has taken the stream (its media handle exists) */
 void   video_set_volume(int pct, int easeMs);
+void   video_audio_fx(int night, int boostPct);  /* night mode (a compressor) and a volume boost, for sound decoded in the app; 0 where the platform has none */
+void   video_audio_delay(int ms);                /* the sound later (+) or sooner (-) than the picture; reset by each load */
+void   video_speed(float s);                      /* playback speed (1 = normal); reset by each load */
 int    video_audio_plays(int idx);    /* this device plays audio track idx (decoded or passed through): 1, 0, or -1 not known (weak default in player.c: -1) */
 void   video_start_silent(int on);   /* the next loads start at volume 0, in the same breath as their play (a film held for its previews: never a sound) */  /* the stream's volume, 0-100, reached over easeMs */
 int    video_settling(void);                 /* 1 while a seek is on its way (asked, not yet done): the picture is not where it will be */

@@ -123,7 +123,8 @@ static struct {
   Mo in, artA, ttlA, ttlX, ttlY, barA, barY, btnA, btnY, topR, topY, dim, dimT, vig, pzA, bufA, lnA, skA, skS, knA, prA, prY, prB, subB, ccS, pgA, pgY, pwA, pwF;
   struct { ParGuide g; int age, certAge, guideIn, certIn, asked; unsigned sess; double at, askAt; char cert[24], desc[120]; } pg; /* the viewer notice: an age and what for, as the picture comes, gone in 5 s */
   Mo posA; double posAt; int styK; /* the subtitle style card (mode 5): its showing, when the value last changed, which one (0 position, 1 size, 2 colour, 3 background, 4 brightness) */
-  Mo dlyA, dlyR; int dlyF; double dlyAt; /* the delay card (mode 4): its showing, its focus ring's place, the focused button, when the value last changed */
+  Mo dlyA, dlyR; int dlyF, dlyKind; double dlyAt, audDelay; float speed; /* dlyKind: 0 the subtitles' delay, 1 the sound's (audDelay, s); speed: 0 = normal */
+  /* the delay card (mode 4): its showing, its focus ring's place, the focused button, when the value last changed */
   double hideAt; int osd;
   /* the info chips: kept per place, each with its own entrance */
   struct { char t[100], old[100]; const char *icon; int bold, sep; double at, xAt; float delay, oldW; } chip[8]; int nchip; /* old, xAt, oldW: the words before a change, crossfading */
@@ -1569,6 +1570,27 @@ static void src_choose(int i) {
 }
 /* an episode not aired yet (its date after today): nothing to give away, and no still to blur */
 static int ep_unaired(const cJSON *e) { const char *rel = js_str(e, "released", js_str(e, "firstAired", "")); int y, m, d; if (sscanf(rel, "%d-%d-%d", &y, &m, &d) != 3) return 0; time_t now = time(NULL); struct tm *t = localtime(&now); int today = (t->tm_year + 1900) * 10000 + (t->tm_mon + 1) * 100 + t->tm_mday; return y * 10000 + m * 100 + d > today; }
+/* ---- the sound's extras in the Audio tray: night mode, volume boost, audio delay, speed (NuvioTV's) ---- */
+static const int BOOSTS[] = { 0, 25, 50, 100 }; static const float SPEEDS[] = { 1, 1.25f, 1.5f, 2, 0.5f, 0.75f };
+static int night_on(void) { return !strcmp(store_get("audNight", "off"), "on"); }
+static int boost_idx(void) { int v = atoi(store_get("audBoost", "0")), k = 0; for (int i = 0; i < 4; i++) if (BOOSTS[i] == v) k = i; return k; }
+static void aud_fx_apply(void) { video_audio_fx(night_on(), BOOSTS[boost_idx()]); }
+static void aud_fx_chips(void) {
+  TItem *x;
+  x = add_item(P.tray.row, &P.tray.n, MAXROW, 4); snprintf(x->lb, 200, "%s", T("Night mode")); snprintf(x->sub, 120, "%s", night_on() ? T("On") : T("Off")); snprintf(x->u, 1024, "fx:night"); x->i = -101; x->on = night_on();
+  x = add_item(P.tray.row, &P.tray.n, MAXROW, 4); snprintf(x->lb, 200, "%s", T("Volume boost")); { int b = BOOSTS[boost_idx()]; if (b) snprintf(x->sub, 120, "+%d%%", b); else snprintf(x->sub, 120, "%s", T("Off")); } snprintf(x->u, 1024, "fx:boost"); x->i = -102; x->on = boost_idx() > 0;
+  x = add_item(P.tray.row, &P.tray.n, MAXROW, 4); snprintf(x->lb, 200, "%s", T("Audio delay")); if (P.audDelay == 0) snprintf(x->sub, 120, "0.00 s"); else snprintf(x->sub, 120, "%s%.2f s", P.audDelay > 0 ? "+" : "\xe2\x88\x92", fabs(P.audDelay)); snprintf(x->u, 1024, "fx:adly"); x->i = -103; x->on = P.audDelay != 0;
+  x = add_item(P.tray.row, &P.tray.n, MAXROW, 4); snprintf(x->lb, 200, "%s", T("Speed")); { float sp = P.speed > 0 ? P.speed : 1; char b[16]; snprintf(b, sizeof b, "%.2gx", sp); for (char *q = b; *q; q++) if (*q == '.') *q = ','; snprintf(x->sub, 120, "%s", b); } snprintf(x->u, 1024, "fx:speed"); x->i = -104; x->on = P.speed > 0 && P.speed != 1;
+}
+static void dly_open_k(int kind);
+static int aud_fx_choose(TItem *it) {
+  if (strncmp(it->u, "fx:", 3)) return 0;
+  if (!strcmp(it->u, "fx:night")) { store_set("audNight", night_on() ? "off" : "on"); aud_fx_apply(); }
+  else if (!strcmp(it->u, "fx:boost")) { char b[8]; snprintf(b, sizeof b, "%d", BOOSTS[(boost_idx() + 1) % 4]); store_set("audBoost", b); aud_fx_apply(); }
+  else if (!strcmp(it->u, "fx:speed")) { float sp = P.speed > 0 ? P.speed : 1; int k = 0; for (int i = 0; i < 6; i++) if (fabsf(SPEEDS[i] - sp) < 0.01f) k = i; P.speed = SPEEDS[(k + 1) % 6]; video_speed(P.speed); }
+  else if (!strcmp(it->u, "fx:adly")) { dly_open_k(1); return 1; }
+  render_tray(0); return 1;
+}
 static void tray_data(void) {
   struct { int kind; } t = { P.tray.kind }; P.tray.ntabs = 0; P.tray.n = 0; cols_clear(); P.tray.title[0] = 0;
   if (t.kind == 4) { /* subtitles: four columns; with subtitles addons installed (or subtitles the stream carried), a second tab lists theirs by language */
@@ -1641,12 +1663,14 @@ static void tray_data(void) {
       else snprintf(x->sub, 120, "%s", ma[i].channels >= 6 ? T("Dolby Digital 5.1 (converted)") : T("Dolby Digital 2.0 (converted)"));
       x->i = 1000 + i; x->on = i == on; }
     if (!P.tray.n) { TItem *x = add_item(P.tray.row, &P.tray.n, MAXROW, 4); snprintf(x->lb, 200, "%s", T("Dolby Digital 5.1 (converted)")); x->i = 1000 + on; x->on = 1; }
+    if (!P.isTrailer) aud_fx_chips();
   } else if (t.kind == 3) { snprintf(P.tray.title, 300, "%s", T("Audio")); VidTrack ts[16]; int n = aud_list(ts, 16); int sel = P.curAud >= 0 ? P.curAud : video_audio_current();
     /* the language is the name; the format (AC3 5.1, EAC3 Atmos...) the line under it */
     for (int i = 0; i < n; i++) { TItem *x = add_item(P.tray.row, &P.tray.n, MAXROW, 4); const char *ln = lang_name(ts[i].lang);
       if (*ln) snprintf(x->lb, 200, "%s", ln); else if (ts[i].lang[0]) snprintf(x->lb, 200, "%s", ts[i].lang); else { char k[8]; snprintf(k, sizeof k, "%d", i + 1); snprintf(x->lb, 200, "%s %s", T("Audio"), k); }
       if (ts[i].name[0] && strcmp(ts[i].name, x->lb)) snprintf(x->sub, 120, "%s", ts[i].name); x->i = ts[i].idx; x->on = ts[i].idx == sel; }
     if (!n) { TItem *x = add_item(P.tray.row, &P.tray.n, MAXROW, 0); snprintf(x->lb, 200, "%s", T("None")); }
+    if (!P.isTrailer) aud_fx_chips(); /* (a live channel: night mode and the boost; delay and speed are refused there below) */
   } else if (t.kind == 6) { snprintf(P.tray.title, 300, "%s", T("Channels")); /* the line-up: a card each, the one playing marked */
     for (int i = 0; i < live_lineup_n() && P.tray.n < MAXROW; i++) { const LiveCh *c = live_lineup_item(i); TItem *x = add_item(P.tray.row, &P.tray.n, MAXROW, 2);
       snprintf(x->lb, 200, "%s", c->name); snprintf(x->th, 512, "%s", c->poster); x->i = i; x->on = !strcmp(c->id, P.id); }
@@ -1731,7 +1755,8 @@ static void choose(TItem *it) {
     else if (it->ls) { const SubEntry *l = it->ls == 1 ? P.ext : P.adx; int n = it->ls == 1 ? P.nExt : P.nAdx, k = it->i; /* the row's entry (found again by its file if the list moved) */
       if (k < 0 || k >= n || strcmp(l[k].url, it->u)) for (k = 0; k < n && strcmp(l[k].url, it->u); k++) ;
       if (k < n) { set_ext_sub(it->ls, &l[k]); show_pref_sub(); } }
-  } else if (it->k == 4 && P.tray.kind == 3 && it->i >= 1000) { int ord = it->i - 1000; /* another track converted, from here */
+  } else if (it->k == 4 && P.tray.kind == 3 && aud_fx_choose(it)) { }
+  else if (it->k == 4 && P.tray.kind == 3 && it->i >= 1000) { int ord = it->i - 1000; /* another track converted, from here */
     { MkvAudio ma[16]; int m = mkv_audio_tracks(mkv, ma, 16); if (ord >= 0 && ord < m) show_pref_aud(ma[ord].lang, NULL); }
     if (P.dts.conv == 2 && ord != P.dts.convOrd && ord >= 0) { P.dts.convOrd = ord; P.dts.conv = 1; P.dts.convAt = video_time(); P.dts.convT0 = now_();
       int fl = conv_flags(ord); P.dts.copyA = !!(fl & HC_COPYAUDIO);
@@ -1805,9 +1830,12 @@ static void live_card_draw(void);
    second each), the delay between them, play / pause and Done; the picture and the lines stay in view, so a change is
    seen at once. Back or Done closes it (mode 4) ---- */
 #define DLY_STEP 0.25
-static void dly_open(void) { close_tray(); P.osd = 0; P.mode = 4; P.dlyF = 0; mo_set(&P.dlyR, 0); mo_to(&P.dlyA, 1, .28f, C_OUT, 0); }
+static void dly_open_k(int kind) { if (kind && live_title()) { toast(T("Not on live channels"), 2500, NULL); return; } close_tray(); P.osd = 0; P.mode = 4; P.dlyKind = kind; P.dlyF = 0; mo_set(&P.dlyR, 0); mo_to(&P.dlyA, 1, .28f, C_OUT, 0); }
+static void dly_open(void) { close_tray(); P.osd = 0; P.mode = 4; P.dlyKind = 0; P.dlyF = 0; mo_set(&P.dlyR, 0); mo_to(&P.dlyA, 1, .28f, C_OUT, 0); }
 static void dly_close(void) { P.mode = 0; mo_to(&P.dlyA, 0, .2f, C_EASE, 0); }
-static void dly_change(double d) { double v = P.subDelay + d; v = floor(v / DLY_STEP + 0.5) * DLY_STEP; if (v > 120) v = 120; if (v < -120) v = -120; P.subDelay = fabs(v) < 1e-6 ? 0 : v; P.dlyAt = now_(); }
+static void dly_change(double d) {
+  if (P.dlyKind) { double v = P.audDelay + d * 0.2; v = floor(v / 0.05 + 0.5) * 0.05; if (v > 5) v = 5; if (v < -5) v = -5; P.audDelay = fabs(v) < 1e-6 ? 0 : v; P.dlyAt = now_(); video_audio_delay((int)lround(P.audDelay * 1000)); return; } /* the sound: 50 ms steps, 5 s at most */
+  double v = P.subDelay + d; v = floor(v / DLY_STEP + 0.5) * DLY_STEP; if (v > 120) v = 120; if (v < -120) v = -120; P.subDelay = fabs(v) < 1e-6 ? 0 : v; P.dlyAt = now_(); }
 static void dly_act(int i) { P.dlyF = i; mo_to(&P.dlyR, (float)i, .18f, C_OUT, 0);
   if (i == 0) dly_change(-DLY_STEP); else if (i == 1) dly_change(DLY_STEP); else if (i == 2) toggle(); else dly_close(); }
 static void dly_key(int k) {
@@ -1849,6 +1877,7 @@ static void act(const char *id) {
 static void back(void) {
   if (P.closing) return;
   if (P.mode == 2) { tray_back(); return; }
+  if (P.mode == 4 && P.dlyKind) { dly_close(); open_tray(3); return; } /* Back: the Audio tray again */
   if (P.mode == 4) { dly_close(); if (!P.isTrailer) { subTab = (P.nSubAddons > 0 || P.nAdx > 0) ? 2 : 1; open_tray(4); P.tray.zone = 2; P.tray.c = 1; TCol *c = &P.tray.cols[1]; for (int i = 0; i < c->n; i++) if (!strcmp(c->items[i].u, "dlyopen")) P.tray.r[1] = i; } return; } /* Back: the tray again, on Adjust */
   if (P.mode == 5) { int k = P.styK; pos_close(); if (!P.isTrailer) style_back(k); return; } /* Back: the tray again, on that style */
   if (P.mode == 6) { if (!hub_back()) { hub_close(); P.mode = 0; } return; }
@@ -1969,6 +1998,7 @@ static void dts_defer_tick(void) {
 static void start_video(void) {
   P.started = 1; P.isTrailer = !strcmp(P.type, "other"); P.isHls = strstr(P.url, ".m3u8") != NULL; P.liveStream = P.hlsVod = 0; liveTok++; for (int i = 0; i < LIVE_RELOADS; i++) liveRe[i] = -1e9;
   best_caps_probe(NULL, NULL); /* (once: kept) */
+  video_audio_delay(0); video_speed(1); aud_fx_apply(); /* a new stream: in sync, normal speed; night mode and the boost as set */
   video_start_silent(pw_wanted()); /* (to be held for its previews: it loads silent) */
   if (P.adopt) { fprintf(stderr, "[player] taking the preview's playback as it plays%s\n", adoptFull ? " (full screen already)" : ""); P.liveT0 = now_(); P.steadyAt = now_() - 1; growPending = !adoptFull; growAt = 0; planeAt = 0; memcpy(planeSent, growR, sizeof planeSent); } /* (it grows once the page under it is pictured) */ /* (already loaded and running) */
   else if (dts_defer_wanted() || dv7_defer_wanted()) P.dts.deferUntil = now_() + 4; else video_load(P.url);
@@ -3441,10 +3471,10 @@ static void dly_draw(void) {
     else if (i == 2) icon_draw(paused() ? "p_play" : "p_pause", bx[i] + B / 2 - 17, cy - 17, 34, c);
     else text_draw(dn, bx[i] + bw[i] / 2, cy - text_line_height(26) / 2.0f, 26, 700, c, 0, 0, ALIGN_CENTER); }
   /* the delay: large, a small lift when it changes; under it what it means */
-  { char v[32]; if (P.subDelay == 0) snprintf(v, sizeof v, "0.00 s"); else snprintf(v, sizeof v, "%s%.2f s", P.subDelay > 0 ? "+" : "\xe2\x88\x92", fabs(P.subDelay));
+  { double dv = P.dlyKind ? P.audDelay : P.subDelay; char v[32]; if (dv == 0) snprintf(v, sizeof v, "0.00 s"); else snprintf(v, sizeof v, "%s%.2f s", dv > 0 ? "+" : "\xe2\x88\x92", fabs(dv));
     float e = (float)((now_() - P.dlyAt) / 0.22); e = e < 0 ? 0 : e > 1 ? 1 : e; float lift = 6 * (1 - ease_apply(EASE_OUT, e));
     text_draw(v, vx + VW / 2, cy - 30 - lift, 40, 800, WHITE_A(255), -0.4f, 0, ALIGN_CENTER);
-    const char *m = P.subDelay > 0 ? T("Subtitles later") : P.subDelay < 0 ? T("Subtitles earlier") : T("Subtitle delay");
+    const char *m = P.dlyKind ? (dv > 0 ? T("Sound later") : dv < 0 ? T("Sound earlier") : T("Audio delay")) : P.subDelay > 0 ? T("Subtitles later") : P.subDelay < 0 ? T("Subtitles earlier") : T("Subtitle delay");
     text_draw(m, vx + VW / 2, cy + 18, 20, 600, WHITE_A(160), 0.3f, VW, ALIGN_CENTER); }
   gfx_offset_pop(); gfx_opacity_pop();
 }

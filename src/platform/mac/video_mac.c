@@ -24,6 +24,9 @@ void video_load_timed(const char *base, double durSec) { char u[4200]; snprintf(
 void video_unload(void) { if (R()) { av_unload(); return; } st = VID_IDLE; live = 0; url[0] = 0; }
 void video_play(void) { if (R()) { av_play(); return; } if (st == VID_PAUSED) { st = VID_PLAYING; t0 = SDL_GetTicks() / 1000.0 - pos; } }
 int video_has_media(void) { if (R()) return av_has_media(); return live; }
+void video_audio_fx(int night, int boostPct) { (void)night; (void)boostPct; }
+void video_audio_delay(int ms) { (void)ms; }
+void video_speed(float s) { (void)s; }
 void video_set_volume(int pct, int easeMs) { if (R()) { av_volume(pct, easeMs); return; } (void)pct; (void)easeMs; }
 void video_pause(void) { if (R()) { av_pause(); return; } if (st == VID_PLAYING) { st = VID_PAUSED; pausedAt = pos; } }
 void video_seek(double s) { if (R()) { av_seek(s); return; } pos = s < 0 ? 0 : s > dur ? dur : s; t0 = SDL_GetTicks() / 1000.0 - pos; }

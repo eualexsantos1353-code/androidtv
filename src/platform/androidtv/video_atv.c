@@ -56,6 +56,9 @@ VidState video_state(void) { return (VidState)V.st; }
 const char *video_error(void) { return vErr; }
 int video_live(void) { return V.live != 0; }
 int video_has_media(void) { return V.media != 0; }
+void video_audio_fx(int night, int boostPct) { JNIEnv *e = atv_env(); jmethodID m = atv_method(e, VP, "audioFx", "(ZI)V"); if (m) { (*e)->CallStaticVoidMethod(e, atv_class(e, VP), m, (jboolean)(night != 0), (jint)boostPct); atv_check(e); } }
+void video_audio_delay(int ms) { vcall_i("audioDelay", ms); }
+void video_speed(float s) { JNIEnv *e = atv_env(); jmethodID m = atv_method(e, VP, "speed", "(F)V"); if (m) { (*e)->CallStaticVoidMethod(e, atv_class(e, VP), m, (jfloat)s); atv_check(e); } }
 void video_set_volume(int pct, int easeMs) {
   JNIEnv *e = atv_env(); jmethodID m = atv_method(e, VP, "volume", "(II)V"); if (m) { (*e)->CallStaticVoidMethod(e, atv_class(e, VP), m, (jint)pct, (jint)easeMs); atv_check(e); } }
 int video_settling(void) { return V.settle != 0; }

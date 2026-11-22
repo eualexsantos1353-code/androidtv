@@ -101,7 +101,11 @@ public final class VideoPlane {
             .setAllowInvalidateSelectionsOnRendererCapabilitiesChange(true));   /* a receiver switched on mid-film: passthrough taken again */
         /* Settings › Audio › DTS sound: Auto = the box's decoders (or passthrough) first, FFmpeg after; Convert = FFmpeg first
            (always decoded in the app); Off = the box alone */
-        DefaultRenderersFactory rf = new DefaultRenderersFactory(a)
+        DefaultRenderersFactory rf = new DefaultRenderersFactory(a) {
+                /* the sound decoded here passes through AudioFx (night mode, volume boost) */
+                @Override protected androidx.media3.exoplayer.audio.AudioSink buildAudioSink(android.content.Context c, boolean flt, boolean params) {
+                    return new androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(c).setEnableFloatOutput(flt).setEnableAudioTrackPlaybackParams(params)
+                        .setAudioProcessors(new androidx.media3.common.audio.AudioProcessor[] { new AudioFx() }).build(); } }
             .setExtensionRendererMode(dtsMode == 1 ? DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER : dtsMode == 2 ? DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF : DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
             .setEnableDecoderFallback(true);
         builtDts = dtsMode;
@@ -244,7 +248,7 @@ public final class VideoPlane {
             if (url.indexOf('\n') > 0) { /* "picture\naudio": YouTube's two files, played together */
                 String[] pa = url.split("\n"); curPa = pa; paStage = 0;
                 DefaultMediaSourceFactory mf = pa[0].contains("googlevideo.com") ? new DefaultMediaSourceFactory(new YtChunked(pa.length > 2 ? pa[2] : "")) : msfS; /* (YouTube's own files: in pieces, with the user agent of the client that asked) */
-                MediaSource ms = new MergingMediaSource(mf.createMediaSource(MediaItem.fromUri(Uri.parse(pa[0]))), mf.createMediaSource(MediaItem.fromUri(Uri.parse(pa[1]))));
+                MediaSource ms = new AudioDelay.Source(new MergingMediaSource(mf.createMediaSource(MediaItem.fromUri(Uri.parse(pa[0]))), mf.createMediaSource(MediaItem.fromUri(Uri.parse(pa[1])))));
                 player.setVolume(volTarget / 100f);
                 if (startMs > 0) player.setMediaSource(ms, startMs); else player.setMediaSource(ms);
                 player.setPlayWhenReady(true); player.prepare();
@@ -255,11 +259,18 @@ public final class VideoPlane {
             MediaItem.Builder b = new MediaItem.Builder().setUri(Uri.parse(url));
             if (isLive) b.setLiveConfiguration(new MediaItem.LiveConfiguration.Builder().build());
             player.setVolume(volTarget / 100f);
-            if (startMs > 0) player.setMediaItem(b.build(), startMs); else player.setMediaItem(b.build());
+            MediaSource one = new AudioDelay.Source(msfS.createMediaSource(b.build())); /* (the viewer's Audio delay can move it) */
+            if (startMs > 0) player.setMediaSource(one, startMs); else player.setMediaSource(one);
             player.setPlayWhenReady(true); player.prepare();
             cues(java.util.Collections.emptyList());
         });
     }
+    /* Night mode and the volume boost (Settings, the player's Audio tray): for the sound decoded here */
+    public static void audioFx(boolean night, int boostPct) { AudioFx.night = night; AudioFx.gain = 1f + Math.max(0, Math.min(200, boostPct)) / 100f; MainActivity.log("[audio] night mode " + (night ? "on" : "off") + ", boost +" + boostPct + "%"); }
+    /* the sound later (+) or sooner (-) than the picture: what is already read moves at once (the playhead read again) */
+    private static final Runnable redo = () -> { if (player != null && player.getPlaybackState() != Player.STATE_IDLE) player.seekTo(player.getCurrentPosition()); };
+    public static void audioDelay(int ms) { AudioDelay.us = ms * 1000L; MainActivity.log("[audio] delay " + ms + " ms"); ui.removeCallbacks(redo); ui.postDelayed(redo, 500); }
+    public static void speed(final float s) { run(() -> { if (player != null) player.setPlaybackParameters(new androidx.media3.common.PlaybackParameters(s)); }); MainActivity.log("[video] speed " + s); }
     public static void unload() {
         state = 0; hasMedia = 0; firstFrame = 0; changed = 1; MainActivity.keepScreen(false); restoreMode();
         run(() -> { if (player != null) { player.stop(); player.clearMediaItems(); } cues(java.util.Collections.emptyList()); });

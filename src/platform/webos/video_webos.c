@@ -413,6 +413,9 @@ static void simple(const char *method) { char mid[64]; pthread_mutex_lock(&mu); 
 void video_play(void) { resume.pause = 0; pthread_mutex_lock(&mu); S.pausedByUs = 0; if (S.st == VID_PAUSED) { S.st = VID_PLAYING; S.pos = pos_now(); posAt = SDL_GetTicks() / 1000.0; S.playing = 1; } pthread_mutex_unlock(&mu); simple("play"); }
 /* the stream's own volume (0-100), reached over easeMs (the media service's own ease: no steps of ours) */
 int video_has_media(void) { pthread_mutex_lock(&mu); int h = S.mediaId[0] != 0; pthread_mutex_unlock(&mu); return h; }
+void video_audio_fx(int night, int boostPct) { (void)night; (void)boostPct; } /* (webOS: the TV's own sound settings) */
+void video_audio_delay(int ms) { (void)ms; }
+void video_speed(float s) { (void)s; }
 void video_set_volume(int pct, int easeMs) {
   char mid[64]; pthread_mutex_lock(&mu); snprintf(mid, sizeof mid, "%s", S.mediaId); pthread_mutex_unlock(&mu); if (!mid[0]) return;
   if (pct < 0) pct = 0; if (pct > 100) pct = 100; char b[200];
