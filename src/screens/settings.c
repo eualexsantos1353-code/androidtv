@@ -13,6 +13,7 @@
 #include "core/traktwatch.h"
 #include "ui/subfonts.h"
 #include "core/trakt.h"
+#include "core/mdblist.h"
 #include "core/keys.h"
 #include "core/i18n.h"
 #include "core/store.h"
@@ -150,6 +151,9 @@ static int keys_opts(void) {
   if (tmdbOn && !tmdb_builtin()) set_act(&keyS[n++], "__tmdbOff", "Remove the TMDB key", "Titles and descriptions go back to English");
   if (!trakt_builtin()) set_act(&keyS[n++], "__trakt", "Ratings and reviews", traktOn ? "The rating, its spread and people\xe2\x80\x99s comments, from Trakt. OK to change the id" : "OK to add a Trakt client id from your phone");
   if (traktOn && !trakt_builtin()) set_act(&keyS[n++], "__traktOff", "Remove the Trakt id", "Ratings and comments from the other sources alone");
+  { int pt = !strncmp(i18n_lang(), "pt", 2), mh = mdb_has_key();
+    set_act(&keyS[n++], "__mdb", pt ? "Notas de outros sites" : "Scores from other sites", mh ? (pt ? "Rotten Tomatoes, Metacritic, Trakt e Letterboxd em cada t\xc3\xadtulo. OK para trocar a chave" : "Rotten Tomatoes, Metacritic, Trakt and Letterboxd on each title. OK to change the key") : (pt ? "OK para colar a chave gr\xc3\xa1tis do MDBList pelo celular" : "OK to add your free MDBList key from your phone"));
+    if (mh) set_act(&keyS[n++], "__mdbOff", pt ? "Remover a chave do MDBList" : "Remove the MDBList key", pt ? "As notas de outros sites somem" : "The scores from other sites go away"); }
   { int pt = !strncmp(i18n_lang(), "pt", 2), has = iptv_has();
     set_act(&keyS[n++], "__iptv", pt ? "Lista IPTV" : "IPTV list", has ? (pt ? "Canais e guia da sua lista, em TV ao vivo. OK para trocar os links" : "Your list's channels and guide, in live TV. OK to change the links") : (pt ? "OK para colar o link da lista (M3U) e do guia (EPG) pelo celular" : "OK to add your list (M3U) and guide (EPG) links from your phone"));
     if (has) set_act(&keyS[n++], "__iptvOff", pt ? "Remover a lista IPTV" : "Remove the IPTV list", pt ? "Apaga os links e os canais dela desta TV" : "Deletes the links and its channels from this TV"); }
@@ -525,6 +529,8 @@ static int key(int k) {
       if (!strcmp(op->k, "__trakt")) { qrcard_show_trakt(on_trakt_card, NULL); return 1; }
       if (!strcmp(op->k, "__iptv")) { qrcard_show_iptv(on_iptv_card, NULL); return 1; }
       if (!strcmp(op->k, "__iptvOff")) { iptv_clear(); toast(!strncmp(i18n_lang(), "pt", 2) ? "Lista IPTV removida" : "IPTV list removed", 2000, NULL); return 1; }
+      if (!strcmp(op->k, "__mdb")) { qrcard_show_mdb(NULL, NULL); return 1; }
+      if (!strcmp(op->k, "__mdbOff")) { mdb_key_clear(); relang(); return 1; }
       if (!strcmp(op->k, "__traktOff")) { trakt_key_clear(); relang(); toast(T("The Trakt id is gone"), 2000, NULL); return 1; }
       if (!strcmp(op->k, "__keys")) { settings_open_keys(); return 1; }
       if (!strcmp(op->k, "__traktUnlink")) { scrobble_unlink(); board_invalidate(); trakt_relayout(); toast(T("Trakt is disconnected"), 2000, NULL); return 1; }

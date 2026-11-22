@@ -13,6 +13,7 @@
 #include "core/httpd.h"
 #include "core/tmdb.h"
 #include "core/trakt.h"
+#include "core/mdblist.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -137,6 +138,19 @@ void qrcard_show_trakt(void (*onClose)(int hasKey, void *ud), void *ud) {
   o.check = trakt_check; o.doneTitle = T("Id saved"); o.doneSub = T("Ratings, their spread and people\xe2\x80\x99s comments now come from Trakt"); o.doneHold = 1.6f;
   o.onClose = trakt_closed;
   qrcard_show(&o); tk.cb = onClose; tk.ud = ud; tk.gen = trakt_generation();
+}
+/* Settings > Keys > Scores from other sites: the MDBList key page; onClose(hasKey, ud) once it is closed */
+static struct { void (*cb)(int, void *); void *ud; unsigned gen; } mb;
+static int mdb_check(void *ud) { (void)ud; return mdb_has_key() && mdb_generation() != mb.gen; }
+static void mdb_closed(void *ud) { (void)ud; void (*cb)(int, void *) = mb.cb; mb.cb = NULL; if (cb) cb(mdb_has_key(), mb.ud); }
+void qrcard_show_mdb(void (*onClose)(int hasKey, void *ud), void *ud) {
+  mdb_has_key(); /* the MDBList side ready to take the key from the phone */
+  char url[600]; httpd_url("/mdb", url, sizeof url);
+  QrCardOpts o; memset(&o, 0, sizeof o);
+  o.title = T("Scores from other sites"); o.sub = T("Scan with your phone and paste your MDBList key. It is free, the page says where to get it"); o.url = url;
+  o.check = mdb_check; o.doneTitle = T("Key saved"); o.doneSub = T("Rotten Tomatoes, Metacritic and more now show on each title"); o.doneHold = 1.6f;
+  o.onClose = mdb_closed;
+  qrcard_show(&o); mb.cb = onClose; mb.ud = ud; mb.gen = mdb_generation();
 }
 /* Settings > Keys > IPTV list: the page for the list link and the guide link; onClose(hasList, ud) once it is closed */
 static struct { void (*cb)(int, void *); void *ud; unsigned gen; } ip;

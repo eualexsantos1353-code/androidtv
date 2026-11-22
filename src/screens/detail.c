@@ -26,6 +26,7 @@
 #include "screens/revpanel.h"
 #include "core/parental.h"
 #include "core/rating.h"
+#include "core/mdblist.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -286,7 +287,7 @@ static float names_h_now(void) { int two = 0, role = 0; for (int i = 0; i < D.np
 /* one episode card's words and picture address, as draw_ep shows them */
 typedef struct { int unrel, w, res, epNum; float tagW; const char *ov; char rel[64], src[512], tag[96], title[300], info[160], ovb[300]; } EpRec;
 static struct {
-  int ok; unsigned ver, lv, lg, frame; long mn, mnNow;
+  int ok; unsigned ver, lv, lg, frame, mg; long mn, mnNow;
   char btnLbl[7][64]; const char *btnIcon[7]; float btnW[7]; int wNow;   /* the buttons by kind */
   char cover[512], fb[512]; const char *name, *desc; int nameN; float descH, namesH;
   MetaParts mp[2];                                                        /* the meta line: without / with the translated name */
@@ -295,8 +296,8 @@ static struct {
 } DC;
 static void dc_check(void) {
   unsigned f = app_frame(); if (f != DC.frame || !DC.ok) { DC.frame = f; DC.mnNow = (long)(time(NULL) / 60); }
-  if (DC.ok && DC.ver == D.ver && DC.lv == lib_version() && DC.lg == i18n_gen() && DC.mn == DC.mnNow) return;
-  DC.ok = 1; DC.ver = D.ver; DC.lv = lib_version(); DC.lg = i18n_gen(); DC.mn = DC.mnNow;
+  if (DC.ok && DC.ver == D.ver && DC.lv == lib_version() && DC.lg == i18n_gen() && DC.mn == DC.mnNow && DC.mg == mdb_generation()) return;
+  DC.ok = 1; DC.ver = D.ver; DC.lv = lib_version(); DC.lg = i18n_gen(); DC.mn = DC.mnNow; DC.mg = mdb_generation();
   for (int k = 0; k < 7; k++) { btn_label_now(k, DC.btnLbl[k], sizeof DC.btnLbl[k], &DC.btnIcon[k]); DC.btnW[k] = text_width(DC.btnLbl[k], 26, 600, 0); }
   DC.wNow = watched_now();
   { Item *it = malloc(sizeof *it); DC.cover[0] = DC.fb[0] = 0;
@@ -308,6 +309,7 @@ static void dc_check(void) {
     { const cJSON *n = cJSON_GetObjectItemCaseSensitive(D.meta, "imdbRating"); if (cJSON_IsNumber(n) && n->valuedouble > 0) { snprintf(irb, sizeof irb, "%.1f", n->valuedouble); ir = irb; } }
     if (!*ir) { const char *q = strstr(D.p.it.metaLine, "IMDb "); if (q) { q += 5; size_t k = 0; while (k + 1 < sizeof irb && ((q[k] >= '0' && q[k] <= '9') || q[k] == '.')) { irb[k] = q[k]; k++; } irb[k] = 0; ir = irb; } }
     if (D.meta) snprintf(ml, sizeof ml, "%s %s %s%s", rel, rt, *ir ? "IMDb " : "", ir); else snprintf(ml, sizeof ml, "%s", D.p.it.metaLine);
+    { const char *ms = mdb_line(D.p.it.type, D.p.it.id); if (*ms) { size_t l = strlen(ml); snprintf(ml + l, sizeof ml - l, "  \xc2\xb7  %s", ms); } }
     char gen[200] = ""; const cJSON *gs = js_arr(D.meta, "genres"); if (gs) { int n = 0; const cJSON *g; cJSON_ArrayForEach(g, gs) { if (n >= 3 || !cJSON_IsString(g)) break; size_t l = strlen(gen); snprintf(gen + l, sizeof gen - l, "%s%s", n ? T(", ") : "", T(g->valuestring)); n++; } }
     const char *ln = js_str(D.meta, "locName", ""), *ll = js_str(D.meta, "locLogo", ""); /* a translated name beside an English logo */
     meta_prep(&DC.mp[0], ml, gen, NULL, 27); meta_prep(&DC.mp[1], ml, gen, *ln && !*ll ? ln : NULL, 27); }

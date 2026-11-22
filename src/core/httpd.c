@@ -30,7 +30,7 @@ static int alive, stopReq, nconn; static double deadline;
 static char tok[17];
 static struct { int seq; char text[400]; } typed;
 static unsigned hits;
-static int (*keyFn)(const char *key), (*traktFn)(const char *key);
+static int (*keyFn)(const char *key), (*traktFn)(const char *key), (*mdbFn)(const char *key);
 static int (*iptvFn)(const char *m3u, const char *epg);
 
 /* the pages speak the app's language: its translations of these, taken when a screen asks for the server
@@ -114,6 +114,14 @@ static void tmdb_page(Buf *b) {
     "x.open(\"GET\",location.pathname+\"/set?key=\"+encodeURIComponent(k.value.trim()));x.onload=function(){s.textContent=x.status===204?"); js(b, pt("Saved. You can close this page.")); b_s(b, ":"); js(b, pt("TMDB didn\xe2\x80\x99t accept this key.")); b_s(b, ";};"
     "x.onerror=function(){s.textContent="); js(b, pt("Can\xe2\x80\x99t reach the TV")); b_s(b, ";};x.send();};</script></body></html>");
 }
+static void mdb_page(Buf *b) {
+  head(b, pt("Scores from other sites")); b_s(b, "<h1>"); hx(b, pt("Rotten Tomatoes, Metacritic and more")); b_s(b, "</h1><p>"); hx(b, pt("Paste your MDBList API key. It is free: sign in at"));
+  b_s(b, " <a href=\"https://mdblist.com/preferences/\" target=\"_blank\" rel=\"noopener\" dir=\"ltr\">mdblist.com/preferences</a>, "); hx(b, pt("and copy the key at the bottom of the page.")); b_s(b, " "); hx(b, pt("It stays on your TV.")); b_s(b, "</p>");
+  b_s(b, "<input id=\"k\" dir=\"ltr\" autocomplete=\"off\" autocapitalize=\"off\" spellcheck=\"false\" placeholder=\""); hx(b, pt("API key")); b_s(b, "\"><button id=\"b\">"); hx(b, pt("Save")); b_s(b, "</button><small id=\"s\"></small><script>"
+    "var k=document.getElementById(\"k\"),s=document.getElementById(\"s\");document.getElementById(\"b\").onclick=function(){s.textContent="); js(b, pt("Checking\xe2\x80\xa6")); b_s(b, ";var x=new XMLHttpRequest();"
+    "x.open(\"GET\",location.pathname+\"/set?key=\"+encodeURIComponent(k.value.trim()));x.onload=function(){s.textContent=x.status===204?"); js(b, pt("Saved. You can close this page.")); b_s(b, ":"); js(b, pt("MDBList didn\xe2\x80\x99t accept this key.")); b_s(b, ";};"
+    "x.onerror=function(){s.textContent="); js(b, pt("Can\xe2\x80\x99t reach the TV")); b_s(b, ";};x.send();};</script></body></html>");
+}
 static void trakt_page(Buf *b) {
   head(b, pt("Ratings and reviews")); b_s(b, "<h1>"); hx(b, pt("Ratings and reviews from Trakt")); b_s(b, "</h1><p>"); hx(b, pt("Paste your Trakt Client ID. To get one:")); b_s(b, " "); hx(b, pt("open"));
   b_s(b, " <a href=\"https://trakt.tv/oauth/applications/new\" target=\"_blank\" rel=\"noopener\" dir=\"ltr\">trakt.tv/oauth/applications</a>, "); hx(b, pt("sign in, then Settings \xe2\x80\xba Your API Apps \xe2\x80\xba New Application. Any name; as the redirect URI paste"));
@@ -179,13 +187,17 @@ static void handle(int fd) {
   const char *rest = NULL;
   if (!strncmp(target, "/t/", 3) && strlen(target) >= 19 && !strncmp(target + 3, tok, 16)) {
     rest = target + 19;
-    if (*rest && strcmp(rest, "/q") && strcmp(rest, "/tmdb") && strcmp(rest, "/tmdb/set") && strcmp(rest, "/trakt") && strcmp(rest, "/trakt/set") && strcmp(rest, "/iptv") && strcmp(rest, "/iptv/set")) rest = NULL; }
+    if (*rest && strcmp(rest, "/q") && strcmp(rest, "/tmdb") && strcmp(rest, "/tmdb/set") && strcmp(rest, "/trakt") && strcmp(rest, "/trakt/set") && strcmp(rest, "/mdb") && strcmp(rest, "/mdb/set") && strcmp(rest, "/iptv") && strcmp(rest, "/iptv/set")) rest = NULL; }
   if (!rest) { if (!strncmp(target, "/t/", 3) || !strcmp(target, "/")) { Buf b = { 0 }; pthread_mutex_lock(&mu); stale_page(&b); pthread_mutex_unlock(&mu); reply(fd, 404, "Content-Type: text/html; charset=utf-8\r\n", b.p, b.n); free(b.p); } else reply(fd, 404, NULL, NULL, 0); return; }
-  if (strcmp(rest, "/q") && strcmp(rest, "/tmdb/set") && strcmp(rest, "/trakt/set") && strcmp(rest, "/iptv/set")) { pthread_mutex_lock(&mu); hits++; pthread_mutex_unlock(&mu); } /* a code was opened */
+  if (strcmp(rest, "/q") && strcmp(rest, "/tmdb/set") && strcmp(rest, "/trakt/set") && strcmp(rest, "/mdb/set") && strcmp(rest, "/iptv/set")) { pthread_mutex_lock(&mu); hits++; pthread_mutex_unlock(&mu); } /* a code was opened */
   if (!strcmp(rest, "/iptv/set")) {
     char m[2048], e[2048]; qparam(q, "m3u", m, sizeof m); qparam(q, "epg", e, sizeof e);
     pthread_mutex_lock(&mu); int (*fn)(const char *, const char *) = iptvFn; pthread_mutex_unlock(&mu);
     reply(fd, fn && fn(m, e) ? 204 : 400, NULL, NULL, 0); return; }
+  if (!strcmp(rest, "/mdb/set")) {
+    char key[1024]; qparam(q, "key", key, sizeof key);
+    pthread_mutex_lock(&mu); int (*fn)(const char *) = mdbFn; pthread_mutex_unlock(&mu);
+    reply(fd, fn && fn(key) ? 204 : 400, NULL, NULL, 0); return; }
   if (!strcmp(rest, "/tmdb/set") || !strcmp(rest, "/trakt/set")) {
     char key[1024]; qparam(q, "key", key, sizeof key);
     pthread_mutex_lock(&mu); int (*fn)(const char *) = rest[1] == 't' && rest[2] == 'm' ? keyFn : traktFn; pthread_mutex_unlock(&mu);
@@ -195,7 +207,7 @@ static void handle(int fd) {
     pthread_mutex_lock(&mu); typed.seq++; snprintf(typed.text, sizeof typed.text, "%s", t); pthread_mutex_unlock(&mu);
     reply(fd, 204, NULL, NULL, 0); return; }
   Buf b = { 0 };
-  pthread_mutex_lock(&mu); if (!strcmp(rest, "/tmdb")) tmdb_page(&b); else if (!strcmp(rest, "/trakt")) trakt_page(&b); else if (!strcmp(rest, "/iptv")) iptv_page(&b); else search_page(&b); pthread_mutex_unlock(&mu);
+  pthread_mutex_lock(&mu); if (!strcmp(rest, "/tmdb")) tmdb_page(&b); else if (!strcmp(rest, "/trakt")) trakt_page(&b); else if (!strcmp(rest, "/mdb")) mdb_page(&b); else if (!strcmp(rest, "/iptv")) iptv_page(&b); else search_page(&b); pthread_mutex_unlock(&mu);
   reply(fd, 200, "Content-Type: text/html; charset=utf-8\r\n", b.p, b.n); free(b.p);
 }
 static void *conn_main(void *arg) {
@@ -288,4 +300,5 @@ int httpd_typed(int since, char *out, size_t cap) {
 unsigned httpd_hits(void) { pthread_mutex_lock(&mu); unsigned h = hits; pthread_mutex_unlock(&mu); return h; }
 void httpd_set_key_handler(int (*fn)(const char *key)) { pthread_mutex_lock(&mu); keyFn = fn; pthread_mutex_unlock(&mu); }
 void httpd_set_iptv_handler(int (*fn)(const char *m3u, const char *epg)) { pthread_mutex_lock(&mu); iptvFn = fn; pthread_mutex_unlock(&mu); }
+void httpd_set_mdb_handler(int (*fn)(const char *key)) { pthread_mutex_lock(&mu); mdbFn = fn; pthread_mutex_unlock(&mu); }
 void httpd_set_trakt_handler(int (*fn)(const char *key)) { pthread_mutex_lock(&mu); traktFn = fn; pthread_mutex_unlock(&mu); }
