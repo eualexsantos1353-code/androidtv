@@ -28,6 +28,7 @@
 #include "core/rating.h"
 #include "core/mdblist.h"
 #include "core/eprating.h"
+#include "core/studios.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -749,11 +750,20 @@ static void draw(void) {
   y += 22;
   meta_draw_p(&DC.mp[drewLogo ? 1 : 0], lx, y, WHITE_A(230), al); y += text_line_height(27);
   /* the facts: the awards in gold, the country */
-  if (D.nfacts) { y += 12; float fx = lx, fy = y, flh = text_line_height(24);
+  const char *stLg[3], *stNm[3]; int nst = 0; { char im[32]; if (imdb_of(im, sizeof im)[0]) nst = studios_get(D.p.it.type, im, stLg, stNm); } /* the studios / networks (TMDB's logos) */
+  if (D.nfacts || nst) { y += 12; float fx = lx, fy = y, flh = text_line_height(24);
     for (int i = 0; i < 3; i++) { if (!D.facts[i][0]) continue; uint32_t c = i == 0 ? RGB(0xf5, 0xc5, 0x18) : WHITE_A(204); float iw = 24 + 8;
       icon_draw(i == 0 ? "d_award" : i == 1 ? "d_country" : "collection", rtl ? fx - 24 : fx, fy + flh / 2 - 12, 24, i == 0 ? c : WHITE_A(166));
       float tw = text_draw(D.facts[i], rtl ? fx - iw : fx + iw, fy, 24, i == 0 ? 600 : 500, c, 0, 0, al); fx += (rtl ? -1 : 1) * (iw + tw + 30); }
-    y += flh; }
+    for (int i = 0; i < nst; i++) { /* each on a light pill: most logos are dark ink on clear */
+      float asp = 0; GLuint t = img_get(stLg[i], 185, 80, &asp); float ph = 40, lh = 24, lw = 0;
+      if (t && asp > 0) { lw = lh * asp; if (lw > 120) { lw = 120; lh = lw / asp; } }
+      else if (img_failed(stLg[i]) && *stNm[i]) { float nw = text_width(stNm[i], 22, 600, 0); float px = rtl ? fx - nw : fx; text_draw(stNm[i], px, fy + (flh - text_line_height(22)) / 2, 22, 600, WHITE_A(190), 0, 0, ALIGN_LEFT); fx += (rtl ? -1 : 1) * (nw + 26); continue; }
+      else continue; /* (still coming) */
+      float pw = lw + 28, px = rtl ? fx - pw : fx, py = fy + flh / 2 - ph / 2;
+      gfx_rrect(px, py, pw, ph, ph / 2, WHITE_A(228)); gfx_image(t, px + 14, py + (ph - lh) / 2, lw, lh, 0, WHITE_A((int)(255 * gfx_tex_fade(t))), 0, 0, 1, 1);
+      fx += (rtl ? -1 : 1) * (pw + 14); }
+    y += flh + (nst ? 10 : 0); }
   /* more: the synopsis, then the people; they wait for the details and fade up together */
   float moreTop = y;
   if (D.moreA.v > 0.001f && !D.moreWait) { float mk = OUTK > 0 ? (1 - OUTK) * (1 - OUTK) : D.moreIn.on ? 1 - powf(1 - timer_x(&D.moreIn), 3) : 1;
