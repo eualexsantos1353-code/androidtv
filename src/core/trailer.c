@@ -627,7 +627,10 @@ unsigned trailer_find_meta(const cJSON *meta, const char *id, int lowQuality, Tr
   { const char *nm = js_str(meta, "name", ""), *yr = js_str(meta, "year", js_str(meta, "releaseInfo", "")); char y4[8] = "";
     if (strlen(yr) >= 4 && yr[0] >= '1' && yr[0] <= '2' && yr[1] >= '0' && yr[1] <= '9' && yr[2] >= '0' && yr[2] <= '9' && yr[3] >= '0' && yr[3] <= '9') { memcpy(y4, yr, 4); y4[4] = 0; }
     if (*nm) snprintf(pendTitle, sizeof pendTitle, "%.100s%s%s", nm, y4[0] ? " " : "", y4); else pendTitle[0] = 0;
-    { const char *ln = js_str(meta, "locName", ""); if (*ln && strcmp(ln, nm)) snprintf(pendLoc, sizeof pendLoc, "%.95s", ln); else pendLoc[0] = 0; } }
+    { const char *ln = js_str(meta, "locName", ""); if (*ln && strcmp(ln, nm)) snprintf(pendLoc, sizeof pendLoc, "%.95s", ln); else pendLoc[0] = 0;
+      if (!pendLoc[0] && imdb[0] && tmdb_wanted(imdb)) { /* a card's meta has no translated name yet: TMDB's, when the rows already asked for it */
+        const char *ty = js_str(meta, "type", "movie"); const TmdbLoc *L = tmdb_loc(!strcmp(ty, "series") ? "series" : "movie", imdb, 1);
+        if (L && L->name && *L->name && strcmp(L->name, nm)) snprintf(pendLoc, sizeof pendLoc, "%.95s", L->name); } } }
   unsigned tk = trailer_find(imdb, yt, lowQuality, cb, ud); pendTitle[0] = 0; pendLoc[0] = 0; return tk;
 }
 void trailer_cancel(unsigned tok) { for (Job *j = jobs; j; j = j->next) if (j->tok == tok) j->cancelled = 1; }
