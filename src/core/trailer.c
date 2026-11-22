@@ -198,7 +198,7 @@ static void yt_post(YtReq *r) {
   cJSON *b = cJSON_CreateObject(), *ctx = cJSON_AddObjectToObject(b, "context"), *cl = cJSON_AddObjectToObject(ctx, "client"); char hd[900];
   cJSON_AddStringToObject(b, "videoId", r->vid); cJSON_AddTrueToObject(b, "contentCheckOk"); cJSON_AddTrueToObject(b, "racyCheckOk");
   cJSON_AddStringToObject(cl, "hl", hl); cJSON_AddStringToObject(cl, "gl", gl);
-  if (r->cl == 1) {
+  if (r->cl == 0) {
     cJSON_AddStringToObject(cl, "clientName", "VISIONOS"); cJSON_AddStringToObject(cl, "clientVersion", "1.02"); cJSON_AddStringToObject(cl, "deviceMake", "Apple");
     cJSON_AddStringToObject(cl, "deviceModel", "RealityDevice17,1"); cJSON_AddStringToObject(cl, "osName", "visionOS"); cJSON_AddStringToObject(cl, "osVersion", "26.5.23O471");
     cJSON *pc = cJSON_AddObjectToObject(b, "playbackContext"), *cp = cJSON_AddObjectToObject(pc, "contentPlaybackContext"); cJSON_AddStringToObject(cp, "html5Preference", "HTML5_PREF_WANTS");
@@ -220,6 +220,8 @@ static void on_innertube(int st, const unsigned char *body, size_t len, void *ud
   YtReq *r = ud; (void)len; cJSON *j = st > 0 ? net_json(body) : NULL, *out = NULL;
   if (j) {
     const char *lo = "", *hi = ""; const cJSON *f;
+    { const cJSON *sd = js_obj(j, "streamingData"), *af; int na = 0, nu = 0; cJSON_ArrayForEach(af, js_arr(sd, "adaptiveFormats")) { na++; if (*js_str(af, "url", "")) nu++; }
+      fprintf(stderr, "[yt] %s client %d: %s, adaptive %d (%d with an address), ready-made %d, hls %s\n", r->vid, r->cl, js_str(js_obj(j, "playabilityStatus"), "status", "?"), na, nu, cJSON_GetArraySize(js_arr(sd, "formats")), *js_str(sd, "hlsManifestUrl", "") ? "yes" : "no"); }
     cJSON_ArrayForEach(f, js_arr(js_obj(j, "streamingData"), "formats")) {
       const char *u = js_str(f, "url", ""); if (!*u || strncmp(js_str(f, "mimeType", ""), "video/mp4", 9)) continue;
       int itag = (int)js_num(f, "itag", 0);
@@ -227,7 +229,7 @@ static void on_innertube(int st, const unsigned char *body, size_t len, void *ud
       if (itag == 22) hi = u; else if (itag == 18) lo = u; else if (!*lo) lo = u;
     }
     /* the separate files: the sharpest H.264 picture up to YT_MAXH, the sound in the app's language (else the video's own) */
-    char mix[4300] = ""; { const char *vu = "", *au = ""; double vsc = -1, asc = -1; int vh = 0, aln = 0; const char *aid = "";
+    char mix[4300] = ""; if (r->cl == 0) { const char *vu = "", *au = ""; double vsc = -1, asc = -1; int vh = 0, aln = 0; const char *aid = "";
       cJSON_ArrayForEach(f, js_arr(js_obj(j, "streamingData"), "adaptiveFormats")) {
         const char *u = js_str(f, "url", ""), *mt = js_str(f, "mimeType", ""); if (!*u) continue;
         if (!strncmp(mt, "video/mp4", 9)) {
@@ -260,9 +262,9 @@ static void on_innertube(int st, const unsigned char *body, size_t len, void *ud
     } else cJSON_Delete(subs);
     net_json_free(j);
   } else fprintf(stderr, "[yt] %s client %d answered %d\n", r->vid, r->cl, st);
-  if (r->cl == 0 && (!out || !*js_str(out, "mix", ""))) { /* the Android client gave no separate files: VisionOS's (its ready-made ones are kept if it has none) */
-    fprintf(stderr, "[yt] %s: no separate files, trying the VisionOS client\n", r->vid); cJSON *keep = out; r->cl = 1; r->out = keep; yt_post(r); return; }
-  if (r->cl == 1 && r->out) { if (!out || !*js_str(out, "mix", "")) { if (out) cJSON_Delete(out); out = r->out; } else cJSON_Delete(r->out); r->out = NULL; }
+  if (r->cl == 0 && (!out || !*js_str(out, "mix", ""))) { /* VisionOS gave no separate files: the Android client's ready-made ones (its separate ones are refused with 403) */
+    fprintf(stderr, "[yt] %s: no separate files from VisionOS, trying the Android client\n", r->vid); cJSON *keep = out; r->cl = 1; r->out = keep; yt_post(r); return; }
+  if (r->cl == 1 && r->out) { if (out && (*js_str(out, "hi", "") || *js_str(out, "lo", ""))) cJSON_Delete(r->out); else { if (out) cJSON_Delete(out); out = r->out; } r->out = NULL; } /* (the Android client's ready-made files, else what VisionOS had) */
   r->cb(out, r->ud); free(r);
 }
 static void yt_innertube(const char *vid, YtCb cb, void *ud) {
