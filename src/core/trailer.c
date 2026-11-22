@@ -225,13 +225,14 @@ static void yt_post(YtReq *r) {
   net_post_hdr_t(url, js, "application/json", hd, 10000, on_innertube, r); free(js);
 }
 static void on_watch(int st, const unsigned char *body, size_t len, void *ud) {
-  YtReq *r = ud; (void)len; ytCfgTry = now_s();
+  YtReq *r = ud; (void)len; ytCfgTry = now_s(); fprintf(stderr, "[yt] watch page answered %d, %zu bytes\n", st, len);
   if (st == 200 && body) { char k[96], v[300]; if (between((const char *)body, "\"INNERTUBE_API_KEY\":\"", k, sizeof k)) cpy(ytKey, sizeof ytKey, k); if (between((const char *)body, "\"VISITOR_DATA\":\"", v, sizeof v)) cpy(ytVisitor, sizeof ytVisitor, v); ytCfgAt = now_s(); }
+  fprintf(stderr, "[yt] key %s, visitor id %s\n", ytKey[0] ? "found" : "missing", ytVisitor[0] ? "found" : "missing");
   yt_post(r);
 }
 static void on_innertube(int st, const unsigned char *body, size_t len, void *ud) {
   YtReq *r = ud; (void)len; cJSON *j = st > 0 ? net_json(body) : NULL, *out = NULL; int j_login = 0;
-  if (j) { j_login = !strcmp(js_str(js_obj(j, "playabilityStatus"), "status", ""), "LOGIN_REQUIRED");
+  if (j) { { const char *vd = js_str(js_obj(j, "responseContext"), "visitorData", ""); if (*vd && !ytVisitor[0] && strlen(vd) < 300) { cpy(ytVisitor, sizeof ytVisitor, vd); ytCfgAt = now_s(); fprintf(stderr, "[yt] visitor id taken from the player answer\n"); } } j_login = !strcmp(js_str(js_obj(j, "playabilityStatus"), "status", ""), "LOGIN_REQUIRED");
     const char *lo = "", *hi = ""; const cJSON *f;
     { const cJSON *sd = js_obj(j, "streamingData"), *af; int na = 0, nu = 0; cJSON_ArrayForEach(af, js_arr(sd, "adaptiveFormats")) { na++; if (*js_str(af, "url", "")) nu++; }
       fprintf(stderr, "[yt] %s client %d: %s, adaptive %d (%d with an address), ready-made %d, hls %s\n", r->vid, r->cl, js_str(js_obj(j, "playabilityStatus"), "status", "?"), na, nu, cJSON_GetArraySize(js_arr(sd, "formats")), *js_str(sd, "hlsManifestUrl", "") ? "yes" : "no"); }
@@ -275,7 +276,7 @@ static void on_innertube(int st, const unsigned char *body, size_t len, void *ud
     } else cJSON_Delete(subs);
     net_json_free(j);
   } else fprintf(stderr, "[yt] %s client %d answered %d\n", r->vid, r->cl, st);
-  if (j_login && r->cl == 0 && !r->fresh) { r->fresh = 1; ytCfgAt = 0; ytVisitor[0] = 0; fprintf(stderr, "[yt] %s: YouTube asked for a login, fetching a new visitor id\n", r->vid); if (out) cJSON_Delete(out); out = NULL; yt_fresh(r); return; }
+  if (j_login && r->cl == 0 && !r->fresh) { r->fresh = 1; fprintf(stderr, "[yt] %s: YouTube asked for a login, trying again with the visitor id it gave\n", r->vid); if (out) cJSON_Delete(out); out = NULL; yt_fresh(r); return; }
   { int hasMix = out && *js_str(out, "mix", ""), hasRm = out && (*js_str(out, "hi", "") || *js_str(out, "lo", ""));
     if (r->cl < 3 && !hasMix) { /* this client gave no separate files: the next one (what it had of captions stays) */
       fprintf(stderr, "[yt] %s: no separate files from client %d, trying the next\n", r->vid, r->cl); if (out && !r->out) r->out = out; else if (out) cJSON_Delete(out); r->cl++; yt_post(r); return; }
@@ -285,7 +286,7 @@ static void on_innertube(int st, const unsigned char *body, size_t len, void *ud
       else if (out && hasRm) cJSON_Delete(base); else { if (out) cJSON_Delete(out); out = base; } } }
   r->cb(out, r->ud); free(r);
 }
-static void yt_fresh(YtReq *r) { ytCfgTry = now_s();
+static void yt_fresh(YtReq *r) { if (ytVisitor[0]) { yt_post(r); return; } ytCfgTry = now_s();
   net_get_hdr("https://www.youtube.com/watch?v=dQw4w9WgXcQ&hl=en", "Accept-Language: en-US,en;q=0.9\nUser-Agent: Mozilla/5.0 (Linux; Android 12; Android TV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36", on_watch, r); }
 static void yt_innertube(const char *vid, YtCb cb, void *ud) {
   YtReq *r = calloc(1, sizeof *r); cpy(r->vid, sizeof r->vid, vid); r->cb = cb; r->ud = ud; r->cl = 0;
