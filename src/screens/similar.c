@@ -149,12 +149,63 @@ static void cloud_tile(const Item *it, float x, float y, int f) {
 /* ---- the Calendar: a month of days on the left, the focused day's episodes on the right (the series in the
    Library, from the addons' calendar catalogs, core/notify). Arrows move the day (across months too), OK or Right
    into the day's list, OK there opens the series */
-static struct { int zone, idx, got; long day; double pollAt; Tween listY; } C; /* day: yyyymmdd focused; zone 1: the list */
+static struct { int zone, idx, got, flt, fidx; long day; double pollAt; Tween listY; } C; /* day: yyyymmdd focused; zone 1: the list, 2: the filters */
 static long day_of(time_t t) { struct tm tm; localtime_r(&t, &tm); return (tm.tm_year + 1900) * 10000L + (tm.tm_mon + 1) * 100 + tm.tm_mday; }
 static time_t time_of(long d) { struct tm tm; memset(&tm, 0, sizeof tm); tm.tm_year = (int)(d / 10000) - 1900; tm.tm_mon = (int)(d / 100 % 100) - 1; tm.tm_mday = (int)(d % 100); tm.tm_hour = 12; tm.tm_isdst = -1; return mktime(&tm); }
 static long day_add(long d, int n) { return day_of(time_of(d) + (time_t)n * 86400); }
 static int wday_of(long d) { time_t t = time_of(d); struct tm tm; localtime_r(&t, &tm); return tm.tm_wday; }
-static int day_eps(long d, int *first) { int n = 0; *first = -1; for (int i = 0; i < G.items.n; i++) if (day_of((time_t)G.items.items[i].airAt) == d) { if (*first < 0) *first = i; n++; } return n; }
+
+/* the filters (as the ASTRAL TV Agenda's): the followed series' episodes, then from TMDB for the month shown: series
+   premiering, series coming back with a new season, films coming out */
+static int cmp_cal(const void *a, const void *b);
+static const char *FLT[4] = { "Upcoming episodes", "Premieres of the week", "New seasons", "Movies" };
+typedef struct { ItemList l; int ym, state, pend; unsigned tok; } FData; /* ym: the month asked (yyyymm); state 1 asking, 2 known */
+static FData FD[4]; static unsigned fTok;
+static ItemList *cl(void) { return C.flt ? &FD[C.flt].l : &G.items; }
+static void fd_add(FData *d, int tv, int tid, const char *name, const char *poster, const char *date, const char *line) {
+  struct tm tm; memset(&tm, 0, sizeof tm); if (sscanf(date, "%d-%d-%d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday) != 3) return; tm.tm_year -= 1900; tm.tm_mon--; tm.tm_hour = 12; tm.tm_isdst = -1;
+  char id[40]; snprintf(id, sizeof id, "tm:%c:%d", tv ? 't' : 'm', tid); for (int i = 0; i < d->l.n; i++) if (!strcmp(d->l.items[i].id, id) && !strcmp(d->l.items[i].metaLine, line)) return;
+  Item *m = realloc(d->l.items, (size_t)(d->l.n + 1) * sizeof(Item)); if (!m) return; d->l.items = m; Item *it = &m[d->l.n++]; memset(it, 0, sizeof *it);
+  snprintf(it->id, sizeof it->id, "%s", id); snprintf(it->type, sizeof it->type, "%s", tv ? "series" : "movie"); snprintf(it->name, sizeof it->name, "%s", name);
+  if (*poster) snprintf(it->poster, sizeof it->poster, "https://image.tmdb.org/t/p/w342%s", poster); it->airAt = (double)mktime(&tm); it->ep = -1; snprintf(it->metaLine, sizeof it->metaLine, "%s", line); }
+static void fd_done(FData *d) { if (--d->pend <= 0) { d->state = 2; qsort(d->l.items, (size_t)d->l.n, sizeof(Item), cmp_cal); } }
+static void on_disc(int st, const unsigned char *b, size_t len, void *ud) { /* premieres and films: one page of discover */
+  (void)len; unsigned u = (unsigned)(uintptr_t)ud; int f = (int)(u & 3); FData *d = &FD[f]; if ((u >> 2) != d->tok) return; cJSON *j = st == 200 ? net_json(b) : NULL; const cJSON *r;
+  cJSON_ArrayForEach(r, js_arr(j, "results")) { int tv = f == 1; if (tv) fd_add(d, 1, (int)js_num(r, "id", 0), js_str(r, "name", ""), js_str(r, "poster_path", ""), js_str(r, "first_air_date", ""), T("Series premiere"));
+    else fd_add(d, 0, (int)js_num(r, "id", 0), js_str(r, "title", ""), js_str(r, "poster_path", ""), js_str(r, "release_date", ""), T("Film")); }
+  net_json_free(j); fd_done(d); }
+static void on_show(int st, const unsigned char *b, size_t len, void *ud) { /* new seasons: a show's next or last episode, when it is a season's first */
+  (void)len; unsigned u = (unsigned)(uintptr_t)ud; FData *d = &FD[2]; if ((u >> 2) != d->tok) return; cJSON *j = st == 200 ? net_json(b) : NULL;
+  const char *ks[2] = { "next_episode_to_air", "last_episode_to_air" };
+  for (int k = 0; k < 2; k++) { const cJSON *e = js_obj(j, ks[k]); int sn = (int)js_num(e, "season_number", 0); if (!e || js_num(e, "episode_number", 0) != 1 || sn < 2) continue;
+    const char *ad = js_str(e, "air_date", ""); int y, m; if (sscanf(ad, "%d-%d", &y, &m) != 2 || y * 100 + m != d->ym) continue;
+    char ln[64], sn2[8]; snprintf(sn2, sizeof sn2, "%d", sn); snprintf(ln, sizeof ln, "%s", T1("Season {n}", "n", sn2)); fd_add(d, 1, (int)js_num(j, "id", 0), js_str(j, "name", ""), js_str(j, "poster_path", ""), ad, ln); }
+  net_json_free(j); fd_done(d); }
+static void on_airing(int st, const unsigned char *b, size_t len, void *ud) { /* new seasons: the shows airing that month, then each one's details */
+  (void)len; unsigned u = (unsigned)(uintptr_t)ud; FData *d = &FD[2]; if ((u >> 2) != d->tok) return; cJSON *j = st == 200 ? net_json(b) : NULL; const cJSON *r;
+  cJSON_ArrayForEach(r, js_arr(j, "results")) { char p[80]; snprintf(p, sizeof p, "/tv/%d?language=%s", (int)js_num(r, "id", 0), i18n_lang()); d->pend++; if (!tmdb_request(p, on_show, (void *)(uintptr_t)(d->tok << 2 | 2))) d->pend--; }
+  net_json_free(j); fd_done(d); }
+static void fd_ask(int f) {
+  if (!f) return; int ym = (int)(C.day / 100); FData *d = &FD[f]; if (d->ym == ym && d->state) return;
+  itemlist_clear(&d->l); d->ym = ym; d->state = 1; d->pend = 0; d->tok = ++fTok & 0x3fffffff;
+  if (!tmdb_has_key()) { d->state = 2; return; }
+  int y = ym / 100, m = ym % 100, last = m == 2 ? (y % 4 ? 28 : 29) : (m == 4 || m == 6 || m == 9 || m == 11) ? 30 : 31; char a[16], z[16]; snprintf(a, sizeof a, "%04d-%02d-01", y, m); snprintf(z, sizeof z, "%04d-%02d-%02d", y, m, last);
+  for (int pg = 1; pg <= (f == 2 ? 2 : 3); pg++) { char p[400];
+    if (f == 1) snprintf(p, sizeof p, "/discover/tv?language=%s&sort_by=popularity.desc&first_air_date.gte=%s&first_air_date.lte=%s&with_type=2|4&page=%d", i18n_lang(), a, z, pg);
+    else if (f == 2) snprintf(p, sizeof p, "/discover/tv?language=%s&sort_by=popularity.desc&air_date.gte=%s&air_date.lte=%s&page=%d", i18n_lang(), a, z, pg);
+    else snprintf(p, sizeof p, "/discover/movie?language=%s&region=BR&sort_by=popularity.desc&primary_release_date.gte=%s&primary_release_date.lte=%s&with_release_type=2|3|4&page=%d", i18n_lang(), a, z, pg);
+    d->pend++; if (!tmdb_request(p, f == 2 ? on_airing : on_disc, (void *)(uintptr_t)(d->tok << 2 | (unsigned)f))) d->pend--; }
+  if (d->pend <= 0) d->state = 2; }
+/* a TMDB title picked: its IMDb id first, then its page */
+static void on_ext(int st, const unsigned char *b, size_t len, void *ud) {
+  (void)len; Item *it = (Item *)ud; cJSON *j = st == 200 ? net_json(b) : NULL; const char *im = js_str(j, "imdb_id", "");
+  if (*im && SCR == SCR_SIM && G.cal) { DetailParams p; memset(&p, 0, sizeof p); p.it = *it; snprintf(p.it.id, sizeof p.it.id, "%s", im); p.it.metaLine[0] = 0; app_go(SCR_DETAIL, &p, 0); }
+  else if (!*im) toast(T("Nothing found."), 1600, NULL);
+  net_json_free(j); free(it); }
+static int cal_open_tm(const Item *it) {
+  if (strncmp(it->id, "tm:", 3)) return 0; Item *c = malloc(sizeof *c); if (!c) return 1; *c = *it; char p[64]; snprintf(p, sizeof p, "/%s/%s/external_ids", it->id[3] == 't' ? "tv" : "movie", it->id + 5);
+  if (!tmdb_request(p, on_ext, c)) free(c); return 1; }
+static int day_eps(long d, int *first) { ItemList *L = cl(); int n = 0; *first = -1; for (int i = 0; i < L->n; i++) if (day_of((time_t)L->items[i].airAt) == d) { if (*first < 0) *first = i; n++; } return n; }
 /* besides what the addons' calendar catalogs said: each followed series' own episode list (its metadata, asked once
    as the Calendar opens), so a library the catalogs don't cover still fills the month */
 static Item *CX; static int nCX, capCX, cxPend, cxAsked; static unsigned cxGen;
@@ -186,19 +237,27 @@ static void cal_more(void) {
   cxAsked = k; fprintf(stderr, "[calendar] asking the episode lists of %d series\n", k); }
 static void cal_enter(void) { memset(&C, 0, sizeof C); G.loadT0 = app_now(); C.day = day_of(time(NULL)); snprintf(G.title, sizeof G.title, "%s", T("Calendar")); cal_more(); cal_load(); }
 static void cal_tick(float dt) { tween_tick(&C.listY, dt); if ((!C.got || G.loading || notify_busy()) && app_now() > C.pollAt) cal_load(); }
-static const Item *cal_focused(void) { if (C.zone != 1) return NULL; int f; int n = day_eps(C.day, &f); return n && C.idx < n ? &G.items.items[f + C.idx] : NULL; }
+static const Item *cal_focused(void) { if (C.zone != 1) return NULL; int f; int n = day_eps(C.day, &f); return n && C.idx < n ? &cl()->items[f + C.idx] : NULL; }
 static int cal_key(int k) {
   int f, n = day_eps(C.day, &f); long d0 = C.day;
+  if (C.zone == 2) { /* the filters: each applies as the focus lands on it */
+    if (k == K_LEFT || k == K_RIGHT) { int t = C.fidx + (k == K_RIGHT ? 1 : -1); if (t < 0 || t > 3) { nudge_start(&G.nudge, k); return 1; } C.fidx = C.flt = t; fd_ask(t); sound_focus(); }
+    else if (k == K_DOWN || k == K_OK) { C.zone = 0; sound_focus(); }
+    else if (k == K_UP) nudge_start(&G.nudge, k);
+    else if (k == K_BACK) return 0;
+    return 1; }
   if (C.zone == 1) {
     if (k == K_UP) { if (C.idx > 0) C.idx--; else nudge_start(&G.nudge, k); }
     else if (k == K_DOWN) { if (C.idx < n - 1) C.idx++; else nudge_start(&G.nudge, k); }
     else if (k == K_LEFT || k == K_BACK) { C.zone = 0; }
     tween_to(&C.listY, C.idx > 3 ? -(C.idx - 3) * 150.0f : 0, 0.24f, EASE_OUT); sound_focus(); return 1; }
   if (k == K_LEFT) C.day = day_add(C.day, -1); else if (k == K_RIGHT) { if (wday_of(C.day) == 6 && n) { C.zone = 1; C.idx = 0; tween_set(&C.listY, 0); sound_focus(); return 1; } C.day = day_add(C.day, 1); }
-  else if (k == K_UP) C.day = day_add(C.day, -7); else if (k == K_DOWN) C.day = day_add(C.day, 7);
+  else if (k == K_UP) { long up = day_add(C.day, -7); if (up / 100 != C.day / 100) { C.zone = 2; C.fidx = C.flt; sound_focus(); return 1; } C.day = up; } /* (the month's first week: up to the filters) */
+  else if (k == K_DOWN) C.day = day_add(C.day, 7);
   else if (k == K_OK) { if (n) { C.zone = 1; C.idx = 0; tween_set(&C.listY, 0); sound_focus(); } else nudge_start(&G.nudge, k); return 1; }
   else if (k == K_BACK) return 0; else return 1;
-  { long lo = day_add(day_of(time(NULL)), -92), hi = day_add(day_of(time(NULL)), 92); if (C.day < lo || C.day > hi) { C.day = d0; nudge_start(&G.nudge, k); return 1; } }
+  { int span = C.flt ? 366 : 92; long lo = day_add(day_of(time(NULL)), -span), hi = day_add(day_of(time(NULL)), span); if (C.day < lo || C.day > hi) { C.day = d0; nudge_start(&G.nudge, k); return 1; } }
+  if (C.day / 100 != d0 / 100) fd_ask(C.flt); /* (another month: the filter's titles for it) */
   if (C.day != d0) sound_focus(); return 1; }
 static void cal_draw(void) {
   static const char *M[12] = { "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December" };
@@ -206,8 +265,13 @@ static void cal_draw(void) {
   uint32_t ac = ACC2 | 0xff000000u; long today = day_of(time(NULL)); int y = (int)(C.day / 10000), m = (int)(C.day / 100 % 100);
   text_draw(G.title, 80, 118, 52, 800, WHITE_A(255), -0.8f, 0, ALIGN_LEFT);
   { char my[64]; snprintf(my, sizeof my, "%s %d", T(M[m - 1]), y); text_draw(my, 80 + 7 * 116 - 8, 134, 36, 700, WHITE_A(200), 0, 0, ALIGN_RIGHT); }
+  /* the filters */
+  { float px = 80, py = 176, ph = 52; for (int i = 0; i < 4; i++) { const char *lb = T(FLT[i]); float w = text_width(lb, 22, 700, 0) + 40; int sel = C.flt == i, fo = C.zone == 2 && C.fidx == i;
+      if (fo) gfx_rrect(px, py, w, ph, ph / 2, WHITE_A(250)); else if (sel) gfx_rrect(px, py, w, ph, ph / 2, WHITE_A(52)); else gfx_ring(px, py, w, ph, ph / 2, 1.5f, WHITE_A(70));
+      text_draw(lb, px + 20, py + (ph - text_line_height(22)) / 2, 22, 700, fo ? RGB(16, 16, 20) : WHITE_A(sel ? 255 : 190), 0, 0, ALIGN_LEFT);
+      if (sel && !fo) gfx_rrect(px + w / 2 - 14, py + ph + 6, 28, 4, 2, ac); px += w + 12; } }
   /* the month */
-  float gx = 80, gy = 262, cw = 108, chh = 100, gap = 8; long first = (long)(y * 10000L + m * 100 + 1); int w0 = wday_of(first);
+  float gx = 80, gy = 306, cw = 108, chh = 96, gap = 8; long first = (long)(y * 10000L + m * 100 + 1); int w0 = wday_of(first);
   for (int c = 0; c < 7; c++) text_draw(T(WS[c]), gx + c * (cw + gap) + cw / 2, gy - 44, 24, 700, WHITE_A(c == 0 || c == 6 ? 130 : 170), 0, 0, ALIGN_CENTER);
   long d = day_add(first, -w0);
   for (int r = 0; r < 6; r++) for (int c = 0; c < 7; c++, d = day_add(d, 1)) {
@@ -218,10 +282,9 @@ static void cal_draw(void) {
     char dn[8]; snprintf(dn, sizeof dn, "%d", (int)(d % 100)); uint32_t fg = fo && C.zone == 0 ? RGB(16, 16, 20) : WHITE_A(inM ? 235 : 90);
     text_draw(dn, x + 14, yy + 10, 30, 700, fg, 0, 0, ALIGN_LEFT);
     if (ne) { /* the first poster, small, and how many */
-      const Item *it = &G.items.items[ff]; float aspect; GLuint t = it->poster[0] ? img_get(it->poster, 60, 90, &aspect) : 0;
+      const Item *it = &cl()->items[ff]; float aspect; GLuint t = it->poster[0] ? img_get(it->poster, 60, 90, &aspect) : 0;
       if (t) gfx_image(t, x + cw - 48, yy + chh - 66, 38, 56, 6, WHITE_A(inM ? 255 : 120), 0, 0, 1, 1); else gfx_rrect(x + cw - 48, yy + chh - 66, 38, 56, 6, col_alpha(ac, 0.6f));
-      if (ne > 1) { char nn[8]; snprintf(nn, sizeof nn, "+%d", ne - 1); text_draw(nn, x + 14, yy + chh - 40, 24, 800, fo && C.zone == 0 ? ac : col_alpha(ac, inM ? 1 : 0.5f), 0, 0, ALIGN_LEFT); }
-      else gfx_circle(x + 22, yy + chh - 24, 6, col_alpha(ac, inM ? 1 : 0.5f)); }
+      { int nd = ne < 4 ? ne : 4; uint32_t dc = fo && C.zone == 0 ? ac : col_alpha(ac, inM ? 1 : 0.5f); for (int q = 0; q < nd; q++) gfx_circle(x + 22 + q * 16, yy + chh - 22, 5.5f, dc); } } /* a dot for each title that day (four at most) */
     }
   /* the day */
   float rx = 960, rw = SB_W - 80 - rx, ry = 150;
@@ -231,18 +294,19 @@ static void cal_draw(void) {
     if (C.day == today) { char h2[200]; snprintf(h2, sizeof h2, "%s  \xc2\xb7  %s", T("Today"), hd); snprintf(hd, sizeof hd, "%s", h2); }
     text_draw(hd, rx, ry, 40, 800, WHITE_A(255), -0.4f, rw, ALIGN_LEFT); }
   int f, n = day_eps(C.day, &f); float ly = ry + 80, lh = SB_H - 60 - ly;
-  if (G.loading && !G.items.n) text_draw(T("Getting the calendar…"), rx, ly + 20, 30, 600, WHITE_A(160), 0, rw, ALIGN_LEFT);
+  if (C.flt) { if (FD[C.flt].state == 1 && !n) text_draw(T("Getting the calendar…"), rx, ly + 20, 30, 600, WHITE_A(160), 0, rw, ALIGN_LEFT); else if (!tmdb_has_key()) text_draw_wrapped(T("Add a TMDB key under Keys"), rx, ly + 20, rw, 3, 30, 600, WHITE_A(160), 0, ALIGN_LEFT, 40); else if (!n) text_draw(T("Nothing on this day"), rx, ly + 20, 30, 600, WHITE_A(150), 0, rw, ALIGN_LEFT); }
+  else if (G.loading && !G.items.n) text_draw(T("Getting the calendar…"), rx, ly + 20, 30, 600, WHITE_A(160), 0, rw, ALIGN_LEFT);
   else if (!G.items.n) { char cn[16]; snprintf(cn, sizeof cn, "%d", cxAsked); text_draw_wrapped(cxAsked ? T1("None of your {n} series has an episode from a month ago to three months ahead", "n", cn) : T("Add series to your Library to see their episodes here"), rx, ly + 20, rw, 3, 30, 600, WHITE_A(160), 0, ALIGN_LEFT, 40); }
   else if (!n) text_draw(T("No episodes on this day"), rx, ly + 20, 30, 600, WHITE_A(150), 0, rw, ALIGN_LEFT);
   gfx_clip_push(rx - 24, ly - 6, rw + 48, lh + 12);
-  for (int i = 0; i < n; i++) { const Item *it = &G.items.items[f + i]; float yy = ly + i * 150 + C.listY.v; if (yy + 150 < ly || yy > ly + lh) continue; int fo = C.zone == 1 && i == C.idx;
+  for (int i = 0; i < n; i++) { const Item *it = &cl()->items[f + i]; float yy = ly + i * 150 + C.listY.v; if (yy + 150 < ly || yy > ly + lh) continue; int fo = C.zone == 1 && i == C.idx;
     if (fo) { gfx_rrect(rx - 16, yy, rw + 32, 138, 20, WHITE_A(28)); gfx_ring(rx - 16, yy, rw + 32, 138, 20, 3, ac); }
     float aspect; GLuint t = it->poster[0] ? img_get(it->poster, 120, 180, &aspect) : 0; if (t) gfx_image(t, rx, yy + 9, 80, 120, 10, WHITE_A(255), 0, 0, 1, 1); else gfx_rrect(rx, yy + 9, 80, 120, 10, WHITE_A(30));
     text_draw(it->name, rx + 104, yy + 16, 34, 800, WHITE_A(255), -0.3f, rw - 120, ALIGN_LEFT);
     char ln[360]; if (it->epName[0]) snprintf(ln, sizeof ln, "%s  \xc2\xb7  %s", it->metaLine, it->epName); else snprintf(ln, sizeof ln, "%s", it->metaLine);
     text_draw(ln, rx + 104, yy + 62, 28, 600, WHITE_A(200), 0, rw - 120, ALIGN_LEFT);
     { char tm2[32]; time_t at = (time_t)it->airAt; struct tm lt; localtime_r(&at, &lt); snprintf(tm2, sizeof tm2, "%02d:%02d", lt.tm_hour, lt.tm_min);
-      const char *st = at <= time(NULL) ? T("Out") : T("Coming"); char l3[96]; snprintf(l3, sizeof l3, "%s  \xc2\xb7  %s", st, tm2); text_draw(l3, rx + 104, yy + 100, 24, 600, at <= time(NULL) ? col_alpha(ac, 1) : WHITE_A(150), 0, rw - 120, ALIGN_LEFT); } }
+      const char *st = at <= time(NULL) ? T("Out") : T("Coming"); char l3[96]; if (C.flt) snprintf(l3, sizeof l3, "%s", st); else snprintf(l3, sizeof l3, "%s  \xc2\xb7  %s", st, tm2); text_draw(l3, rx + 104, yy + 100, 24, 600, at <= time(NULL) ? col_alpha(ac, 1) : WHITE_A(150), 0, rw - 120, ALIGN_LEFT); } }
   gfx_clip_pop();
   { float hy = SB_H - 52, hx = 80; hx += key_hint(hx, hy, K_OK, T(C.zone ? "Open" : "Episodes"), WHITE_A(170), 0) + 30; key_hint(hx, hy, K_BACK, T("Back"), WHITE_A(170), 0); }
 }
@@ -258,7 +322,7 @@ static void enter(const void *pp) {
   sb_meta(G.p.it.type, G.p.it.id, on_meta, (void *)(uintptr_t)G.gen);
 }
 static const Item *focused(void) { if (G.cal) return cal_focused(); if (G.bioF || G.bioOpen) return NULL; /* (on the biography: OK is its own, not the film's) */ return G.idx < G.items.n ? &G.items.items[G.idx] : NULL; }
-static void open_it(const Item *it) { if (!strncmp(it->id, "deb:", 4)) { deb_play(atoi(it->id + 4)); return; } if (!strncmp(it->id, "tmdb:", 5)) { G.pendTmdb = atoi(it->id + 5); G.pendAt = app_now(); return; } /* (its IMDb id on its way: opened when it comes, see tick) */
+static void open_it(const Item *it) { if (G.cal && cal_open_tm(it)) return; if (!strncmp(it->id, "deb:", 4)) { deb_play(atoi(it->id + 4)); return; } if (!strncmp(it->id, "tmdb:", 5)) { G.pendTmdb = atoi(it->id + 5); G.pendAt = app_now(); return; } /* (its IMDb id on its way: opened when it comes, see tick) */
   DetailParams p; memset(&p, 0, sizeof p); p.it = *it; app_go(SCR_DETAIL, &p, 0); }
 static int key(int k) {
   if (G.cal) return cal_key(k);
