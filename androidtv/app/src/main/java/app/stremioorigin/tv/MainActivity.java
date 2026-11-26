@@ -153,7 +153,7 @@ public class MainActivity extends SDLActivity {
         updCancel = false;
         if (Build.VERSION.SDK_INT >= 26 && !a.getPackageManager().canRequestPackageInstalls()) {
             askUrl = url; askSha = sha;
-            updateQ.add("{\"returnValue\":false,\"permission\":true,\"errorText\":" + q("Allow Stremio Origin in the list that opened, then come back: the update goes on by itself") + "}");
+            updateQ.add("{\"returnValue\":false,\"permission\":true,\"errorText\":" + q("Allow Lumen in the list that opened, then come back: the update goes on by itself") + "}");
             log("[update] the leave to install apps is not given: its list opened");
             a.runOnUiThread(() -> openInstallList(a));
             return;

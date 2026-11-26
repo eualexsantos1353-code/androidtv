@@ -284,14 +284,14 @@ int main(int argc, char **argv) {
     if (light) { w = 1280; h = 720; flags &= ~SDL_WINDOW_ALLOW_HIGHDPI; } /* the preview shows the real 1280x720 drawing */
 #endif
     fprintf(stderr, "[start] %d MB of RAM, drawing size %s%s\n", memMb, light ? "720p light" : "full", ""); }
-  SDL_Window *win = SDL_CreateWindow("Stremio Origin", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, w, h, flags);
+  SDL_Window *win = SDL_CreateWindow("Lumen", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, w, h, flags);
   SDL_GLContext ctx = win ? SDL_GL_CreateContext(win) : NULL;
   /* a TV that refuses the surface asked for gets plainer ones (8-bit colour with alpha, then 16-bit), as apps known to
      start on the oldest sets do; a TV that takes the first never comes here */
   for (int i = 0; !ctx && i < 2; i++) {
     fprintf(stderr, "[start] surface refused (%s): trying %s\n", SDL_GetError(), i ? "RGB565" : "RGBA8888, nothing else");
     if (win) SDL_DestroyWindow(win);
-    gl_config(i ? 2 : 0); win = SDL_CreateWindow("Stremio Origin", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, w, h, flags); ctx = win ? SDL_GL_CreateContext(win) : NULL;
+    gl_config(i ? 2 : 0); win = SDL_CreateWindow("Lumen", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, w, h, flags); ctx = win ? SDL_GL_CreateContext(win) : NULL;
   }
 #ifdef SB_MAC
   if (win && getenv("SB_SHOW")) { SDL_ShowWindow(win); SDL_RaiseWindow(win); } /* (started from a terminal it could stay behind, a Dock icon with no window in view) */

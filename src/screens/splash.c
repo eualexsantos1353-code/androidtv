@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include "core/i18n.h"
 
 /* The start screen, quiet: on the page's own dark, the app's two glows drifting out from the middle to their corners
    as it fades in, and the mark: the circle settling from 0.96, then the play, then
@@ -53,9 +54,12 @@ void splash_draw(void) {
   float s = 0.96f + 0.04f * k;
   if (gone) { s = outS + (1.05f - outS) * lv; } else outS = s;
   gfx_scale_push(s, s, cx, cy);
-  gfx_opacity_push(k); gfx_rrect_v(cx - R, cy - R, 2 * R, 2 * R, R, RGB(0x6a, 0x45, 0xe0), RGB(0x2f, 0x1a, 0x9e)); gfx_rrect_v(cx - R, cy - R, 2 * R, 2 * R, R, WHITE_A(26), WHITE_A(0)); /* (its light from the top, inside the circle) */ gfx_opacity_pop();
-  { float S = 2 * R * 512 / 264.0f; gfx_opacity_push(kp); icon_draw("o_play", cx - S * 256 / 512 + 6 * (1 - kp), cy - S * 226 / 512, S, WHITE_A(255)); gfx_opacity_pop(); }
+  /* Lumen's mark: a ring of light round the play, and its light in orbit at the top right */
+  gfx_opacity_push(k); { float rw = R * 0.23f; for (int q = 0; q < 6; q++) { float rr = R - q * rw / 6; gfx_ring(cx - rr, cy - rr, 2 * rr, 2 * rr, rr, rw / 6 + 1, q < 3 ? RGB(0x9b, 0x7b, 0xff) : RGB(0x6a, 0x45, 0xe0)); } } gfx_opacity_pop();
+  { float S = 2 * R * 512 / 264.0f * 0.62f; gfx_opacity_push(kp); icon_draw("o_play", cx - S * 256 / 512 + 6 * (1 - kp), cy - S * 226 / 512, S, WHITE_A(255)); gfx_opacity_pop(); }
+  { float dx = cx + R * 0.71f, dy = cy - R * 0.71f, pulse = 0.85f + 0.15f * sinf((float)t * 3); gfx_opacity_push(kp); for (int q = 6; q >= 1; q--) gfx_circle(dx, dy, R * 0.07f * (1 + q * 0.45f) * pulse, RGBA(0xc9, 0xb8, 0xff, 26)); gfx_circle(dx, dy, R * 0.105f, WHITE_A(255)); gfx_opacity_pop(); }
   gfx_scale_pop();
-  gfx_opacity_push(kt); text_draw("ORIGIN", cx + 10, cy + R + 56 + 8 * (1 - kt), 40, 700, WHITE_A(240), 20 - 6 * kt, 0, ALIGN_CENTER); gfx_opacity_pop();
+  gfx_opacity_push(kt); text_draw("LUMEN", cx + 10, cy + R + 56 + 8 * (1 - kt), 40, 700, WHITE_A(240), 20 - 6 * kt, 0, ALIGN_CENTER); gfx_opacity_pop();
+  { float ks = ease_apply(EASE_OUT, (t - 0.9f) / 0.8f); gfx_opacity_push(ks); text_draw(T("The cinema lives here."), cx, cy + R + 124 + 6 * (1 - ks), 28, 500, RGBA(0xc9, 0xb8, 0xff, 230), 0, 0, ALIGN_CENTER); gfx_opacity_pop(); } /* the slogan, last */
   gfx_opacity_pop();
 }

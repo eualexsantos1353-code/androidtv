@@ -36,7 +36,7 @@ public class StartReport extends Activity {
         float d = getResources().getDisplayMetrics().density; int pad = (int) (24 * d);
         LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setBackgroundColor(Color.rgb(16, 14, 24)); root.setPadding(pad, pad / 2, pad, pad / 2);
         TextView title = new TextView(this); title.setTextColor(Color.WHITE); title.setTextSize(20); title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setText("Stremio Origin did not start last time");
+        title.setText("Lumen did not start last time");
         TextView hint = new TextView(this); hint.setTextColor(Color.rgb(200, 200, 210)); hint.setTextSize(14);
         hint.setText("Please take a photo of this screen and send it to us. Press Down to reach the log, then Up and Down to scroll it; the end of the log is shown first.");
         LinearLayout row = new LinearLayout(this); row.setOrientation(LinearLayout.HORIZONTAL); row.setGravity(Gravity.START);
