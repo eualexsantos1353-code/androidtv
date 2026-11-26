@@ -342,7 +342,8 @@ static void clock_draw(void) { float W = text_width("00:00", 38, 600, -0.6f); cl
 TopNav topNav = { .idx = NAV_HOME };
 static const char *chipLabel(int i) { return i == NAV_TV ? T("TV") : i == NAV_DISC ? T("Discover") : i == NAV_HOME ? T("Home") : T("Library"); }
 static int chipCur(int i) {
-  if (i == NAV_TV) return 0; /* (an action: never the page shown) */
+  if (i == NAV_TV) return hub_on() && !hub_player_mode(); /* the channels' page open (from the bar or Home): TV is the page shown */
+  if (hub_on() && !hub_player_mode()) return 0;
   Scr t = i == NAV_SEARCH ? SCR_SEARCH : i == NAV_SET ? SCR_SET : i == NAV_DISC ? SCR_DISC : i == NAV_HOME ? SCR_HOME : SCR_LIB;
   return t == SCR || (t == SCR_HOME && (SCR == SCR_DETAIL || SCR == SCR_SIM));
 }
@@ -390,9 +391,10 @@ static void topnav_enter_content(void) {
   topnav_paint();
 }
 /* the TV tab: All channels, as from Home; the bar's highlight goes back to the page shown */
-static void tv_open(void) {
-  Scr cur = (SCR == SCR_DETAIL || SCR == SCR_SIM) ? SCR_HOME : SCR; int ci = NAV_HOME; for (int j = 2; j < 5; j++) if (chipScr(j) == cur) ci = j;
-  topNav.idx = ci; topNav.active = 0; topnav_paint(); hub_open(0, NULL); }
+static int tvWant; static double tvAt; /* the pill came to rest on TV: its page opens, as the other tabs' do */
+static void tv_open(void) { tvWant = 0; topNav.idx = NAV_TV; topNav.active = 0; topnav_paint(); hub_open(0, NULL); }
+/* Up from the top of the channels' page: back on the bar, the pill on TV (Left / Right to the other tabs; OK opens it again) */
+void topnav_focus_tv(void) { tvWant = 0; topNav.idx = NAV_TV; topNav.active = 1; topnav_paint(); }
 static void topnav_nudge(void) { nudge_start(&topNav.nudge, K_UP); }
 /* the pill leaves on the key press; the screen follows once the remote rests (150 ms): building a screen in
    the same moment starves the slide, and passing through a tab on the way to another one no longer builds it */
@@ -402,7 +404,8 @@ static int topnav_key(int k) {
   if (k == K_LEFT || k == K_RIGHT) {
     int i = topNav.idx + (k == K_RIGHT ? 1 : -1); if (i < 0) i = 0; if (i > 5) i = 5;
     if (i == topNav.idx) { nudge_start(&topNav.nudge, k); return 1; } /* the end of the bar */
-    if (i == NAV_TV) { topnav_flush(1); topNav.idx = i; topnav_paint(); return 1; } /* TV: the pill only; OK opens it */
+    if (i == NAV_TV) { topnav_flush(1); topNav.idx = i; topnav_paint(); tvWant = 1; tvAt = NOW + 0.35; return 1; } /* TV: its page opens once the pill rests */
+    tvWant = 0;
     Scr t = chipScr(i);
     if ((t == SCR_SEARCH || t == SCR_SET) && SCR != t) { topnav_flush(1); topNav.idx = i; topnav_paint(); return 1; }
     topNav.idx = i; topnav_paint(); topNav.want = i; topNav.swAt = NOW + 0.15;
@@ -419,6 +422,9 @@ static int topnav_key(int k) {
 }
 void topnav_tick(float dt) {
   if (topNav.want >= 0 && NOW >= topNav.swAt) topnav_flush(0);
+  if (tvWant && NOW >= tvAt) { if (topNav.active && topNav.idx == NAV_TV && !app_overlay) tv_open(); else tvWant = 0; }
+  if (topNav.idx == NAV_TV && !topNav.active && !hub_on()) { /* the channels' page closed: the pill back on the page under it */
+    Scr cur = (SCR == SCR_DETAIL || SCR == SCR_SIM) ? SCR_HOME : SCR; int ci = NAV_HOME; for (int j = 2; j < 5; j++) if (chipScr(j) == cur) ci = j; topNav.idx = ci; topnav_paint(); }
   tween_tick(&topNav.px, dt); tween_tick(&topNav.pw, dt); tween_tick(&topNav.pill, dt); for (int i = 0; i < 2; i++) { tween_tick(&topNav.cornerF[i], dt); tween_tick(&topNav.cornerS[i], dt); tween_tick(&topNav.dotK[i], dt); } tween_tick(&topNav.setRot, dt);
   nudge_tick(&topNav.nudge, dt);
   if (!topNav.laidOut) topnav_paint();

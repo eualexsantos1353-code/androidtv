@@ -101,6 +101,7 @@ float app_hold_k(double since);        /* 0..1 of a hold begun then, on the same
 typedef struct { int idx, active; int want; double swAt; Nudge nudge; Tween px, pw, pill; float pillShown; Tween cornerF[2], cornerS[2], dotK[2]; Tween setRot; float chipX[6], chipW[6]; int laidOut; } TopNav;
 extern TopNav topNav;
 void topnav_focus(void);
+void topnav_focus_tv(void); /* the bar, the pill on TV (Up from the top of the channels' page) */
 void topnav_draw(void);
 void topnav_tick(float dt);
 void topnav_switch(int idx);

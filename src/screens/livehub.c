@@ -178,7 +178,9 @@ int hub_key(int k) {
   if (k == K_BACK || (k == K_YELLOW && H.inPlayer)) { hub_close(); return 1; } /* (on the catalogs: away; the yellow key brought it over the picture: it takes it away too) */
   if (k == K_GREEN) { const LiveCh *f = focused(); if (f) { Item one; live_item(f, &one); const Item *it = &one; int on = !live_pinned(it->id); live_pin(it, on); toast(T(on ? "Added to favorites" : "Removed from favorites"), 1600, NULL); sound_play(SND_TOGGLE); build(); } return 1; }
   if (H.zone == 1) { /* the tabs */
-    if (k == K_UP || k == K_DOWN) { int d = k == K_DOWN ? 1 : -1, nx = H.cur + d; while (nx >= 0 && nx < H.ntab && !tab_vis(nx)) nx += d; if (nx >= 0 && nx < H.ntab) { H.cur = nx; H.idx = 0; tween_set(&H.gridY, 0); timer_start(&H.swap, 0.6f); focus_moved(); sound_focus(); } return 1; }
+    if (k == K_UP || k == K_DOWN) { int d = k == K_DOWN ? 1 : -1, nx = H.cur + d; while (nx >= 0 && nx < H.ntab && !tab_vis(nx)) nx += d;
+      if (k == K_UP && nx < 0 && !H.inPlayer) { hub_close(); topnav_focus_tv(); return 1; } /* above the first category: the tab bar */
+      if (nx >= 0 && nx < H.ntab) { H.cur = nx; H.idx = 0; tween_set(&H.gridY, 0); timer_start(&H.swap, 0.6f); focus_moved(); sound_focus(); } return 1; }
     if ((k == K_RIGHT || k == K_OK) && tb && tb->more) { moreOpen = !moreOpen; sound_focus(); return 1; } /* ("More categories": opens or closes the rest) */
     if (k == K_RIGHT || k == K_OK) { if (n) { H.zone = 0; focus_moved(); } return 1; } /* (the list is at the left: right goes into the channels) */
     return 1; }
@@ -186,7 +188,7 @@ int hub_key(int k) {
   if (k == K_RIGHT) { if ((H.idx % COLS) < COLS - 1 && H.idx + 1 < n) H.idx++; }
   else if (k == K_LEFT) { if (H.idx % COLS) H.idx--; else { H.zone = 1; sound_focus(); return 1; } } /* (the first column: left goes to the categories) */
   else if (k == K_DOWN) { if (H.idx + COLS < n) H.idx += COLS; else if (H.idx / COLS < (n - 1) / COLS) H.idx = n - 1; }
-  else if (k == K_UP) { if (H.idx >= COLS) H.idx -= COLS; }
+  else if (k == K_UP) { if (H.idx >= COLS) H.idx -= COLS; else if (!H.inPlayer) { hub_close(); topnav_focus_tv(); return 1; } } /* the first row: the tab bar */
   else if (k == K_OK) { if (H.inPlayer) { if (!H.okDown) { H.okDown = 1; H.holdFired = 0; H.okAt = app_now(); } } else watch(); return 1; } /* (over the picture: a tap or a hold, decided as OK is let go) */
   else if (k == K_CH_UP || k == K_CH_DOWN) return 0; /* (the player switches) */
   else return 1;
