@@ -43,6 +43,7 @@ typedef struct {
   int (*sync)(char *st, int cap);                           /* the subtitles' Sync: 1 running, 0 done (st: its words, "" when quiet), -1 nothing to tell; NULL: not sent */
   const char *(*p2p)(void);                                  /* a torrent's peers and speed as the player's corner shows them ("" when none), for a phone's remote; NULL: not sent */
   int (*previews)(int *pct, int *target, int *eta);         /* waiting for the seek previews before the film starts: 1 (pct made of 100, the target, eta s or 0 not known yet), else 0; NULL: not sent */
+  char *(*ask)(const char *t, const void *msg);              /* a question or a request the protocol has no word for (JARVIS: "cw?", "cal?", "chan", "libadd", "cast?", "news?"): the answer (malloc'd JSON) or NULL; NULL: none */
   void (*chips)(void *arr);                                  /* the player's info line as it shows it (a cJSON array: {t, i icon, b bold} or {sep}), for a phone's remote; NULL: not sent */
 } CastHooks;
 

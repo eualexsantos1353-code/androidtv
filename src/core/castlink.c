@@ -18,10 +18,71 @@
 #include "ui/text.h"
 #include "ui/glass.h"
 #include "platform/plat.h"
+#include "core/notify.h"
+#include "core/insight.h"
+#include "core/tmdb.h"
+#include "core/net.h"
+#include "core/json.h"
+#include "core/stremio.h"
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <time.h>
 
 static char codeNow[8], castTitle[256]; static Tween codeA;
+
+/* ---- the assistant (JARVIS on the home server): what it asks beyond a phone's remote ---- */
+static char *reply(cJSON *j) { char *s = cJSON_PrintUnformatted(j); cJSON_Delete(j); return s; }
+static void norm(const char *in, char *out, size_t cap) { /* lower case, accents off, spaces kept: "Globo MG" ~ "globo mg" */
+  size_t o = 0; for (const unsigned char *p = (const unsigned char *)in; *p && o + 1 < cap; p++) {
+    unsigned c = *p; if (c == 0xc3 && p[1]) { unsigned d = p[1]; p++; c = (d >= 0xa0 && d <= 0xa5) || (d >= 0x80 && d <= 0x85) ? 'a' : (d >= 0xa8 && d <= 0xab) || (d >= 0x88 && d <= 0x8b) ? 'e' : (d >= 0xac && d <= 0xaf) || (d >= 0x8c && d <= 0x8f) ? 'i' : (d >= 0xb2 && d <= 0xb6) || (d >= 0x92 && d <= 0x96) ? 'o' : (d >= 0xb9 && d <= 0xbc) || (d >= 0x99 && d <= 0x9c) ? 'u' : (d == 0xa7 || d == 0x87) ? 'c' : ' '; }
+    else if (c >= 'A' && c <= 'Z') c += 32; else if (c >= 0x80) c = ' ';
+    if (c == ' ' && (!o || out[o - 1] == ' ')) continue; out[o++] = (char)c; }
+  while (o && out[o - 1] == ' ') o--; out[o] = 0; }
+static struct { int state, n; unsigned tok; char wk[16]; cJSON *list; } NW; /* the films out this week (TMDB), asked once a day */
+static void on_news(int st, const unsigned char *b, size_t len, void *ud) { (void)len; if ((unsigned)(uintptr_t)ud != NW.tok) return; cJSON *j = st == 200 ? net_json(b) : NULL; cJSON_Delete(NW.list); NW.list = cJSON_CreateArray(); const cJSON *r;
+  cJSON_ArrayForEach(r, js_arr(j, "results")) { if (cJSON_GetArraySize(NW.list) >= 10) break; cJSON *o = cJSON_CreateObject(); cJSON_AddStringToObject(o, "name", js_str(r, "title", "")); cJSON_AddStringToObject(o, "date", js_str(r, "release_date", "")); cJSON_AddNumberToObject(o, "id", js_num(r, "id", 0)); cJSON_AddItemToArray(NW.list, o); }
+  net_json_free(j); NW.state = 2; }
+static char *on_ask(const char *t, const void *msgv) {
+  const cJSON *m = (const cJSON *)msgv; cJSON *r = cJSON_CreateObject(); /* (questions are not activity: the screen saver stays) */
+  if (!strcmp(t, "cw?")) { /* Continue Watching, newest first */
+    cJSON_AddStringToObject(r, "t", "cw"); cJSON *a = cJSON_AddArrayToObject(r, "items"); ItemList l; memset(&l, 0, sizeof l); lib_cw_items(&l);
+    for (int i = 0; i < l.n && i < 6; i++) { const Item *it = &l.items[i]; CwInfo ci; memset(&ci, 0, sizeof ci); lib_cw_info(it, &ci); cJSON *o = cJSON_CreateObject();
+      cJSON_AddStringToObject(o, "type", it->type); cJSON_AddStringToObject(o, "id", it->id); cJSON_AddStringToObject(o, "name", it->name); cJSON_AddStringToObject(o, "vid", ci.vid[0] ? ci.vid : it->videoId); cJSON_AddNumberToObject(o, "pct", ci.pct); cJSON_AddNumberToObject(o, "new", it->newEp); cJSON_AddItemToArray(a, o); }
+    itemlist_clear(&l); return reply(r); }
+  if (!strcmp(t, "cal?")) { /* the followed series' episodes (aired and coming) */
+    cJSON_AddStringToObject(r, "t", "cal"); cJSON *a = cJSON_AddArrayToObject(r, "items"); ItemList l; memset(&l, 0, sizeof l); int n = notify_calendar(&l); cJSON_AddNumberToObject(r, "known", n >= 0);
+    for (int i = 0; i < l.n && i < 200; i++) { const Item *it = &l.items[i]; cJSON *o = cJSON_CreateObject(); cJSON_AddStringToObject(o, "sid", it->id); cJSON_AddStringToObject(o, "name", it->name); cJSON_AddStringToObject(o, "vid", it->videoId);
+      cJSON_AddStringToObject(o, "ep", it->metaLine); cJSON_AddStringToObject(o, "title", it->epName); cJSON_AddNumberToObject(o, "at", it->airAt); cJSON_AddItemToArray(a, o); }
+    itemlist_clear(&l); return reply(r); }
+  if (!strcmp(t, "chan")) { /* a live channel by its name or its number in All channels: started */
+    char q[128]; norm(js_str(m, "q", ""), q, sizeof q); int num = atoi(q), tot = 0, best = -1, bs = 0; for (int c = 0; c < live_catalogs(); c++) { int k = live_catalog(c, NULL, NULL); if (k > 0) tot += k; }
+    const LiveCh **all = tot ? malloc(sizeof(*all) * (size_t)tot) : NULL; int n = 0;
+    if (all) for (int c = 0; c < live_catalogs(); c++) { const LiveCh *ch; int k = live_catalog(c, NULL, &ch); for (int i = 0; i < k; i++) all[n++] = &ch[i]; }
+    if (num > 0 && num <= n && (int)strspn(q, "0123456789") == (int)strlen(q)) best = num - 1;
+    else if (*q) for (int i = 0; i < n; i++) { char nm[128]; norm(all[i]->name, nm, sizeof nm); int sc = !strcmp(nm, q) ? 100 : !strncmp(nm, q, strlen(q)) ? 60 : strstr(nm, q) ? 40 : 0; if (sc && live_reach(all[i]->id) > 0) sc += 5; if (sc > bs) { bs = sc; best = i; } }
+    cJSON_AddStringToObject(r, "t", "chan"); cJSON_AddNumberToObject(r, "ok", best >= 0); cJSON_AddNumberToObject(r, "count", n);
+    if (best >= 0) { cJSON_AddStringToObject(r, "name", all[best]->name); cJSON_AddNumberToObject(r, "num", best + 1); app_activity(); app_overlay_close(); live_start_list(all, n, best, player_open()); }
+    free(all); return reply(r); }
+  if (!strcmp(t, "libadd")) { /* a title into the Library */
+    Item it; memset(&it, 0, sizeof it); snprintf(it.type, sizeof it.type, "%s", js_str(m, "type", "movie")); snprintf(it.id, sizeof it.id, "%s", js_str(m, "id", "")); snprintf(it.name, sizeof it.name, "%s", js_str(m, "name", "")); snprintf(it.poster, sizeof it.poster, "%s", js_str(m, "poster", ""));
+    cJSON_AddStringToObject(r, "t", "libadd"); int had = *it.id && lib_has(it.id); if (*it.id && !had) { lib_toggle(&it); board_invalidate(); notify_refresh(); }
+    cJSON_AddNumberToObject(r, "ok", *it.id != 0); cJSON_AddNumberToObject(r, "already", had); return reply(r); }
+  if (!strcmp(t, "cast?")) { /* who plays in what is on (the X-Ray's cast) */
+    char ty[16], id[96], vid[96]; player_cast_ident(ty, sizeof ty, id, sizeof id, vid, sizeof vid); cJSON_AddStringToObject(r, "t", "cast"); cJSON_AddStringToObject(r, "id", id);
+    int s = -1, e = -1; { const char *c2 = strrchr(vid, ':'); if (c2 && !strcmp(ty, "series")) { const char *p = c2 - 1; while (p > vid && *p != ':') p--; if (*p == ':') { s = atoi(p + 1); e = atoi(c2 + 1); } } }
+    const InsightFace *fc; int nf = *id ? insight_get(ty, id, s, e, &fc) : 0; cJSON_AddNumberToObject(r, "state", !*id ? 0 : nf > 0 || insight_state() == 2 ? 2 : 1); cJSON *a = cJSON_AddArrayToObject(r, "faces");
+    for (int i = 0; i < nf && i < 12; i++) { cJSON *o = cJSON_CreateObject(); cJSON_AddStringToObject(o, "name", fc[i].name); cJSON_AddStringToObject(o, "role", fc[i].role); cJSON_AddItemToArray(a, o); }
+    return reply(r); }
+  if (!strcmp(t, "news?")) { /* the films out this week, from TMDB (asked once a week's day) */
+    time_t now = time(NULL); struct tm tm; localtime_r(&now, &tm); char d0[16], d1[16]; strftime(d0, sizeof d0, "%Y-%m-%d", &tm); time_t e7 = now + 7 * 86400; struct tm t7; localtime_r(&e7, &t7); strftime(d1, sizeof d1, "%Y-%m-%d", &t7);
+    if (strcmp(NW.wk, d0) || NW.state == 0) { snprintf(NW.wk, sizeof NW.wk, "%s", d0); NW.state = 1; NW.tok++; char p[300]; snprintf(p, sizeof p, "/discover/movie?language=%s&region=BR&sort_by=popularity.desc&primary_release_date.gte=%s&primary_release_date.lte=%s", i18n_lang(), d0, d1);
+      if (!tmdb_has_key() || !tmdb_request(p, on_news, (void *)(uintptr_t)NW.tok)) NW.state = 2; }
+    cJSON_AddStringToObject(r, "t", "news"); cJSON_AddNumberToObject(r, "state", NW.state); cJSON_AddItemToObject(r, "items", NW.state == 2 && NW.list ? cJSON_Duplicate(NW.list, 1) : cJSON_CreateArray()); return reply(r); }
+  cJSON_Delete(r); return NULL;
+}
+
 
 static const char *tv_name(void) { return plat_device_name(); }
 /* a channel a phone started that will not play: the phone told why (its remote leaves "loading"), in this TV's words */
@@ -78,7 +139,7 @@ static void on_connected(int n) { static int was; if (n > was && !player_open())
 void castlink_start(void) {
   static CastHooks h; const char *dn = plat_device_name();
   h.plat = strstr(dn, "webOS") ? "webos" : strstr(dn, "Android") ? "androidtv" : strstr(dn, "Tizen") ? "tizen" : "mac"; h.ver = update_current(); h.name = tv_name;
-  h.get = store_get; h.set = store_set; h.play = on_play; h.playbest = on_playbest; h.cmd = on_cmd; h.key = on_key; h.state = on_state; h.ident = player_cast_ident; h.info = player_cast_info; h.chips = player_cast_chips; h.p2p = player_p2p_line; h.sync = player_cast_sync; h.pairing = on_pairing; h.connected = on_connected; h.account = on_account; h.pref = on_pref; h.tracks = player_cast_tracks; h.track = on_track; h.previews = player_cast_previews;
+  h.get = store_get; h.set = store_set; h.play = on_play; h.playbest = on_playbest; h.cmd = on_cmd; h.key = on_key; h.state = on_state; h.ident = player_cast_ident; h.info = player_cast_info; h.chips = player_cast_chips; h.ask = on_ask; h.p2p = player_p2p_line; h.sync = player_cast_sync; h.pairing = on_pairing; h.connected = on_connected; h.account = on_account; h.pref = on_pref; h.tracks = player_cast_tracks; h.track = on_track; h.previews = player_cast_previews;
   live_fail_hook = on_live_fail;
   cast_start(&h);
 }

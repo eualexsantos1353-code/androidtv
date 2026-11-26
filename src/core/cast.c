@@ -167,6 +167,7 @@ static void on_msg(Client *c, const char *s) {
     else if (!strcmp(t, "subsync")) { if (H.track) { H.track(t, "", 0); c->trHash = 0; } } /* (the subtitles synced to the speech, as the player's Sync; its progress told with the tracks) */
     else if (!strcmp(t, "key")) { static const char *K[] = { "up", "down", "left", "right", "ok", "back", "home", "play", "pause" }; const char *k = js(j, "k");
       for (int i = 0; i < 9; i++) if (!strcmp(k, K[i])) { if (H.key) H.key(CAST_K_UP + i); break; } }
+    else if (H.ask) { char *r = H.ask(t, j); if (r) { send_frame(c, 1, r, (int)strlen(r)); free(r); } } /* (the assistant's questions: the app answers) */
   } /* (anything else before hello: no answer) */
   cJSON_Delete(j);
 }
