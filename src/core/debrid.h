@@ -12,5 +12,6 @@ typedef struct { char name[256], a[48], b[48], link[1024]; double size; } DebFil
 /* the cloud's video files, newest first: -1 while asked (asked now), else how many (0: none, or no key) */
 int  deb_list(const DebFile **out);
 void deb_refresh(void);              /* asked again next time */
-void deb_play(int i);                /* its link asked for (TorBox, Premiumize) and played */
+void deb_play(int i);
+void deb_play_as(int i, const char *type, const char *id, const char *vid); /* the same, played as that title (its place kept, resumed) */                /* its link asked for (TorBox, Premiumize) and played */
 #endif

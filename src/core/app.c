@@ -2,6 +2,7 @@
 #include "core/away.h"
 #include "core/traktwatch.h"
 #include "core/scrobble.h"
+#include "core/simkl.h"
 #include "core/live.h"
 #include "screens/livehub.h"
 #include "screens/roleta.h"
@@ -1003,7 +1004,7 @@ void app_back_in_front(void) { lastIn = SDL_GetTicks() / 1000.0; app_pace_again(
    phone, Trakt, the library, the film's own state (paused for it) */
 void app_tick_behind(float dt) {
   DT = dt; NOW = SDL_GetTicks() / 1000.0; FRAME++;
-  away_tick(); sync_tick(); scrobble_tick(); tw_tick(); live_tick(); best_tick(); trailer_tick(); plat_luna_pump(); castlink_tick(dt); player_tick(dt); /* (a phone's best stream, channel or trailer still starts) */
+  away_tick(); sync_tick(); scrobble_tick(); simkl_tick(); tw_tick(); live_tick(); best_tick(); trailer_tick(); plat_luna_pump(); castlink_tick(dt); player_tick(dt); /* (a phone's best stream, channel or trailer still starts) */
 }
 void app_tick(float dt) {
   DT = dt; NOW = SDL_GetTicks() / 1000.0; FRAME++; away_tick();

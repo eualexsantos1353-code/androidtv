@@ -1,3 +1,4 @@
+#include "core/simkl.h"
 #include "core/iptv.h"
 #include "ui/qrcard.h"
 #include "ui/widgets.h"
@@ -157,6 +158,13 @@ void qrcard_show_mdb(void (*onClose)(int hasKey, void *ud), void *ud) {
 static struct { void (*cb)(int, void *); void *ud; unsigned gen; } db;
 static int deb_check(void *ud) { (void)ud; return deb_has_key() && deb_generation() != db.gen; }
 static void deb_closed(void *ud) { (void)ud; void (*cb)(int, void *) = db.cb; db.cb = NULL; if (cb) cb(deb_has_key(), db.ud); }
+/* Settings > Keys > Simkl: the page for the Client ID; the code to enter comes on the TV after it */
+static int simkl_check(void *ud) { (void)ud; simkl_tick(); return simkl_state() >= 1; }
+static void simkl_closed(void *ud) { (void)ud; }
+void qrcard_show_simkl(void) {
+  simkl_init(); char url[600]; httpd_url("/simkl", url, sizeof url); QrCardOpts o; memset(&o, 0, sizeof o);
+  o.title = "Simkl"; o.sub = T("Scan with your phone and paste the Client ID of your Simkl app"); o.url = url;
+  o.check = simkl_check; o.doneTitle = T("Client ID saved"); o.doneSub = T("Now enter the code shown at simkl.com/pin"); o.doneHold = 1.6f; o.onClose = simkl_closed; qrcard_show(&o); }
 void qrcard_show_deb(void (*onClose)(int hasKey, void *ud), void *ud) {
   deb_has_key(); char url[600]; httpd_url("/deb", url, sizeof url);
   QrCardOpts o; memset(&o, 0, sizeof o);

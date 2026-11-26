@@ -19,6 +19,7 @@
 #include "ui/glass.h"
 #include "platform/plat.h"
 #include "core/notify.h"
+#include "core/iptv.h"
 #include "core/insight.h"
 #include "core/tmdb.h"
 #include "core/net.h"
@@ -75,6 +76,16 @@ static char *on_ask(const char *t, const void *msgv) {
     const InsightFace *fc; int nf = *id ? insight_get(ty, id, s, e, &fc) : 0; cJSON_AddNumberToObject(r, "state", !*id ? 0 : nf > 0 || insight_state() == 2 ? 2 : 1); cJSON *a = cJSON_AddArrayToObject(r, "faces");
     for (int i = 0; i < nf && i < 12; i++) { cJSON *o = cJSON_CreateObject(); cJSON_AddStringToObject(o, "name", fc[i].name); cJSON_AddStringToObject(o, "role", fc[i].role); cJSON_AddItemToArray(a, o); }
     return reply(r); }
+  if (!strcmp(t, "prog?")) { /* the channels whose guide (now or next) names any of the words: a match's teams */
+    cJSON_AddStringToObject(r, "t", "prog"); cJSON *arr = cJSON_AddArrayToObject(r, "items"); const cJSON *ws = cJSON_GetObjectItemCaseSensitive(m, "words"); char w[6][64]; int nw = 0; const cJSON *x;
+    cJSON_ArrayForEach(x, ws) if (cJSON_IsString(x) && nw < 6) { norm(x->valuestring, w[nw], sizeof w[nw]); if (strlen(w[nw]) >= 3) nw++; }
+    int num = 0; for (int c = 0; c < live_catalogs(); c++) { const LiveCh *ch; int k = live_catalog(c, NULL, &ch); for (int i = 0; i < k; i++) { num++; if (!iptv_is(ch[i].id)) continue; char nw2[96] = "", nx[96] = ""; int pc = -1;
+        if (!iptv_epg(ch[i].id, nw2, sizeof nw2, nx, sizeof nx, &pc)) continue; char a[200], b2[200]; norm(nw2, a, sizeof a); norm(nx, b2, sizeof b2); int hit = 0, hitN = 0;
+        for (int q = 0; q < nw; q++) { if (strstr(a, w[q])) hit++; if (strstr(b2, w[q])) hitN++; }
+        if ((hit || hitN) && cJSON_GetArraySize(arr) < 8) { cJSON *o = cJSON_CreateObject(); cJSON_AddStringToObject(o, "name", ch[i].name); cJSON_AddNumberToObject(o, "num", num); cJSON_AddStringToObject(o, "now", nw2); cJSON_AddStringToObject(o, "next", nx); cJSON_AddNumberToObject(o, "score", hit * 2 + hitN); cJSON_AddItemToArray(arr, o); } } }
+    return reply(r); }
+  if (!strcmp(t, "idle?")) { /* how long since a key on the remote (the "still watching?" check) */
+    cJSON_AddStringToObject(r, "t", "idle"); cJSON_AddNumberToObject(r, "s", (int)app_idle()); cJSON_AddNumberToObject(r, "playing", player_open()); return reply(r); }
   if (!strcmp(t, "news?")) { /* the films out this week, from TMDB (asked once a week's day) */
     time_t now = time(NULL); struct tm tm; localtime_r(&now, &tm); char d0[16], d1[16]; strftime(d0, sizeof d0, "%Y-%m-%d", &tm); time_t e7 = now + 7 * 86400; struct tm t7; localtime_r(&e7, &t7); strftime(d1, sizeof d1, "%Y-%m-%d", &t7);
     if (strcmp(NW.wk, d0) || NW.state == 0) { snprintf(NW.wk, sizeof NW.wk, "%s", d0); NW.state = 1; NW.tok++; char p[300]; snprintf(p, sizeof p, "/discover/movie?language=%s&region=BR&sort_by=popularity.desc&primary_release_date.gte=%s&primary_release_date.lte=%s", i18n_lang(), d0, d1);

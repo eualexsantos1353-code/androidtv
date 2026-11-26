@@ -15,6 +15,7 @@
 #include "core/trakt.h"
 #include "core/mdblist.h"
 #include "core/debrid.h"
+#include "core/simkl.h"
 #include "core/keys.h"
 #include "core/i18n.h"
 #include "core/store.h"
@@ -86,7 +87,7 @@ static const Opt SS_OPTS[] = { { "0", "Off" }, { "1", "1 min" }, { "2", "2 min" 
 static const Opt ACCENT_OPTS[] = { { "logo", "From the logo" }, { "adaptive", "From the artwork" }, { "purple", "Purple" }, { "violet", "Violet" }, { "fuchsia", "Fuchsia" }, { "pink", "Pink" }, { "rose", "Rose" }, { "red", "Red" }, { "orange", "Orange" }, { "amber", "Amber" }, { "gold", "Gold" }, { "lime", "Lime" }, { "green", "Green" }, { "emerald", "Emerald" }, { "teal", "Teal" }, { "cyan", "Cyan" }, { "sky", "Sky" }, { "blue", "Blue" }, { "indigo", "Indigo" }, { "graphite", "Graphite" } };
 #define NCAT 11
 #define MAXROWS 48
-static Setting playBase[14], playS[10], seekS[6], subsS[12], audS[4], lookS[8], langS[44], langOpt, keyS[12], traktS[6], addonS[40], acctS[1], supS[10];
+static Setting playBase[14], playS[10], seekS[6], subsS[12], audS[4], lookS[8], langS[44], langOpt, keyS[16], traktS[6], addonS[40], acctS[1], supS[10];
 static Cat cats[NCAT]; static int ncat; /* (Keys leaves when this build carries every key) */
 
 /* the layout, in the web's pixels: the grid is centred, 1600 wide, 150 from the top */
@@ -163,6 +164,9 @@ static int keys_opts(void) {
       set_act(&keyS[n++], "__deb", "Debrid", dh ? (pt ? "Conectado ao servi\xc3\xa7o. OK para trocar a chave" : "Connected. OK to change the key") : (pt ? "TorBox, Real-Debrid ou Premiumize: OK para adicionar a chave pelo celular" : "TorBox, Real-Debrid or Premiumize: OK to add your key from the phone"));
       if (dh) { set_act(&keyS[n++], "__cloud", pt ? "Minha nuvem" : "My cloud", pt ? "Os v\xc3\xad" "deos que est\xc3\xa3o na sua conta do debrid" : "The videos in your debrid account");
         set_act(&keyS[n++], "__debOff", pt ? "Remover a chave do debrid" : "Remove the debrid key", pt ? "A nuvem some deste app (os addons continuam como est\xc3\xa3o)" : "The cloud leaves this app (addons stay as they are)"); } }
+    { int ss = simkl_state(); char sd[160]; if (ss == 1) snprintf(sd, sizeof sd, pt ? "Digite %s em simkl.com/pin" : "Enter %s at simkl.com/pin", simkl_code()); /* (static: the row keeps a pointer) */
+      static char sdk[160]; snprintf(sdk, sizeof sdk, "%s", ss == 1 ? sd : ss == 2 ? (pt ? "Conectado: o que voc\xc3\xaa assiste vai para o Simkl" : "Connected: what you watch goes to Simkl") : (pt ? "Anime e s\xc3\xa9ries no Simkl: OK para conectar pelo celular" : "Anime and series on Simkl: OK to connect from your phone"));
+      set_act(&keyS[n++], "__simkl", "Simkl", sdk); if (ss) set_act(&keyS[n++], "__simklOff", pt ? "Desconectar o Simkl" : "Disconnect Simkl", pt ? "Para de contar ao Simkl o que voc\xc3\xaa assiste" : "Stops telling Simkl what you watch"); }
     if (has) set_act(&keyS[n++], "__iptvOff", pt ? "Remover a lista IPTV" : "Remove the IPTV list", pt ? "Apaga os links e os canais dela desta TV" : "Deletes the links and its channels from this TV"); }
   return n;
 }
@@ -543,6 +547,8 @@ static int key(int k) {
       if (!strcmp(op->k, "__mdb")) { qrcard_show_mdb(NULL, NULL); return 1; }
       if (!strcmp(op->k, "__deb")) { qrcard_show_deb(NULL, NULL); return 1; }
       if (!strcmp(op->k, "__debOff")) { deb_key_clear(); relang(); return 1; }
+      if (!strcmp(op->k, "__simkl")) { qrcard_show_simkl(); return 1; }
+      if (!strcmp(op->k, "__simklOff")) { simkl_unlink(); relang(); return 1; }
       if (!strcmp(op->k, "__cloud")) { DetailParams cp; memset(&cp, 0, sizeof cp); snprintf(cp.it.type, sizeof cp.it.type, "cloud"); snprintf(cp.it.id, sizeof cp.it.id, "cloud"); snprintf(cp.it.name, sizeof cp.it.name, "%s", deb_service_name()); app_go(SCR_SIM, &cp, 0); return 1; }
       if (!strcmp(op->k, "__mdbOff")) { mdb_key_clear(); relang(); return 1; }
       if (!strcmp(op->k, "__traktOff")) { trakt_key_clear(); relang(); toast(T("The Trakt id is gone"), 2000, NULL); return 1; }

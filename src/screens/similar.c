@@ -17,6 +17,8 @@
 #include "core/coll.h"
 #include "core/tmdb.h"
 #include "core/debrid.h"
+#include <ctype.h>
+#include "core/addons.h"
 #include "core/notify.h"
 #include "core/store.h"
 #include "ui/sound.h"
@@ -69,12 +71,21 @@ static void date_txt(const char *ymd, char *out, size_t cap) { /* "1970-10-08" -
 static int age_of(const char *born, const char *died) { int y, m, d, y2, m2, d2; if (sscanf(born, "%d-%d-%d", &y, &m, &d) != 3) return -1;
   if (!died || sscanf(died, "%d-%d-%d", &y2, &m2, &d2) != 3) { time_t t = time(NULL); struct tm tm; localtime_r(&t, &tm); y2 = tm.tm_year + 1900; m2 = tm.tm_mon + 1; d2 = tm.tm_mday; }
   return y2 - y - ((m2 < m || (m2 == m && d2 < d)) ? 1 : 0); }
+/* a person's films in tabs: All, Films, Series, and With you (the ones in your Library or watched) */
+static Item *PALL; static int nPALL, ptab, ptabF;
+static const char *PTAB[4] = { "All", "Movies", "Series", "With you" };
+static int ptab_pass(const Item *it, int t) { if (t == 1) return strcmp(it->type, "series") != 0; if (t == 2) return !strcmp(it->type, "series"); if (t == 3) return lib_get(it->id) != NULL; return 1; }
+static void ptab_apply(void) {
+  itemlist_clear(&G.items); G.items.items = calloc((size_t)(nPALL ? nPALL : 1), sizeof(Item)); G.items.n = 0;
+  for (int i = 0; i < nPALL; i++) if (ptab_pass(&PALL[i], ptab)) G.items.items[G.items.n++] = PALL[i];
+  G.idx = 0; G.ring.shown = 0; tween_set(&G.gridY, 0); timer_start(&G.fade, 0.25f); }
 static void person_show(const PersonMem *m) {
   itemlist_clear(&G.items); G.items.items = calloc(MAXPT, sizeof(Item)); G.items.n = 0;
   for (int i = 0; i < m->n; i++) { Item *it = &G.items.items[G.items.n++]; snprintf(it->id, sizeof it->id, "%s", m->t[i].id); snprintf(it->type, sizeof it->type, "%s", m->t[i].type); snprintf(it->name, sizeof it->name, "%s", m->t[i].name);
     snprintf(it->poster, sizeof it->poster, "https://images.metahub.space/poster/small/%s/img", m->t[i].id);
     if (m->t[i].yr > 0) snprintf(it->metaLine, sizeof it->metaLine, "%d", m->t[i].yr); else it->metaLine[0] = 0; }
   if (m->n) { char bu[200]; snprintf(bu, sizeof bu, "https://images.metahub.space/background/medium/%s/img", m->t[0].id); bg_set(bu, 0, NULL); } /* behind the page: the best known one's scene */
+  free(PALL); nPALL = G.items.n; PALL = malloc(sizeof(Item) * (size_t)(nPALL ? nPALL : 1)); if (PALL) memcpy(PALL, G.items.items, sizeof(Item) * (size_t)nPALL); else nPALL = 0; ptab = ptabF = 0;
   G.loading = 0; G.empty = G.items.n == 0; timer_start(&G.fade, 0.3f); G.idx = 0; G.ring.shown = 0;
 }
 static void on_person(int st, const unsigned char *body, size_t len, void *ud) {
@@ -133,15 +144,50 @@ static void coll_show(void) {
 /* ---- the debrid cloud (Settings > Keys > My cloud): its video files, each played straight from it ---- */
 static void cloud_name(const char *fn, char *out, size_t cap) { /* "The.Movie.2019.1080p.mkv" -> "The Movie 2019 1080p" */
   snprintf(out, cap, "%s", fn); char *d = strrchr(out, '.'); if (d && strlen(d) <= 5) *d = 0; for (char *q = out; *q; q++) if (*q == '.' || *q == '_') *q = ' '; }
+/* a cloud file named as a title ("Show.S02E05.1080p", "Film.2019.2160p"): found on Cinemeta, so its tile has the
+   poster and the title, and it plays as that title (its place kept, resumed, Trakt told) */
+typedef struct { char q[160], type[16], id[32], vid[64], poster[300], name[200]; int se, ep, state; } CMeta; /* state 1 asking, 2 known */
+static CMeta *CMx; static int nCMx; static unsigned cmGen;
+static void cloud_parse(const char *fn, CMeta *m) {
+  char b[256]; snprintf(b, sizeof b, "%s", fn); char *d = strrchr(b, '.'); if (d && strlen(d) <= 5) *d = 0; for (char *q = b; *q; q++) if (*q == '.' || *q == '_' || *q == '[' || *q == ']' || *q == '(' || *q == ')') *q = ' ';
+  m->se = m->ep = 0; char out[160] = ""; size_t o = 0; char *save = NULL; int yearSeen = 0;
+  for (char *t = strtok_r(b, " ", &save); t; t = strtok_r(NULL, " ", &save)) { int s2, e2; char lw[64]; size_t k = 0; for (; t[k] && k < sizeof lw - 1; k++) lw[k] = (char)tolower((unsigned char)t[k]); lw[k] = 0;
+    if ((sscanf(lw, "s%de%d", &s2, &e2) == 2 || sscanf(lw, "%dx%d", &s2, &e2) == 2) && s2 > 0 && s2 < 100) { m->se = s2; m->ep = e2; break; }
+    if (strlen(lw) == 4 && (!strncmp(lw, "19", 2) || !strncmp(lw, "20", 2)) && isdigit((unsigned char)lw[2]) && isdigit((unsigned char)lw[3]) && o) { yearSeen = 1; break; }
+    if (strstr(lw, "1080p") || strstr(lw, "720p") || strstr(lw, "2160p") || !strcmp(lw, "4k") || strstr(lw, "webrip") || strstr(lw, "bluray") || strstr(lw, "web-dl") || strstr(lw, "x264") || strstr(lw, "x265") || strstr(lw, "hevc") || !strcmp(lw, "dual") || !strcmp(lw, "multi")) break;
+    if (o + strlen(t) + 2 < sizeof out) o += (size_t)snprintf(out + o, sizeof out - o, "%s%s", o ? " " : "", t); }
+  (void)yearSeen; snprintf(m->q, sizeof m->q, "%s", out); snprintf(m->type, sizeof m->type, "%s", m->se ? "series" : "movie"); }
+static void on_cm(int st, const unsigned char *b, size_t len, void *ud) {
+  (void)len; unsigned u = (unsigned)(uintptr_t)ud; int i = (int)(u & 0xfff); if ((u >> 12) != (cmGen & 0xfffff) || i >= nCMx) return; CMeta *m = &CMx[i]; cJSON *j = st == 200 ? net_json(b) : NULL;
+  const cJSON *r = cJSON_GetArrayItem(js_arr(j, "metas"), 0); const char *id = js_str(r, "id", js_str(r, "imdb_id", ""));
+  if (!strncmp(id, "tt", 2)) { snprintf(m->id, sizeof m->id, "%s", id); snprintf(m->poster, sizeof m->poster, "%s", js_str(r, "poster", "")); snprintf(m->name, sizeof m->name, "%s", js_str(r, "name", ""));
+    if (m->se) snprintf(m->vid, sizeof m->vid, "%s:%d:%d", id, m->se, m->ep); else snprintf(m->vid, sizeof m->vid, "%s", id); }
+  m->state = 2; net_json_free(j); }
+static void cloud_match(const DebFile *f, int n) {
+  free(CMx); nCMx = n < 4095 ? n : 4095; CMx = calloc((size_t)(nCMx ? nCMx : 1), sizeof *CMx); cmGen++;
+  for (int i = 0; i < nCMx; i++) { cloud_parse(f[i].name, &CMx[i]); if (!CMx[i].q[0] || i >= 60) continue; char enc[400], u[600]; addon_urlenc(CMx[i].q, enc, sizeof enc);
+    snprintf(u, sizeof u, "https://v3-cinemeta.strem.io/catalog/%s/top/search=%s.json", CMx[i].type, enc); CMx[i].state = 1; net_get(u, on_cm, (void *)(uintptr_t)(((cmGen & 0xfffff) << 12) | (unsigned)i)); } }
+static const CMeta *cloud_meta(const Item *it) { int i = atoi(it->id + 4); return !strncmp(it->id, "deb:", 4) && i >= 0 && i < nCMx && CMx[i].id[0] ? &CMx[i] : NULL; }
 static void cloud_poll(void) {
   if (!G.cloud) return; const DebFile *f; int n = deb_list(&f); if (n < 0) return; if (!G.loading && G.cloudGen == deb_generation()) return;
   G.cloudGen = deb_generation(); itemlist_clear(&G.items); G.items.items = calloc((size_t)(n ? n : 1), sizeof(Item)); G.items.n = 0;
   for (int i = 0; i < n; i++) { Item *it = &G.items.items[G.items.n++]; snprintf(it->id, sizeof it->id, "deb:%d", i); snprintf(it->type, sizeof it->type, "other"); cloud_name(f[i].name, it->name, sizeof it->name);
     if (f[i].size > 0) { double gb = f[i].size / 1073741824.0; if (gb >= 1) snprintf(it->metaLine, sizeof it->metaLine, "%.1f GB", gb); else snprintf(it->metaLine, sizeof it->metaLine, "%.0f MB", f[i].size / 1048576.0); } }
+  cloud_match(f, n);
   { char nb[16]; snprintf(nb, sizeof nb, "%d", n); snprintf(G.sub, sizeof G.sub, "%s", T1("{n} videos", "n", nb)); }
   G.loading = 0; G.empty = n == 0; timer_start(&G.fade, 0.3f); G.idx = 0; G.ring.shown = 0; }
 static void cloud_tile(const Item *it, float x, float y, int f) {
-  float w = CARD_W, h = CARD_H; gfx_rrect_v(x, y, w, h, CARD_R, RGB(34, 32, 44), RGB(18, 17, 24)); gfx_ring(x, y, w, h, CARD_R, f ? 3 : 1.2f, f ? (ACC2 | 0xff000000u) : WHITE_A(26));
+  float w = CARD_W, h = CARD_H; const CMeta *m = cloud_meta(it);
+  if (m && m->poster[0]) { float asp; GLuint t = img_get(m->poster, (int)w, (int)h, &asp); /* the title's poster, its name and episode, how far it was watched */
+    if (t) gfx_image(t, x, y, w, h, CARD_R, WHITE_A(255), 0, 0, 1, 1); else gfx_rrect_v(x, y, w, h, CARD_R, RGB(34, 32, 44), RGB(18, 17, 24));
+    gfx_rrect_v(x, y + h * 0.55f, w, h * 0.45f, CARD_R, BLACK_A(0), BLACK_A(220));
+    char ln[64] = ""; if (m->se) snprintf(ln, sizeof ln, "T%d:E%d", m->se, m->ep); text_draw(m->name, x + 16, y + h - (ln[0] ? 86 : 58), 23, 800, WHITE_A(250), 0, w - 32, ALIGN_LEFT);
+    if (ln[0]) text_draw(ln, x + 16, y + h - 56, 20, 700, WHITE_A(200), 0, w - 32, ALIGN_LEFT);
+    if (it->metaLine[0]) text_draw(it->metaLine, x + w - 16, y + 14, 18, 700, WHITE_A(220), 0, 0, ALIGN_RIGHT);
+    { Item li; memset(&li, 0, sizeof li); snprintf(li.id, sizeof li.id, "%s", m->id); snprintf(li.type, sizeof li.type, "%s", m->type); snprintf(li.videoId, sizeof li.videoId, "%s", m->vid); CwInfo ci; memset(&ci, 0, sizeof ci);
+      if (lib_cw_info(&li, &ci) && ci.pct > 0.01f && (!m->se || !strcmp(ci.vid, m->vid))) { float pw = w - 32; gfx_rrect(x + 16, y + h - 24, pw, 6, 3, WHITE_A(60)); gfx_rrect(x + 16, y + h - 24, pw * (ci.pct > 1 ? 1 : ci.pct), 6, 3, ACC2 | 0xff000000u); } }
+    gfx_ring(x, y, w, h, CARD_R, f ? 3 : 1.2f, f ? (ACC2 | 0xff000000u) : WHITE_A(26)); return; }
+  gfx_rrect_v(x, y, w, h, CARD_R, RGB(34, 32, 44), RGB(18, 17, 24)); gfx_ring(x, y, w, h, CARD_R, f ? 3 : 1.2f, f ? (ACC2 | 0xff000000u) : WHITE_A(26));
   icon_draw("p_film", x + w / 2 - 34, y + 70, 68, WHITE_A(120));
   text_draw_wrapped(it->name, x + 18, y + 180, w - 36, 5, 22, 700, WHITE_A(235), 0, ALIGN_LEFT, 28);
   if (it->metaLine[0]) text_draw(it->metaLine, x + 18, y + h - 44, 20, 600, WHITE_A(150), 0, w - 36, ALIGN_LEFT); }
@@ -321,19 +367,26 @@ static void enter(const void *pp) {
   snprintf(G.title, sizeof G.title, "%s", T("Similar"));
   sb_meta(G.p.it.type, G.p.it.id, on_meta, (void *)(uintptr_t)G.gen);
 }
-static const Item *focused(void) { if (G.cal) return cal_focused(); if (G.bioF || G.bioOpen) return NULL; /* (on the biography: OK is its own, not the film's) */ return G.idx < G.items.n ? &G.items.items[G.idx] : NULL; }
-static void open_it(const Item *it) { if (G.cal && cal_open_tm(it)) return; if (!strncmp(it->id, "deb:", 4)) { deb_play(atoi(it->id + 4)); return; } if (!strncmp(it->id, "tmdb:", 5)) { G.pendTmdb = atoi(it->id + 5); G.pendAt = app_now(); return; } /* (its IMDb id on its way: opened when it comes, see tick) */
+static const Item *focused(void) { if (G.cal) return cal_focused(); if (G.bioF || G.bioOpen || ptabF) return NULL; /* (on the biography: OK is its own, not the film's) */ return G.idx < G.items.n ? &G.items.items[G.idx] : NULL; }
+static void open_it(const Item *it) { if (G.cal && cal_open_tm(it)) return; if (!strncmp(it->id, "deb:", 4)) { const CMeta *m = cloud_meta(it); if (m) deb_play_as(atoi(it->id + 4), m->type, m->id, m->vid); else deb_play(atoi(it->id + 4)); return; } if (!strncmp(it->id, "tmdb:", 5)) { G.pendTmdb = atoi(it->id + 5); G.pendAt = app_now(); return; } /* (its IMDb id on its way: opened when it comes, see tick) */
   DetailParams p; memset(&p, 0, sizeof p); p.it = *it; app_go(SCR_DETAIL, &p, 0); }
 static int key(int k) {
   if (G.cal) return cal_key(k);
   if (G.bioOpen) { if (k == K_DOWN) G.bioScroll += 120; else if (k == K_UP) { G.bioScroll -= 120; if (G.bioScroll < 0) G.bioScroll = 0; } else if (k == K_BACK || k == K_OK) G.bioOpen = 0; return 1; } /* the whole story, read */
   if (G.bioF) { if (k == K_RIGHT || k == K_DOWN) G.bioF = 0; else if (k == K_OK) { G.bioOpen = 1; G.bioScroll = 0; } else if (k == K_UP) { G.bioF = 0; topnav_focus(); } else if (k == K_BACK) return 0; return 1; }
+  if (G.person && ptabF) { /* the tabs over the films: each applies as the focus lands on it */
+    if (k == K_LEFT || k == K_RIGHT) { int t = ptab + (k == K_RIGHT ? 1 : -1); if (t < 0) { if (PI.bio[0]) { ptabF = 0; G.bioF = 1; } else nudge_start(&G.nudge, k); return 1; } if (t > 3) { nudge_start(&G.nudge, k); return 1; } ptab = t; ptab_apply(); }
+    else if (k == K_DOWN || k == K_OK) { if (G.items.n) ptabF = 0; else nudge_start(&G.nudge, k); }
+    else if (k == K_UP) { ptabF = 0; topnav_focus(); }
+    else if (k == K_BACK) return 0;
+    return 1; }
   if (G.person && PI.bio[0] && k == K_LEFT && G.idx % COLS == 0) { G.bioF = 1; return 1; } /* the first column: left onto the biography */
+  if (G.person && !G.items.n && nPALL) { if (k == K_UP) ptabF = 1; return k != K_BACK; } /* (a tab with nothing in it: back up to the tabs) */
   if (!G.items.n) { if (k == K_UP) topnav_focus(); return k != K_BACK; } int i0 = G.idx;
   if (k == K_RIGHT) G.idx = G.idx + 1 < G.items.n ? G.idx + 1 : G.idx;
   else if (k == K_LEFT) { if (G.idx > 0) G.idx--; }
   else if (k == K_DOWN) G.idx = G.idx + COLS < G.items.n ? G.idx + COLS : (G.items.n - 1 > G.idx && G.idx / COLS < (G.items.n - 1) / COLS ? G.items.n - 1 : G.idx);
-  else if (k == K_UP) { if (G.idx - COLS >= 0) G.idx -= COLS; else if (G.person && PI.bio[0]) { G.bioF = 1; return 1; } else { topnav_focus(); return 1; } } /* (a person: up from the first row onto the biography, then up again to the tabs) */
+  else if (k == K_UP) { if (G.idx - COLS >= 0) G.idx -= COLS; else if (G.person && nPALL) { ptabF = 1; return 1; } else { topnav_focus(); return 1; } } /* (a person: up from the first row onto the biography, then up again to the tabs) */
   else if (k == K_OK) { open_it(&G.items.items[G.idx]); return 1; }
   else if (k == K_BACK) return 0;
   if (G.idx == i0) nudge_start(&G.nudge, k);
@@ -353,7 +406,7 @@ static void tick(float dt) {
   if (G.items.n) { int rtl = app_rtl(); float cx = GX + (G.idx % COLS) * (CARD_W + CARD_GAP), cy = 16 + row * ROWH; if (rtl) cx = SB_W - cx - CARD_W;
     if (!G.ring.shown || G.ring.x != cx || G.ring.y != cy) { static double last; int pop = !G.ring.shown || focus_pops(&last); G.ring.x = cx; G.ring.y = cy; G.ring.shown = 1; if (pop) timer_start(&G.ring.pop, 0.2f); else G.ring.pop.on = 0; } } /* held: it jumps, lit */
 }
-static int origin(float *x, float *y) { if (G.cal || topNav.active || G.bioF || G.idx >= G.items.n) return 0; int row = G.idx / COLS; float cx = GX + (G.idx % COLS) * (CARD_W + CARD_GAP); if (app_rtl()) cx = SB_W - cx - CARD_W; *x = cx + CARD_W / 2; *y = GTOP + G.gridY.v + 16 + row * ROWH + CARD_H / 2; return 1; }
+static int origin(float *x, float *y) { if (G.cal || topNav.active || G.bioF || ptabF || G.idx >= G.items.n) return 0; int row = G.idx / COLS; float cx = GX + (G.idx % COLS) * (CARD_W + CARD_GAP); if (app_rtl()) cx = SB_W - cx - CARD_W; *x = cx + CARD_W / 2; *y = GTOP + G.gridY.v + 16 + row * ROWH + CARD_H / 2; return 1; }
 static void sim_focus(int i, int b) { (void)b; int was = topNav.active; topNav.active = 0; if (was || G.idx != i) G.idx = i; }
 static void person_panel(void) {
   float x = 62, y = 124, ph = 236;
@@ -369,7 +422,7 @@ static void person_panel(void) {
     if (PI.died[0]) { char dd[64]; date_txt(PI.died, dd, sizeof dd); snprintf(v[nr], 200, "%s \xe2\x80\x93 %s (%s)", d, dd, T1("{n} years", "n", an)); } else if (a >= 0) snprintf(v[nr], 200, "%s (%s)", d, T1("{n} years", "n", an)); else snprintf(v[nr], 200, "%s", d);
     ic[nr] = "p_cake"; lb[nr] = T("Born"); nr++; }
   if (PI.place[0]) { snprintf(v[nr], 200, "%s", PI.place); ic[nr] = "d_country"; lb[nr] = T("Birthplace"); nr++; }
-  if (G.items.n) { int y0 = 0; for (int i = 0; i < G.items.n; i++) { int yy = atoi(G.items.items[i].metaLine); if (yy > 0 && (!y0 || yy < y0)) y0 = yy; } char n[16], ys[16]; snprintf(n, sizeof n, "%d", G.items.n); snprintf(ys, sizeof ys, "%d", y0);
+  if (nPALL) { int y0 = 0; for (int i = 0; i < nPALL; i++) { int yy = atoi(PALL[i].metaLine); if (yy > 0 && (!y0 || yy < y0)) y0 = yy; } char n[16], ys[16]; snprintf(n, sizeof n, "%d", nPALL); snprintf(ys, sizeof ys, "%d", y0);
     if (y0) snprintf(v[nr], 200, "%s  \xc2\xb7  %s", T1("{n} titles", "n", n), T1("since {y}", "y", ys)); else snprintf(v[nr], 200, "%s", T1("{n} titles", "n", n)); ic[nr] = "p_film"; lb[nr] = T("Credits"); nr++; }
   if (nr) { float ch = 28 + nr * rowH + 12; gfx_rrect(x, cy, cw, ch, 26, BLACK_A(110)); gfx_ring(x, cy, cw, ch, 26, 1.2f, WHITE_A(26));
     for (int i = 0; i < nr; i++) { float ry = cy + 20 + i * rowH, lh = text_line_height(24);
@@ -387,7 +440,13 @@ static void person_panel(void) {
 static void draw(void) {
   if (G.cal) { gfx_offset_push(nudge_x(&G.nudge), nudge_y(&G.nudge)); cal_draw(); gfx_offset_pop(); return; }
   int rtl = app_rtl();
-  if (G.person) { person_panel(); text_draw(T("Filmography"), GX, 128, 40, 800, WHITE_A(255), -0.6f, 0, ALIGN_LEFT); }
+  if (G.person) { person_panel(); float tw = text_draw(T("Filmography"), GX, 128, 40, 800, WHITE_A(255), -0.6f, 0, ALIGN_LEFT);
+    if (nPALL) { float px = GX + tw + 28, py = 128, ph = 46; uint32_t ac2 = ACC2 | 0xff000000u; /* the tabs */
+      for (int t = 0; t < 4; t++) { int cnt = 0; for (int i = 0; i < nPALL; i++) if (ptab_pass(&PALL[i], t)) cnt++; char lb[64]; snprintf(lb, sizeof lb, "%s  %d", T(PTAB[t]), cnt);
+        float w = text_width(lb, 20, 700, 0) + 32; int sel = ptab == t, fo = sel && ptabF;
+        if (fo) gfx_rrect(px, py, w, ph, ph / 2, WHITE_A(250)); else if (sel) gfx_rrect(px, py, w, ph, ph / 2, WHITE_A(50)); else gfx_ring(px, py, w, ph, ph / 2, 1.5f, WHITE_A(60));
+        text_draw(lb, px + 16, py + (ph - text_line_height(20)) / 2, 20, 700, fo ? RGB(16, 16, 20) : WHITE_A(sel ? 255 : 185), 0, 0, ALIGN_LEFT); if (sel && !fo) gfx_rrect(px + w / 2 - 12, py + ph + 5, 24, 4, 2, ac2); px += w + 10; } }
+    if (G.person && !G.items.n && nPALL && !G.loading) text_draw(T(ptab == 3 ? "You haven't watched anything with this person yet" : "Nothing here yet"), GX, GTOP + 40, 26, 600, WHITE_A(170), 0, 0, ALIGN_LEFT); }
   else text_draw(G.title, rtl ? SB_W - 48 : 48, 120, 44, 800, WHITE_A(255), -0.8f, SB_W - 96, rtl ? ALIGN_RIGHT : ALIGN_LEFT);
   if (G.sub[0]) text_draw(G.sub, rtl ? SB_W - 48 : 48, 120 + 58, 24, 600, WHITE_A(180), 0, SB_W - 96, rtl ? ALIGN_RIGHT : ALIGN_LEFT); /* (a collection: how many films, which years) */
   float top = GTOP; gfx_clip_push(G.person ? GX - 30 : 34, top - 28, G.person ? SB_W - GX + 30 : SB_W - 34, SB_H - top + 28); /* (from 28 above the grid: the first line's focused card grows 9% and has its outline; cut at the grid's top, its top edge was lost) */
@@ -401,7 +460,7 @@ static void draw(void) {
   if (G.empty && !G.loading) text_draw(T("Nothing found."), rtl ? SB_W - 48 - 40 : 48 + 40, 40, 27, 400, WHITE_A(191), 0, 0,
  rtl ? ALIGN_RIGHT : ALIGN_LEFT);
   /* the cards; the focused one last, over its neighbours as it grows */
-  int fi = !topNav.active && !G.bioF && !G.bioOpen && G.idx < G.items.n ? G.idx : -1; float hp = app_hold_progress();
+  int fi = !topNav.active && !G.bioF && !G.bioOpen && !ptabF && G.idx < G.items.n ? G.idx : -1; float hp = app_hold_progress();
   for (int pass = 0; pass < 2; pass++) for (int i = 0; i < G.items.n; i++) { if ((i == fi) != pass) continue;
     int row = i / COLS; float y = 16 + row * ROWH; if (y + G.gridY.v > SB_H - top || y + CARD_H + G.gridY.v < 0) continue;
     float x = GX + (i % COLS) * (CARD_W + CARD_GAP); if (rtl) x = SB_W - x - CARD_W; unsigned long long lk = lift_key(&G, i);

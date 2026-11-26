@@ -1002,7 +1002,7 @@ static void dts_tick(void) {
    doesn't fit this file's length is dropped and the next source's is used. One source with something useful
    gives the others 2.5 s more; whatever answered by 14 s is used. API answers are kept 6 h; errors never ---- */
 void (*player_chapters_hook)(const char *url, int p2p);
-enum { SK_TIDB, SK_IDB, SK_KITSU, SK_ANI };
+enum { SK_TIDB, SK_IDB, SK_KITSU, SK_ANI, SK_ARM }; /* ARM: an anime known by its IMDb id, mapped to its MyAnimeList season (arm.haglund.dev) */
 static struct { char url[440]; double at; char *body; } skCache[120]; static int skCacheN; static unsigned skTok;
 static const char *sk_cached(const char *u) { for (int i = 0; i < skCacheN; i++) if (!strcmp(skCache[i].url, u)) return now_() - skCache[i].at < 6 * 3600 ? skCache[i].body : NULL; return NULL; }
 static void sk_keep(const char *u, const char *body) {
@@ -1051,6 +1051,10 @@ static void sk_answer(int i, const cJSON *j) {
     static const char *K[3] = { "intro", "recap", "outro" };
     for (int k = 0; k < 3; k++) { const cJSON *o = js_obj(j, K[k]); if (!o) continue; double s0 = sk_sec(o, "start_sec", -1); sk_seg(&has[k], &ss[k], &ee[k], s0, sk_sec(o, "end_sec", k == 2 ? (d ? d : s0 + 600) : -1)); }
     sk_add(2, has, ss, ee);
+  } else if (kind == SK_ARM) { /* the season's MyAnimeList entry (the TVDB season, as Cinemeta numbers them), then its skip times */
+    const cJSON *e, *pick = NULL; cJSON_ArrayForEach(e, j) { if (strcmp(js_str(e, "media", "TV"), "TV")) continue; int ts = (int)js_num(e, "thetvdb-season", -1); if (ts == P.sk.se) { pick = e; break; } if (!pick && P.sk.se <= 1) pick = e; }
+    int mal = pick ? (int)js_num(pick, "myanimelist", 0) : 0; if (mal <= 0) { sk_done(); return; }
+    P.sk.job[i].kind = SK_ANI; P.sk.job[i].tries = 0; snprintf(P.sk.job[i].url, sizeof P.sk.job[i].url, "https://api.aniskip.com/v2/skip-times/%d/%d?types=op&types=ed&types=recap&types=mixed-op&types=mixed-ed&episodeLength=0", mal, P.sk.en); sk_ask(i); return;
   } else if (kind == SK_KITSU) { /* the MyAnimeList id, then its skip times (the same job) */
     const cJSON *dt = js_arr(j, "data"), *m0 = dt ? cJSON_GetArrayItem(dt, 0) : NULL; const char *mal = js_str(js_obj(m0, "attributes"), "externalId", NULL);
     if (!mal) { sk_done(); return; }
@@ -1069,14 +1073,15 @@ static void on_sk(int st, const unsigned char *body, size_t len, void *ud) {
   (void)len; unsigned v = (unsigned)(uintptr_t)ud; int i = v & 3; if (!P.open || !P.sk.tok || v >> 2 != P.sk.tok || !P.sk.job[i].live) return;
   cJSON *j = st > 0 ? net_json(body) : NULL; const cJSON *err = cJSON_GetObjectItemCaseSensitive(j, "error");
   int real = cJSON_IsObject(j) && !err && (cJSON_GetObjectItemCaseSensitive(j, "imdb_id") || cJSON_GetObjectItemCaseSensitive(j, "tmdb_id") || cJSON_GetObjectItemCaseSensitive(j, "found") || (P.sk.job[i].kind == SK_KITSU && js_arr(j, "data")));
-  int miss = 0; if (cJSON_IsString(err)) { char e[96]; lower(err->valuestring, e, sizeof e); miss = strstr(e, "not found") != NULL; }
+  if (P.sk.job[i].kind == SK_ARM && cJSON_IsArray(j)) real = cJSON_GetArraySize(j) > 0;
+  int miss = P.sk.job[i].kind == SK_ARM && cJSON_IsArray(j) && !real; if (cJSON_IsString(err)) { char e[96]; lower(err->valuestring, e, sizeof e); miss = strstr(e, "not found") != NULL; }
   if (!real && !miss && ++P.sk.job[i].tries < 3) { cJSON_Delete(j); P.sk.job[i].retryAt = now_() + 1.5; return; }
   if (real || miss) sk_keep(P.sk.job[i].url, real ? (const char *)body : "{}");
   P.sk.job[i].live = 0; sk_answer(i, real ? j : NULL); cJSON_Delete(j);
 }
 static void sk_ask(int i) {
   const char *c = sk_cached(P.sk.job[i].url);
-  if (c) { cJSON *j = cJSON_Parse(c); P.sk.job[i].live = 0; int ok = cJSON_IsObject(j) && cJSON_GetArraySize(j) > 0; sk_answer(i, ok ? j : NULL); cJSON_Delete(j); return; }
+  if (c) { cJSON *j = cJSON_Parse(c); P.sk.job[i].live = 0; int ok = (cJSON_IsObject(j) || cJSON_IsArray(j)) && cJSON_GetArraySize(j) > 0; sk_answer(i, ok ? j : NULL); cJSON_Delete(j); return; }
   P.sk.job[i].live = 1; P.sk.job[i].retryAt = 0; net_get(P.sk.job[i].url, on_sk, (void *)(uintptr_t)((P.sk.tok << 2) | (unsigned)i));
 }
 static void sk_job(const char *url, int kind) { int i = 0; while (i < 3 && P.sk.job[i].url[0]) i++; if (i >= 3) return; snprintf(P.sk.job[i].url, sizeof P.sk.job[i].url, "%s", url); P.sk.job[i].kind = kind; P.sk.pending++; sk_ask(i); }
@@ -1100,7 +1105,10 @@ static void load_skips(void) {
   if (imdb) { char im[24]; int k = 2; while (k < 22 && isdigit((unsigned char)imdb[k])) k++; snprintf(im, sizeof im, "%.*s", k, imdb);
     P.sk.isEp = !strcmp(P.type, "series") && ne >= 2; if (P.sk.isEp) { const char *l = strrchr(vid, ':'), *pp = l - 1; while (pp > vid && *pp != ':') pp--; P.sk.se = atoi(pp + 1); P.sk.en = atoi(l + 1); }
     if (P.sk.isEp) snprintf(u, sizeof u, "https://api.theintrodb.org/v3/media?imdb_id=%s&season=%d&episode=%d", im, P.sk.se, P.sk.en); else snprintf(u, sizeof u, "https://api.theintrodb.org/v3/media?imdb_id=%s", im); sk_job(u, SK_TIDB);
-    if (P.sk.isEp) snprintf(u, sizeof u, "https://api.introdb.app/segments?imdb_id=%s&season=%d&episode=%d", im, P.sk.se, P.sk.en); else snprintf(u, sizeof u, "https://api.introdb.app/segments?imdb_id=%s&is_movie=true", im); sk_job(u, SK_IDB); }
+    if (P.sk.isEp) snprintf(u, sizeof u, "https://api.introdb.app/segments?imdb_id=%s&season=%d&episode=%d", im, P.sk.se, P.sk.en); else snprintf(u, sizeof u, "https://api.introdb.app/segments?imdb_id=%s&is_movie=true", im); sk_job(u, SK_IDB);
+    if (P.sk.isEp && P.meta) { int an = 0; const cJSON *g; cJSON_ArrayForEach(g, js_arr(P.meta, "genres")) if (cJSON_IsString(g) && (!strcasecmp(g->valuestring, "Anime") || !strcasecmp(g->valuestring, "Animation"))) an = 1;
+      const char *co = js_str(P.meta, "country", ""); if (an && (strstr(co, "Japan") || strstr(co, "Jap"))) an = 2; else { const cJSON *g2; cJSON_ArrayForEach(g2, js_arr(P.meta, "genres")) if (cJSON_IsString(g2) && !strcasecmp(g2->valuestring, "Anime")) an = 2; }
+      if (an == 2) { snprintf(u, sizeof u, "https://arm.haglund.dev/api/v2/imdb?id=%s", im); sk_job(u, SK_ARM); } } } /* (an anime with an IMDb id: AniSkip through its MyAnimeList season) */
   if (P.sk.tok) sk_done();
 }
 /* the chapters a reader found in this file: the best skip source ("Opening", "Recap", "End Credits"...); n <= 0: none */

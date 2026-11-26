@@ -31,4 +31,5 @@ void httpd_set_mdb_handler(int (*fn)(const char *key));
 void httpd_set_deb_handler(int (*fn)(const char *svc, const char *key)); /* /deb: a debrid service and its key */
 /* the IPTV page's Save (the IPTV module): the list link and the guide link as typed; 1 = kept */
 void httpd_set_iptv_handler(int (*fn)(const char *m3u, const char *epg));
+void httpd_set_simkl_handler(int (*fn)(const char *key)); /* Simkl's Client ID pasted on the phone (server thread) */
 #endif

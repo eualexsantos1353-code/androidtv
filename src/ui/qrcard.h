@@ -29,6 +29,7 @@ void qrcard_show_tmdb(void (*onClose)(int hasKey, void *ud), void *ud);
 void qrcard_show_trakt(void (*onClose)(int hasKey, void *ud), void *ud);
 /* Settings > Keys > Scores from other sites: the MDBList key page */
 void qrcard_show_mdb(void (*onClose)(int hasKey, void *ud), void *ud);
+void qrcard_show_simkl(void);
 void qrcard_show_deb(void (*onClose)(int hasKey, void *ud), void *ud); /* Settings > Keys > Debrid */
 /* Settings > Keys > IPTV list: the page that takes the M3U and EPG links from the phone */
 void qrcard_show_iptv(void (*onClose)(int hasList, void *ud), void *ud);

@@ -92,10 +92,12 @@ int deb_list(const DebFile **out) {
 }
 
 /* playing one: its link, then the player with nothing to keep in the Library (a file has no title page) */
+static char asType[16], asId[64], asVid[96];
 static void play_link(const char *name, const char *url) {
   if (!url || !*url) { toast(T("Could not play"), 2400, NULL); return; }
   Stream *s = calloc(1, sizeof *s); if (!s) return; snprintf(s->url, sizeof s->url, "%s", url); snprintf(s->name, sizeof s->name, "%s", SVN[svc]); snprintf(s->title, sizeof s->title, "%s", name); snprintf(s->filename, sizeof s->filename, "%s", name);
-  player_play(s, "other", "", NULL, 1); free(s); }
+  int known = asId[0] != 0; player_play(s, known ? asType : "other", known ? asId : "", known ? asVid : NULL, !known); free(s); asId[0] = 0; } /* (a file known as a title: played as it, so its place is kept and it resumes) */
+void deb_play_as(int i, const char *type, const char *id, const char *vid) { snprintf(asType, sizeof asType, "%s", type ? type : ""); snprintf(asId, sizeof asId, "%s", id ? id : ""); snprintf(asVid, sizeof asVid, "%s", vid && *vid ? vid : id ? id : ""); deb_play(i); }
 static char playName[256];
 static void on_link(int st, const unsigned char *body, size_t len, void *ud) {
   (void)len; (void)ud; cJSON *j = st == 200 ? net_json(body) : NULL; const char *u = js_str(j, "data", ""); if (!*u) u = js_str(j, "link", "");
