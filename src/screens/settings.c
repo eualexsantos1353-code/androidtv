@@ -70,6 +70,7 @@ static const Opt LANG_OPTS[] = { { "", "Off" }, { "eng", "English" }, { "ara", "
   { "mon", "Mongolian" }, { "nor", "Norwegian" }, { "per", "Persian" }, { "srp", "Serbian" }, { "sin", "Sinhala" }, { "slo", "Slovak" }, { "slv", "Slovenian" }, { "tgl", "Tagalog" }, { "tam", "Tamil" }, { "tel", "Telugu" }, { "tha", "Thai" }, { "ukr", "Ukrainian" }, { "urd", "Urdu" }, { "vie", "Vietnamese" } };
 #define NLANGOPTS ((int)(sizeof LANG_OPTS / sizeof LANG_OPTS[0]))
 static const Opt SKIPO[] = { { "auto", "Auto" }, { "show", "Show" }, { "off", "Off" } }; /* the intro / recap button: skips by itself, waits for OK, or none */
+static const Opt ZOOMO[] = { { "100", "Normal" }, { "110", "Large" }, { "120", "Larger" }, { "130", "Largest" } };
 static const Opt RESO[] = { { "720", "Light (720p)" }, { "full", "Sharp (1080p)" }, { "1440", "High (1440p)" } };
 static const Opt CLOCKO[] = { { "24", "24-hour (15:30)" }, { "12", "12-hour (3:30 PM)" } };
 static const Opt SEEK[] = { { "5", "5s" }, { "10", "10s" }, { "15", "15s" }, { "20", "20s" }, { "30", "30s" } };
@@ -85,7 +86,7 @@ static const Opt SS_OPTS[] = { { "0", "Off" }, { "1", "1 min" }, { "2", "2 min" 
 static const Opt ACCENT_OPTS[] = { { "logo", "From the logo" }, { "adaptive", "From the artwork" }, { "purple", "Purple" }, { "violet", "Violet" }, { "fuchsia", "Fuchsia" }, { "pink", "Pink" }, { "rose", "Rose" }, { "red", "Red" }, { "orange", "Orange" }, { "amber", "Amber" }, { "gold", "Gold" }, { "lime", "Lime" }, { "green", "Green" }, { "emerald", "Emerald" }, { "teal", "Teal" }, { "cyan", "Cyan" }, { "sky", "Sky" }, { "blue", "Blue" }, { "indigo", "Indigo" }, { "graphite", "Graphite" } };
 #define NCAT 11
 #define MAXROWS 48
-static Setting playBase[14], playS[10], seekS[6], subsS[11], audS[4], lookS[8], langS[44], langOpt, keyS[12], traktS[6], addonS[40], acctS[1], supS[10];
+static Setting playBase[14], playS[10], seekS[6], subsS[12], audS[4], lookS[8], langS[44], langOpt, keyS[12], traktS[6], addonS[40], acctS[1], supS[10];
 static Cat cats[NCAT]; static int ncat; /* (Keys leaves when this build carries every key) */
 
 /* the layout, in the web's pixels: the grid is centred, 1600 wide, 150 from the top */
@@ -229,7 +230,7 @@ static void play_layout(void) {
   if (prev_available()) { seekS[n++] = playBase[10]; /* pictures on the seek bar: only where this app can make them */
     if (strcmp(store_get("seekPreviews", "true"), "false")) seekS[n++] = playBase[11]; } /* (and, while they are on, waiting for them first) */
   set_count(seekS, n);
-  n = 5; lookS[n++] = playBase[3]; if (on) lookS[n++] = playBase[6]; set_count(lookS, n);
+  n = 6; lookS[n++] = playBase[3]; if (on) lookS[n++] = playBase[6]; set_count(lookS, n);
   set_count(traktS, trakt_opts());
   set_count(supS, about_opts());
 }
@@ -271,6 +272,7 @@ static void build(void) {
     if (!store_get("subsPosPct", "")[0]) { static const int OLD[6] = { 3, 8, 13, 18, 23, 28 }; int i = atoi(store_get("subsPosition", "1")); char b[8]; snprintf(b, sizeof b, "%d", OLD[i < 0 || i > 5 ? 1 : i]); store_set("subsPosPct", b); }
     set_s(&subsS[9], "subsPosPct", "Position", "How high over the bottom of the picture; also in the player", PP, 29, "8"); }
   { static const Opt BR[] = { { "100", "100%" }, { "80", "80%" }, { "60", "60%" }, { "40", "40%" } }; set_s(&subsS[8], "subsBright", "Brightness", "", BR, 4, "100"); } /* (PR #39: softer on an OLED in the dark; under Background) */
+  set_s(&subsS[11], "subsOnlyMine", "Only my language", "The subtitle lists in the player show only the language chosen above", OO, 2, "false");
   set_s(&subsS[10], "subsAssStyle", "Styled subtitles", "Signs, fonts and effects as the film\xe2\x80\x99s own ASS / SSA subtitles draw them", ASSO, 2, "styled");
   /* the audio language: Original (the film's own track, as it starts) first and by default, then a language, picked by
      itself when a film has it (one row: the old "Auto audio track" switch is folded in: off was Original) */
@@ -284,6 +286,7 @@ static void build(void) {
   set_s(&lookS[0], "accent", "Accent colour", "Dynamic: the colours of the title you open", ACCENT_OPTS, 20, "logo"); /* first, right under its picture */
   set_s(&lookS[2], "clockFormat", "Clock", "24-hour or 12-hour time, everywhere the app shows it", CLOCKO, 2, "24");
   if (!strcmp(store_get("uiRes", "full"), "auto")) store_set("uiRes", "full");
+  set_s(&lookS[5], "uiZoom", "Text size", "The words everywhere in the app, bigger. Restart the app to apply", ZOOMO, 4, "100");
   set_s(&lookS[4], "uiRes", "Picture quality", "Restart the app to apply. High (1440p) is for 4K TVs and can slow the app down", RESO, 3, "full");
   set_s(&lookS[3], "spoilers", "Spoilers", "", SPOILO, 3, "off"); /* the episodes not watched yet: their stills blurred, and their descriptions too if asked */
   set_s(&lookS[1], "ssDelay", "Screensaver", "After a while without a key, the titles of the moment fill the screen", SS_OPTS, 5, "5");
@@ -301,7 +304,7 @@ static void build(void) {
   Cat c[NCAT] = {
     { "Watch", "Playback", "set_play", "Best stream, next episode, picture size", NULL, playS, 6, 0 }, /* (the counts: play_layout) */
     { "Watch", "Seek bar", "set_seek", "Seek step, chapters, previews", NULL, seekS, 4, 0 },
-    { "Watch", "Subtitles", "set_subs", "Language, size, font, colour", "subs", subsS, 11, 0 },
+    { "Watch", "Subtitles", "set_subs", "Language, size, font, colour", "subs", subsS, 12, 0 },
     { "Watch", "Audio", "set_aud", "Default audio language, DTS, interface sounds", NULL, audS, 4, 0 },
     { "Screens", "Appearance", "set_look", "Accent colour, screensaver, clock, trailers", "look", lookS, 6, 0 },
     { "Screens", "Language", "set_lang", "The language of the app", NULL, langS, nl, 0 },

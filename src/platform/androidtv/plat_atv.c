@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <pthread.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
@@ -24,6 +25,8 @@
 #include "platform/androidtv/atv.h"
 #include "core/app.h"
 #include "ui/img.h"
+#include "ui/atlas.h"
+#include "ui/gfx.h"
 #include "cJSON.h"
 
 static char assetDir[1024], dataDir[1024], devName[200], lastExit[160];
@@ -52,11 +55,20 @@ const char *plat_log_header(void) {
 
 /* stderr to the system log (adb logcat -s StremioOrigin), line by line; the app's own kept log gets every line too */
 static int logPipe[2];
+/* the start's own log (<files>/data/laststart.txt, begun by Java at each open): every line of the first 256 KB, written
+   at once, so a start that dies or gives up in its first seconds leaves its lines for the next open to show
+   (MainActivity: StartReport) */
+int atvStartFd = -1;
+static void start_write(const char *s, size_t n) { static size_t total; if (atvStartFd < 0 || total > 256 * 1024) return; total += n; if (write(atvStartFd, s, n) < 0) { } }
 static void *log_thread(void *a) { (void)a; char buf[2048]; size_t n = 0; ssize_t r;
   while ((r = read(logPipe[0], buf + n, sizeof buf - 1 - n)) > 0) { n += (size_t)r; buf[n] = 0; char *s = buf, *e;
-    while ((e = strchr(s, '\n'))) { *e = 0; __android_log_write(ANDROID_LOG_INFO, "StremioOrigin", s); s = e + 1; }
-    n = strlen(s); memmove(buf, s, n + 1); if (n >= sizeof buf - 1) { __android_log_write(ANDROID_LOG_INFO, "StremioOrigin", buf); n = 0; } }
+    while ((e = strchr(s, '\n'))) { *e = 0; __android_log_write(ANDROID_LOG_INFO, "StremioOrigin", s); start_write(s, strlen(s)); start_write("\n", 1); s = e + 1; }
+    n = strlen(s); memmove(buf, s, n + 1); if (n >= sizeof buf - 1) { __android_log_write(ANDROID_LOG_INFO, "StremioOrigin", buf); start_write(buf, n); start_write("\n", 1); n = 0; } }
   return NULL; }
+/* a crash: what is still in the pipe goes straight to the start's log (the log thread dies with the process) */
+void atv_crash_drain(void) {
+  if (atvStartFd < 0) return; int fl = fcntl(logPipe[0], F_GETFL); if (fl >= 0) fcntl(logPipe[0], F_SETFL, fl | O_NONBLOCK);
+  char b[4096]; ssize_t r; while ((r = read(logPipe[0], b, sizeof b)) > 0) start_write(b, (size_t)r); }
 
 /* ---- calls into Java (MainActivity's static methods) ---- */
 JNIEnv *atv_env(void) { return (JNIEnv *)SDL_AndroidGetJNIEnv(); }
@@ -90,6 +102,25 @@ static void info(int what, char *out, size_t cap) { JNIEnv *e = atv_env(); out[0
 int plat_display_hz(void) { JNIEnv *e = atv_env(); static jmethodID m; if (!m) m = atv_method(e, 0, "displayHz", "()F"); if (!m) return 0;
   float hz = (*e)->CallStaticFloatMethod(e, atv_class(e, 0), m); if (!atv_check(e) || !(hz > 1)) return 0; return (int)(hz + 0.5f); }
 void atv_call_int(const char *name, int v) { JNIEnv *e = atv_env(); jmethodID m = atv_method(e, 0, name, "(I)V"); if (m) { (*e)->CallStaticVoidMethod(e, atv_class(e, 0), m, (jint)v); atv_check(e); } }
+
+/* a JPEG decoded by Android at the smallest power-of-two size still covering bw x bh (MainActivity.decodeJpeg): RGBA
+   pixels (malloc) and their size, or NULL. Called from the picture workers (each attached to Java by SDL); every
+   local reference let go at once: a worker lives as long as the app */
+unsigned char *atv_jpeg_decode(const unsigned char *data, size_t len, int bw, int bh, int *w, int *h) {
+  extern int atvSafeStart; if (atvSafeStart) return NULL; /* (a safe start: the app's own decoder only) */
+  JNIEnv *e = atv_env(); static jmethodID m; static int none; if (none || !e) return NULL;
+  if (!m) { m = atv_method(e, 0, "decodeJpeg", "([BII)[B"); if (!m) { none = 1; return NULL; } }
+  jbyteArray in = (*e)->NewByteArray(e, (jsize)len); if (!in) { (*e)->ExceptionClear(e); return NULL; }
+  (*e)->SetByteArrayRegion(e, in, 0, (jsize)len, (const jbyte *)data);
+  jbyteArray out = (jbyteArray)(*e)->CallStaticObjectMethod(e, atv_class(e, 0), m, in, (jint)bw, (jint)bh);
+  (*e)->DeleteLocalRef(e, in); if (!atv_check(e) || !out) { if (out) (*e)->DeleteLocalRef(e, out); return NULL; }
+  unsigned char *px = NULL; jsize n = (*e)->GetArrayLength(e, out); unsigned char hd[8];
+  if (n >= 8) { (*e)->GetByteArrayRegion(e, out, n - 8, 8, (jbyte *)hd); /* (the size after the pixels: MainActivity.decodeJpeg) */
+    int ow = hd[0] | hd[1] << 8 | hd[2] << 16 | hd[3] << 24, oh = hd[4] | hd[5] << 8 | hd[6] << 16 | hd[7] << 24;
+    if (ow > 0 && oh > 0 && (long)n == 8 + (long)ow * oh * 4 && (px = malloc((size_t)ow * oh * 4))) { (*e)->GetByteArrayRegion(e, out, 0, ow * oh * 4, (jbyte *)px); *w = ow; *h = oh;
+      static int said; if (!said) { said = 1; fprintf(stderr, "[img] jpeg: Android's own decoder, scaled (first: %dx%d for a %dx%d box)\n", ow, oh, bw, bh); } } }
+  (*e)->DeleteLocalRef(e, out); return px;
+}
 
 /* ---- the remote: keys Java takes before SDL (colour keys, channel keys, the media keys, Menu), as key events ---- */
 JNIEXPORT void JNICALL Java_app_stremioorigin_tv_MainActivity_nativeTvKey(JNIEnv *env, jclass c, jint code, jboolean down, jint repeat) {
@@ -134,6 +165,7 @@ void plat_pre_init(const char *appId) { (void)appId;
   info(ATV_FILES, files, sizeof files); info(ATV_CACHE, cache, sizeof cache); info(ATV_LIBDIR, libs, sizeof libs);
   snprintf(assetDir, sizeof assetDir, "%s/assets", files); snprintf(dataDir, sizeof dataDir, "%s/data", files);
   { char cmd[1100]; snprintf(cmd, sizeof cmd, "%s", dataDir); mkdir(cmd, 0700); }
+  { char p[1100]; snprintf(p, sizeof p, "%s/laststart.txt", dataDir); atvStartFd = open(p, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0600); }
   applog_start(dataDir); logReady = 1; /* as early as the data folder is known: Java's answers below (the decoders, the screen) are kept too */
   /* the libraries the app loads by name (the torrent engine) sit in the app's native folder: the working folder, so
      the core finds them as it does beside the TV's binary (SDL has no base path on Android) */
@@ -161,14 +193,9 @@ void plat_pre_init(const char *appId) { (void)appId;
 void plat_post_window(SDL_Window *w) { (void)w; }
 const char *plat_asset_dir(void) { return assetDir; }
 const char *plat_data_dir(void) { return dataDir; }
-/* the drawing surface, fixed as on LG: 1920x1080 (a 4K screen scales it up, as LG's own compositor does), or 1280x720
-   when the "720p light" setting is on; the same setting and rule as the TV (main.c) */
-void plat_window_size(int *w, int *h, Uint32 *flags) {
-  const char *res = getenv("SB_RES") ? getenv("SB_RES") : store_get("uiRes", "auto");
-  int light = !strcmp(res, "720");
-  *w = light ? 1280 : 1920; *h = light ? 720 : 1080; *flags = SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN;
-  atv_call_int("surfaceSize", light ? 720 : 1080);
-}
+/* the drawing surface's size is fixed by Java before SDL makes the surface (MainActivity.drawLines: 1280x720 on a box
+   found weak, else 1920x1080); the window takes that size (main.c reads it back) */
+void plat_window_size(int *w, int *h, Uint32 *flags) { *w = 1920; *h = 1080; *flags = SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN; }
 int plat_text_input(void) { return 0; }   /* a remote, no keyboard: the app draws its own */
 const char *plat_device_name(void) { return devName; }
 static int meminfo(const char *key) { FILE *f = fopen("/proc/meminfo", "r"); if (!f) return -1; char l[160]; int v = -1; size_t kl = strlen(key);
@@ -179,7 +206,11 @@ void plat_thread_background(int nice) { setpriority(PRIO_PROCESS, (id_t)syscall(
 /* Home, another app, the screen saver: the activity pauses (SDL stops the loop until it is back) */
 int plat_lifecycle(const SDL_Event *e) {
   static int away;
-  if (e->type == SDL_APP_WILLENTERBACKGROUND || e->type == SDL_APP_DIDENTERBACKGROUND) { if (!away) fprintf(stderr, "[life] to the back\n"); away = 1; return -1; }
+  if (e->type == SDL_APP_WILLENTERBACKGROUND || e->type == SDL_APP_DIDENTERBACKGROUND) { if (!away) { fprintf(stderr, "[life] to the back\n");
+      /* a box with little memory: the pictures and idle text pages go with the app to the back (Android kills the biggest
+         first; they come back from their small copies when it is in front again) */
+      int mb = plat_mem_total_mb(); if (mb > 0 && mb < 1500) { img_release_all(); gfx_pool_clear(); int pg = atlas_trim(1); fprintf(stderr, "[mem] in the back: pictures, kept textures and %d text page(s) let go\n", pg); } }
+    away = 1; return -1; }
   if ((e->type == SDL_APP_DIDENTERFOREGROUND) && away) { away = 0; fprintf(stderr, "[life] back in front\n"); return 1; }
   return 0;
 }
@@ -213,7 +244,8 @@ void plat_luna_pump(void) {
   /* Android's memory warnings (onTrimMemory): pictures not on screen are let go at once, and the budget shrinks while
      the box is short (as the core's own guard does from the free memory it reads) */
   atv_jstr(e, (jstring)(*e)->CallStaticObjectMethod(e, atv_class(e, 0), take, (jint)2), b, sizeof b);
-  if (atv_check(e) && b[0]) { int lvl = atoi(b); fprintf(stderr, "[mem] Android asks for memory back (level %d)\n", lvl); img_release_unused(1); }
+  if (atv_check(e) && b[0]) { int lvl = atoi(b); img_release_unused(1); gfx_pool_clear(); int pages = atlas_trim(600); /* (the textures kept for reuse, and text pages idle 10 s. The background's own trim is plat_lifecycle's: a level read here arrives after the app is back in front) */
+    fprintf(stderr, "[mem] Android asks for memory back (level %d): pictures not on screen, kept textures and %d text page(s) let go\n", lvl, pages); }
   /* the launch's parameters, as LG's launch params reach its core: {"cast":1} when the phone opened the app to play */
   atv_jstr(e, (jstring)(*e)->CallStaticObjectMethod(e, atv_class(e, 0), take, (jint)3), b, sizeof b);
   if (atv_check(e) && b[0]) { fprintf(stderr, "[life] launch params %s\n", b); app_launch_params(b); }

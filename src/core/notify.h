@@ -20,4 +20,8 @@ void notify_dismiss(const char *id);        /* seen: the series' last watch is n
 void notify_cw_dismiss(const Item *it);    /* out of Continue Watching until it is watched or marked again, or a newer episode comes out (this device) */
 int  notify_cw_hidden(const cJSON *lib, double newestNew); /* that dismissal still holds (newestNew: the newest new episode's air time, s; 0 none) */
 void notify_up_dismiss(const Item *it);    /* out of Upcoming until its next episode is another one (this device) */
+/* the Calendar: every episode of the followed series from about a month back to two months ahead, soonest first
+   (metaLine "T1:E3", epName its title when told, airAt when it airs); -1: not asked yet (it is asked now), 0: none */
+int  notify_calendar(ItemList *out);
+int  notify_busy(void);
 #endif

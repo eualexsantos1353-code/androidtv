@@ -2,6 +2,7 @@
 #include <pthread.h>
 #include "core/notify.h"
 #include "core/stremio.h"
+#include "core/tracking.h"
 #include "core/scrobble.h"
 #include "core/traktrows.h"
 #include "core/traktwatch.h"
@@ -297,6 +298,15 @@ static void cat_work(CatJob *k);
 static int big_asked(const char *url, int mark) { static unsigned H[256]; unsigned h = 2166136261u; for (const char *p = url; *p; p++) h = (h ^ (unsigned char)*p) * 16777619u; if (!h) h = 1;
   unsigned i = h & 255; for (int n = 0; n < 256 && H[i]; n++, i = (i + 1) & 255) if (H[i] == h) return 1; if (mark && !H[i]) H[i] = h; return 0; }
 static void on_cat_job(int st, const unsigned char *b, size_t n, void *ud);
+/* a kept copy under 12 h old stays on screen (the fresh order shows next launch: rows never reshuffle under the remote),
+   except where the list is about now (#81: live sports' times and ids went stale): an events or sport catalog, or an
+   addon saying its list ages within the hour (cacheMaxAge; 0: never kept as current), whose fresh answer always
+   shows. Longer ages (Cinemeta says 4 h) keep the 12 h rule */
+static int cat_kept_fresh(const char *key, const cJSON *j, const char *type) {
+  static const char *const LIVE[] = { "events", "event", "sport", "sports", "live" }; /* (TV channels: their own once-a-launch recheck, live.c) */
+  for (unsigned i = 0; i < sizeof LIVE / sizeof *LIVE; i++) if (type && !strcmp(type, LIVE[i])) return 0;
+  AddonCache h; addon_cache_hints(j, &h); char cp[1200]; if (h.maxAge == 0) return 0;
+  return cache_file(key, h.maxAge > 0 && h.maxAge < 3600 ? h.maxAge : 43200, cp, sizeof cp); }
 static void *cat_job_run(void *a) { plat_thread_background(5); CatJob *k = a; cat_work(k); net_file("", on_cat_job, k); return NULL; } /* (net_file of nothing: answered on the drawing thread next frame) */
 static void on_catalog(int st, const unsigned char *b, size_t len, void *ud) {
   CatReq *r = ud;
@@ -312,7 +322,7 @@ static void on_catalog(int st, const unsigned char *b, size_t len, void *ud) {
       cJSON_AddStringToObject(o, "background", it->background); cJSON_AddStringToObject(o, "logo", it->logo); cJSON_AddStringToObject(o, "description", it->description); cJSON_AddStringToObject(o, "metaLine", it->metaLine); cJSON_AddItemToArray(slim, o); }
     char *txt = cJSON_PrintUnformatted(slim); cJSON_Delete(slim);
     int same = r->cachedJson && !strcmp(r->cachedJson, txt);
-    char cp[1200]; int fresh = r->cachedJson && cache_file(r->key, 43200, cp, sizeof cp);
+    int fresh = r->cachedJson && cat_kept_fresh(r->key, j, r->type);
     if (!fresh) cache_write(r->key, (unsigned char *)txt, strlen(txt));
     { AddonCache h; addon_cache_hints(j, &h); char hk[620], v[24]; snprintf(hk, sizeof hk, "cah:%s", r->url); int k = snprintf(v, sizeof v, "%ld", h.maxAge > 0 ? h.maxAge : 0); cache_write(hk, (unsigned char *)v, (size_t)k); } /* how long the addon says it holds */
     Uint32 tq2 = SDL_GetTicks(); if (!same && !fresh) r->cb(l, 0, r->ud); else itemlist_free(l);
@@ -332,7 +342,7 @@ static void cat_work(CatJob *k) {
       cJSON_AddStringToObject(o, "background", it->background); cJSON_AddStringToObject(o, "logo", it->logo); cJSON_AddStringToObject(o, "description", it->description); cJSON_AddStringToObject(o, "metaLine", it->metaLine); cJSON_AddItemToArray(slim, o); }
     char *txt = cJSON_PrintUnformatted(slim); cJSON_Delete(slim);
     k->same = r->cachedJson && txt && !strcmp(r->cachedJson, txt);
-    char cp[1200]; k->fresh = r->cachedJson && cache_file(r->key, 43200, cp, sizeof cp);
+    k->fresh = r->cachedJson && cat_kept_fresh(r->key, k->j, r->type);
     if (!k->fresh && txt) cache_write(r->key, (unsigned char *)txt, strlen(txt));
     { AddonCache h; addon_cache_hints(k->j, &h); char hk[620], v[24]; snprintf(hk, sizeof hk, "cah:%s", r->url); int n = snprintf(v, sizeof v, "%ld", h.maxAge > 0 ? h.maxAge : 0); cache_write(hk, (unsigned char *)v, (size_t)n); }
     if (getenv("SB_SLOWLOG")) fprintf(stderr, "[cat] %d metas, %d kept, on its own thread: %u ms (%s)\n", cJSON_GetArraySize(metas), r->n, SDL_GetTicks() - tq0, k->same ? "same" : k->fresh ? "fresh copy shown" : "new");
@@ -406,10 +416,13 @@ int sb_search_defs(const char *q, CatalogDef *out, int max) {
 }
 
 /* ---- pictures ------------------------------------------------------------------------------ */
+/* pages drawn at 4K (Android TV on a strong box, img_hidpi): each picture from a source twice as wide, so it is not
+   stretched; everywhere else the sizes as before */
+static int pic_hidpi(void) { extern int img_hidpi(void); return img_hidpi(); }
 const char *sb_poster_of(const Item *it, char *buf, size_t cap) { if (getenv("SB_POSTER_FAIL")) { snprintf(buf, cap, "https://invalid.invalid/poster/%s.jpg", it->id); return buf; } /* (development: every poster fails, to see the stand-ins) */
   if (it->poster[0]) { copy_str(buf, cap, it->poster);
     if (find_in(buf, "images.metahub.space/poster/")) { replace_in(buf, cap, "/poster/small/", "/poster/medium/"); replace_in(buf, cap, "/poster/large/", "/poster/medium/"); /* small is WebP; medium is JPEG */ }
-    else if (find_in(buf, "image.tmdb.org/t/p/")) { const char *k[] = { "/t/p/w500/", "/t/p/w780/", "/t/p/w1280/", "/t/p/original/" }; for (int i = 0; i < 4; i++) replace_in(buf, cap, k[i], "/t/p/w342/"); }
+    else if (find_in(buf, "image.tmdb.org/t/p/")) { const char *k[] = { "/t/p/w500/", "/t/p/w780/", "/t/p/w1280/", "/t/p/original/" }; for (int i = 0; i < 4; i++) replace_in(buf, cap, k[i], "/t/p/w342/"); if (pic_hidpi()) replace_in(buf, cap, "/t/p/w342/", "/t/p/w500/"); } /* (a card ~460 px wide at 4K; Metahub's medium is 500 wide already) */
     return buf; }
   if (sb_is_imdb(it->id)) { snprintf(buf, cap, "https://images.metahub.space/poster/medium/%s/img", it->id); return buf; }
   buf[0] = 0; return buf;
@@ -426,10 +439,12 @@ const char *sb_bg_small(const Item *it, char *buf, size_t cap) { if (tmdb_art(it
   if (find_in(buf, "images.metahub.space/background/")) { extern int img_budget_mb(void); /* a TV with the memory for it: the medium picture (1280 wide and more, sharp at a 600 px card); else the small one, 480x270 */
     int big = img_budget_mb() >= 128; const char *k[] = { "/background/medium/", "/background/large/", "/background/small/" }; for (int i = 0; i < 3; i++) replace_in(buf, cap, k[i], big ? "/background/medium/" : "/background/small/"); }
   else if (find_in(buf, "image.tmdb.org/t/p/")) { const char *k[] = { "/t/p/w300/", "/t/p/w500/", "/t/p/w1280/", "/t/p/original/" }; for (int i = 0; i < 4; i++) replace_in(buf, cap, k[i], "/t/p/w780/"); }
+  if (pic_hidpi()) { replace_in(buf, cap, "/background/small/", "/background/medium/"); replace_in(buf, cap, "/t/p/w780/", "/t/p/w1280/"); } /* (a card 920 px wide at 4K) */
   return buf; }
 const char *sb_bg_mid(const Item *it, char *buf, size_t cap) { bg_of(it, buf, cap);
   if (find_in(buf, "images.metahub.space/background/")) { const char *k[] = { "/background/small/", "/background/large/" }; for (int i = 0; i < 2; i++) replace_in(buf, cap, k[i], "/background/medium/"); }
   else if (find_in(buf, "image.tmdb.org/t/p/")) replace_in(buf, cap, "/t/p/original/", "/t/p/w1280/");
+  if (pic_hidpi()) replace_in(buf, cap, "/t/p/w1280/", "/t/p/original/"); /* (the whole screen's backdrop, 3840 wide where TMDB has it; Metahub's largest is 1920) */
   return buf; }
 const char *sb_logo_of(const Item *it, char *buf, size_t cap) { if (it->logo[0]) copy_str(buf, cap, it->logo); else if (sb_is_imdb(it->id)) snprintf(buf, cap, "https://images.metahub.space/logo/medium/%s/img", it->id); else buf[0] = 0; return buf; }
 /* "2h 10min", "130 min", "1 h 5 m" (a year or a year span is not a count of minutes) */
@@ -456,21 +471,21 @@ void sb_fmt_runtime(int mn, char *out, size_t cap) {
 }
 
 /* ---- metadata cache ------------------------------------------------------------------------ */
-typedef struct { char key[96]; cJSON *meta; unsigned use, gen; } MetaEnt; /* gen: the addons' setup it came under */
+typedef struct { char key[SB_ID + 32]; cJSON *meta; unsigned use, gen; } MetaEnt; /* gen: the addons' setup it came under */
 static MetaEnt metaMem[40]; static unsigned metaUse, metaVer = 1; /* metaVer: bumps whenever an entry comes or goes */
-static int meta_slot(const char *type, const char *id) { char k[96]; snprintf(k, sizeof k, "%s_%s", type, id); unsigned g = addon_gen(); for (int i = 0; i < 40; i++) if (metaMem[i].meta && metaMem[i].gen == g && !strcmp(metaMem[i].key, k)) { metaMem[i].use = ++metaUse; return i; } return -1; }
+static int meta_slot(const char *type, const char *id) { char k[SB_ID + 32]; snprintf(k, sizeof k, "%s_%s", type, id); unsigned g = addon_gen(); for (int i = 0; i < 40; i++) if (metaMem[i].meta && metaMem[i].gen == g && !strcmp(metaMem[i].key, k)) { metaMem[i].use = ++metaUse; return i; } return -1; }
 cJSON *sb_meta_cached(const char *type, const char *id) { int i = meta_slot(type, id); return i >= 0 ? metaMem[i].meta : NULL; }
 static void meta_put(const char *k, cJSON *m) { metaVer++; int slot = 0; unsigned old = 0xffffffffu; for (int i = 0; i < 40; i++) { if (!metaMem[i].meta) { slot = i; break; } if (metaMem[i].use < old) { old = metaMem[i].use; slot = i; } }
   if (metaMem[slot].meta) cJSON_Delete(metaMem[slot].meta); copy_str(metaMem[slot].key, sizeof metaMem[slot].key, k); metaMem[slot].meta = m; metaMem[slot].use = ++metaUse; metaMem[slot].gen = addon_gen(); }
 /* a title page's disk copy: under the addons' setup too */
 static void meta_ck(char *out, size_t cap, const char *key) { snprintf(out, cap, "meta%08x:%s", addon_gen(), key); }
 #define META_BASES 8
-typedef struct { char type[16], id[64], key[96]; void (*cb)(cJSON *, void *); void *ud; int fresh; char bases[META_BASES][512]; int nb, bi; } MetaReq;
+typedef struct { char type[16], id[SB_ID], key[SB_ID + 32]; void (*cb)(cJSON *, void *); void *ud; int fresh; char bases[META_BASES][512]; int nb, bi; } MetaReq;
 static void meta_try(MetaReq *r);
 static void on_meta(int st, const unsigned char *b, size_t n, void *ud) {
   MetaReq *r = ud; cJSON *j = st == 200 ? net_json(b) : NULL; cJSON *m = j ? cJSON_DetachItemFromObjectCaseSensitive(j, "meta") : NULL; net_json_free(j);
   if (!cJSON_IsObject(m)) { cJSON_Delete(m); meta_try(r); return; }
-  char ck[128]; meta_ck(ck, sizeof ck, r->key); cache_write(ck, b, n); /* the answer as it came ({"meta":...}): printing a series' tree again took a frame */
+  char ck[SB_ID + 48]; meta_ck(ck, sizeof ck, r->key); cache_write(ck, b, n); /* the answer as it came ({"meta":...}): printing a series' tree again took a frame */
   meta_put(r->key, m);
   if (!r->fresh) r->cb(m, r->ud);
   free(r);
@@ -488,7 +503,7 @@ static void meta_go(MetaReq *r) {
 static void on_meta_disk(int st, const unsigned char *b, size_t n, void *ud) {
   MetaReq *r = ud; (void)n; cJSON *c = st == 200 ? net_json(b) : NULL; AddonCache h; addon_cache_hints(c, &h);
   if (cJSON_IsObject(cJSON_GetObjectItemCaseSensitive(c, "meta"))) { cJSON *m = cJSON_DetachItemFromObjectCaseSensitive(c, "meta"); cJSON_Delete(c); c = m; } /* written as the answer came */
-  if (h.maxAge > 0 && cJSON_IsObject(c)) { char ck[128], cp[1200]; meta_ck(ck, sizeof ck, r->key); if (cache_file(ck, h.maxAge, cp, sizeof cp)) r->nb = 0; } /* younger than the addon's cacheMaxAge: no request */
+  if (h.maxAge > 0 && cJSON_IsObject(c)) { char ck[SB_ID + 48], cp[1200]; meta_ck(ck, sizeof ck, r->key); if (cache_file(ck, h.maxAge, cp, sizeof cp)) r->nb = 0; } /* younger than the addon's cacheMaxAge: no request */
   cJSON *m = sb_meta_cached(r->type, r->id); /* asked again meanwhile and answered from the addons */
   if (m) { cJSON_Delete(c); r->fresh = 1; r->cb(m, r->ud); }
   else if (cJSON_IsObject(c)) { meta_put(r->key, c); r->fresh = 1; r->cb(c, r->ud); } else cJSON_Delete(c);
@@ -504,7 +519,7 @@ void sb_meta(const char *type, const char *id, void (*cb)(cJSON *, void *), void
   if (sb_is_imdb(id) && !cine && r->nb < META_BASES && (!strcmp(type, "movie") || !strcmp(type, "series"))) copy_str(r->bases[r->nb++], 512, CINEMETA);
   /* a disk copy under 12 h old shows first (read and parsed on the file thread: a series' copy is a tree of hundreds of
      episodes), then the addons are asked anyway so the next visit is current */
-  char ck[128], cp[1200]; meta_ck(ck, sizeof ck, r->key);
+  char ck[SB_ID + 48], cp[1200]; meta_ck(ck, sizeof ck, r->key);
   if (cache_file(ck, 43200, cp, sizeof cp)) { net_file(cp, on_meta_disk, r); return; }
   meta_go(r);
 }
@@ -541,7 +556,8 @@ cJSON *lib_new_item(const Item *it) {
 }
 void lib_toggle(const Item *it) {
   cJSON *l = lib_get(it->id); const cJSON *rm = cJSON_GetObjectItemCaseSensitive(l, "removed");
-  if (l && cJSON_IsFalse(rm)) { set_bool(l, "removed", 1); lib_save(l); return; } /* removing leaves temp as it was */
+  if (l && cJSON_IsFalse(rm)) { set_bool(l, "removed", 1); lib_save(l); tracking_library(it->type, it->id, "libraryRemove", NULL); return; } /* removing leaves temp as it was */
+  tracking_library(it->type, it->id, "libraryAdd", NULL);
   if (!l) l = lib_new_item(it);
   set_bool(l, "removed", 0); set_bool(l, "temp", 0);
   /* what the title page knows wins over what the item had */
@@ -562,7 +578,7 @@ static void item_from_lib(Item *out, const cJSON *l) {
 static int cmp_mtime(const void *a, const void *b) { double x = tms(cJSON_GetObjectItemCaseSensitive(*(cJSON **)a, "_mtime")), y = tms(cJSON_GetObjectItemCaseSensitive(*(cJSON **)b, "_mtime")); return x < y ? 1 : x > y ? -1 : 0; }
 /* Continue Watching, as the official apps make it: what is part watched, and the series with an episode out since
    they were last watched; ordered by when each last moved (a new episode: when it came out), at most 100 */
-typedef struct { cJSON *it; double at; int newEp; char vid[80]; const TwPlay *tw; } CwPick; /* tw: Trakt's paused position, when it is the newer (it NULL: Trakt's alone) */
+typedef struct { cJSON *it; double at; int newEp; char vid[SB_VID]; const TwPlay *tw; } CwPick; /* tw: Trakt's paused position, when it is the newer (it NULL: Trakt's alone) */
 #define TW_NEWER 60000.0 /* ms: Trakt's position counts as the newer only this much after the library's (our own pause reaches Trakt a moment after the library) */
 static double lib_last_ms(const cJSON *l) { return tms(cJSON_GetObjectItemCaseSensitive(js_obj(l, "state"), "lastWatched")); }
 static int cmp_cw(const void *a, const void *b) { double x = ((const CwPick *)a)->at, y = ((const CwPick *)b)->at; return x < y ? 1 : x > y ? -1 : 0; }
@@ -571,7 +587,7 @@ int lib_cw_items(ItemList *out) {
   cJSON_ArrayForEach(it, lib) { const cJSON *s = js_obj(it, "state"); const char *ty = js_str(it, "type", "");
     if (!strcmp(ty, "other") || !strcmp(ty, "tv") || !strcmp(ty, "channel") || (js_bool(it, "removed", 0) && !js_bool(it, "temp", 0)) || !js_str(it, "name", "")[0]) continue; /* (live channels: never, as in the official apps) */
     double to = js_num(s, "timeOffset", 0), d = js_num(s, "duration", 0); int part = to > 0 && !(d > 0 && to > d * 0.96);
-    char vid[80] = ""; double newest = 0; int ne = notify_new(it, vid, sizeof vid, &newest);
+    char vid[SB_VID] = ""; double newest = 0; int ne = notify_new(it, vid, sizeof vid, &newest);
     if (!part && !ne) continue;
     if (notify_cw_hidden(it, ne ? newest : 0)) continue; /* dismissed by hand, nothing new since */
     CwPick *c = &p[n++]; c->it = (cJSON *)it; c->newEp = ne; snprintf(c->vid, sizeof c->vid, "%s", vid);
@@ -607,7 +623,7 @@ int lib_cw_info(const Item *it, CwInfo *out) {
 float lib_trakt_resume(const char *id, const char *vid) {
   const TwPlay *t = tw_play_of(id); if (!t || strcmp(t->vid, vid && *vid ? vid : id)) return 0; cJSON *l = lib_get(id);
   return (double)t->at * 1000 > (js_obj(l, "state") ? lib_last_ms(l) : 0) + TW_NEWER ? t->pct : 0; }
-static char progId[64]; static Uint32 progPushT;
+static char progId[SB_ID]; static Uint32 progPushT;
 void lib_set_progress(const char *id, const Item *it, const char *vid, double to, double dur, int force) {
   cJSON *l = lib_get(id); if (!l) l = lib_new_item(it); cJSON *s = cJSON_GetObjectItemCaseSensitive(l, "state"); if (!s) { s = cJSON_CreateObject(); cJSON_AddItemToObject(l, "state", s); }
   if (it && !strcmp(it->id, id)) { /* its pictures and name from the title playing now: art kept wrong once (a title cast over another) is put right */
@@ -672,7 +688,7 @@ static void show_id_of(const cJSON *lit, const cJSON *videos, char *out, size_t 
    written back: Settings > Trakt > Watched marks from Trakt) */
 void lib_ep_watched_map(const cJSON *lit, const cJSON *videos, int *flags) {
   ep_watched_raw(lit, videos, flags); if (!tw_on()) return;
-  char sid[64]; show_id_of(lit, videos, sid, sizeof sid); if (!tw_show_known(sid)) return;
+  char sid[SB_ID]; show_id_of(lit, videos, sid, sizeof sid); if (!tw_show_known(sid)) return;
   int n = cJSON_GetArraySize(videos); if (n > WATCH_MAX) n = WATCH_MAX; int k = 0; const cJSON *v;
   cJSON_ArrayForEach(v, videos) { if (k >= n) break; const cJSON *se = cJSON_GetObjectItemCaseSensitive(v, "season"), *ep = cJSON_GetObjectItemCaseSensitive(v, "episode");
     if (!flags[k] && cJSON_IsNumber(se) && cJSON_IsNumber(ep) && tw_ep(sid, (int)se->valuedouble, (int)ep->valuedouble)) flags[k] = 1; k++; } }
@@ -739,7 +755,7 @@ void lib_set_movie_watched(cJSON *lit, int on) {
 int lib_movie_watched(const cJSON *l) { if (tw_movie(js_str(l, "_id", ""))) return 1; const cJSON *s = js_obj(l, "state"); if (!s) return 0; if (js_num(s, "timesWatched", 0) > 0) return 1;
   const cJSON *we = js_arr(s, "watchedEpisodes"), *e; const char *id = js_str(l, "_id", ""); if (we) cJSON_ArrayForEach(e, we) if (cJSON_IsString(e) && !strcmp(e->valuestring, id)) return 1; return 0; }
 int lib_series_watched(const cJSON *l, const cJSON *videos) {
-  if (!videos || !cJSON_GetArraySize(videos)) return 0; const cJSON *s = js_obj(l, "state"); char sid[64]; show_id_of(l, videos, sid, sizeof sid); /* (l NULL: a show not in the library, its marks from Trakt alone) */
+  if (!videos || !cJSON_GetArraySize(videos)) return 0; const cJSON *s = js_obj(l, "state"); char sid[SB_ID]; show_id_of(l, videos, sid, sizeof sid); /* (l NULL: a show not in the library, its marks from Trakt alone) */
   if (!tw_show_known(sid) && (!s || (!js_str(s, "watched", "")[0] && !js_arr(s, "watchedEpisodes")))) return 0;
   static int flags[WATCH_MAX]; lib_ep_watched_map(l, videos, flags); int k = 0, n = 0; const cJSON *v; time_t now = time(NULL);
   cJSON_ArrayForEach(v, videos) { const cJSON *se = cJSON_GetObjectItemCaseSensitive(v, "season"); if (!cJSON_IsNumber(se) || se->valuedouble == 0) { k++; continue; }
@@ -750,7 +766,7 @@ int lib_series_watched(const cJSON *l, const cJSON *videos) {
 /* the badge is asked for every card in every frame and a series' answer decodes its bitfield against every episode:
    it is kept per title until the library or the metadata cache moves (a series: also each minute, it counts only
    the episodes aired by now). A hit touches the metadata as the lookup did, so the titles on screen stay cached. */
-typedef struct { char id[64]; unsigned char series, on; unsigned lv, mv; long mn; int slot; } WMemo;
+typedef struct { char id[SB_ID]; unsigned char series, on; unsigned lv, mv; long mn; int slot; } WMemo;
 static WMemo wMemo[256];
 int lib_item_watched(const Item *it) {
   int series = !strcmp(it->type, "series"); long mn = series ? (long)(time(NULL) / 60) : 0;
@@ -787,7 +803,7 @@ static void series_mark_ep(cJSON *l, const cJSON *videos, const char *vid, int o
   int k = ep_index(videos, vid); if (k < 0) return; const cJSON *me = cJSON_GetArrayItem(videos, k);
   if (ep_special(me)) { const char *one[1] = { vid }; lib_set_eps_watched(l, videos, one, 1, on); return; }
   static char ids[WATCH_MAX][80]; int nid = ordered_ids(videos, ids, WATCH_MAX), rm = -1, rc = -1;
-  const cJSON *s = js_obj(l, "state"); char cur[80]; snprintf(cur, sizeof cur, "%s", js_str(s, "video_id", "")); double off = js_num(s, "timeOffset", 0);
+  const cJSON *s = js_obj(l, "state"); char cur[SB_VID]; snprintf(cur, sizeof cur, "%s", js_str(s, "video_id", "")); double off = js_num(s, "timeOffset", 0);
   for (int i = 0; i < nid; i++) { if (!strcmp(ids[i], vid)) rm = i; if (cur[0] && off > 0 && !strcmp(ids[i], cur)) rc = i; } /* (a place at 0 is no place: the show is out of Continue Watching) */
   if (rm < 0) return;
   if (on) {
@@ -822,7 +838,7 @@ int lib_is_marked_watched(const Item *it) {
    row had the episode's name or none, and a nameless entry is never in a row (fresh: replace all, else fill the gaps) */
 static void lib_fill_art(cJSON *l, const char *type, const char *id, int fresh) {
   cJSON *own = NULL; const cJSON *mo = sb_meta_cached(type, id);
-  if (!mo) { char ck[128], mk[96]; snprintf(mk, sizeof mk, "%s_%s", type, id); meta_ck(ck, sizeof ck, mk); size_t cl; unsigned char *t = cache_read(ck, 0, &cl); if (t) { own = cJSON_Parse((const char *)t); free(t); } mo = js_obj(own, "meta"); if (!mo) mo = own; }
+  if (!mo) { char ck[SB_ID + 48], mk[SB_ID + 32]; snprintf(mk, sizeof mk, "%s_%s", type, id); meta_ck(ck, sizeof ck, mk); size_t cl; unsigned char *t = cache_read(ck, 0, &cl); if (t) { own = cJSON_Parse((const char *)t); free(t); } mo = js_obj(own, "meta"); if (!mo) mo = own; }
   if (mo) { const char *k[4] = { "name", "poster", "background", "logo" };
     for (int i = 0; i < 4; i++) { const char *v = js_str(mo, k[i], ""); if (*v && (fresh || !js_str(l, k[i], "")[0])) { cJSON_DeleteItemFromObjectCaseSensitive(l, k[i]); cJSON_AddStringToObject(l, k[i], v); } } }
   cJSON_Delete(own);
@@ -853,11 +869,11 @@ static void trakt_hand(const Item *it, const cJSON *videos, int on) {
       else if (mev && ms >= 0 && mn >= 0 && !ep_special(mev) && !ep_special(v)) { double vs = s->valuedouble, ve = e->valuedouble; int before = vs < ms || (vs == ms && ve < mn), after = vs > ms || (vs == ms && ve > mn);
         take = on ? (before && ep_aired(v) <= now) : after; } }
     if (take) { se[2 * n] = (int)s->valuedouble; se[2 * n + 1] = (int)e->valuedouble; n++; } k++; }
-  char sid[64]; show_id_of(NULL, videos, sid, sizeof sid); if (!sid[0]) copy_str(sid, sizeof sid, it->id);
+  char sid[SB_ID]; show_id_of(NULL, videos, sid, sizeof sid); if (!sid[0]) copy_str(sid, sizeof sid, it->id);
   tw_mark_eps(sid, se, n, on); free(se); cJSON_Delete(own);
 }
-void lib_set_watched(const Item *it, const cJSON *videos, int on) { set_watched(it, videos, on); trakt_hand(it, videos, on); } /* (by hand) */
-void lib_episode_watched(const Item *it, const cJSON *videos) { set_watched(it, videos, 1); } /* (the player, at the end: Trakt hears it from the scrobble, never twice) */
+void lib_set_watched(const Item *it, const cJSON *videos, int on) { set_watched(it, videos, on); trakt_hand(it, videos, on); tracking_library(it->type, it->id, on ? "watched" : "unwatched", ep_item(it) ? it->videoId : NULL); } /* (by hand) */
+void lib_episode_watched(const Item *it, const cJSON *videos) { set_watched(it, videos, 1); tracking_library(it->type, it->id, "watched", it->videoId[0] ? it->videoId : NULL); } /* (the player, at the end: Trakt hears it from the scrobble, never twice) */
 void lib_toggle_watched(const Item *it, const cJSON *videos) { /* the direction read from the same episode list the mark uses */
   cJSON *l = lib_get(it->id); int w;
   if (l && (!strcmp(it->type, "series") || ep_item(it)) && videos && cJSON_GetArraySize(videos)) w = ep_item(it) ? ep_flag(l, videos, it->videoId) : lib_series_watched(l, videos); else w = lib_is_marked_watched(it);
@@ -866,7 +882,7 @@ void lib_toggle_watched(const Item *it, const cJSON *videos) { /* the direction 
 /* the series' episode list from the memory or the disk copy of its metadata (any age); *own = what to free */
 static const cJSON *videos_cached(const char *id, cJSON **own) {
   *own = NULL; cJSON *m = sb_meta_cached("series", id); if (m) return js_arr(m, "videos");
-  char ck[128], mk[96]; snprintf(mk, sizeof mk, "series_%s", id); meta_ck(ck, sizeof ck, mk); size_t cl; unsigned char *t = cache_read(ck, 0, &cl); if (!t) return NULL;
+  char ck[SB_ID + 48], mk[SB_ID + 32]; snprintf(mk, sizeof mk, "series_%s", id); meta_ck(ck, sizeof ck, mk); size_t cl; unsigned char *t = cache_read(ck, 0, &cl); if (!t) return NULL;
   *own = cJSON_Parse((const char *)t); free(t); const cJSON *mo = js_obj(*own, "meta"); return js_arr(mo ? mo : *own, "videos");
 }
 /* one-time fixes for items older builds wrote: the private watched list goes into the shared bitfield, and
@@ -887,7 +903,7 @@ static int lib_migrate_legacy(void) {
 unsigned sb_lib_sync_age(void) { return libSyncT ? SDL_GetTicks() - libSyncT : 0xffffffffu; }
 
 /* two-way sync with the account, newest _mtime wins */
-typedef struct { void (*cb)(int, void *); void *ud; int changed; char (*ids)[64]; int nwant, at; } PullReq; /* ids: every title the account has newer, newest first */
+typedef struct { void (*cb)(int, void *); void *ud; int changed; char (*ids)[SB_ID]; int nwant, at; } PullReq; /* ids: every title the account has newer, newest first */
 static void pull_next(PullReq *r);
 static void on_pull_get(int st, const unsigned char *b, size_t n, void *ud) {
   PullReq *r = ud; cJSON *j = st == 200 ? net_json(b) : NULL; const cJSON *items = js_arr(j, "result"), *it;
@@ -901,7 +917,7 @@ static void pull_next(PullReq *r) {
   cJSON_AddItemToObject(o, "ids", ids); cJSON_AddBoolToObject(o, "all", 0); char *body = cJSON_PrintUnformatted(o); cJSON_Delete(o);
   net_post_json(STREMIO_API "/api/datastoreGet", body, on_pull_get, r); free(body);
 }
-typedef struct { char id[64]; double mt; } Want; /* a title the account has newer, and when it changed there */
+typedef struct { char id[SB_ID]; double mt; } Want; /* a title the account has newer, and when it changed there */
 static int want_newer(const void *a, const void *b) { double x = ((const Want *)a)->mt, y = ((const Want *)b)->mt; return x < y ? 1 : x > y ? -1 : 0; }
 static void on_pull_meta(int st, const unsigned char *b, size_t n, void *ud) {
   PullReq *r = ud; cJSON *j = st == 200 ? net_json(b) : NULL; const cJSON *rows = js_arr(j, "result");
@@ -912,7 +928,7 @@ static void on_pull_meta(int st, const unsigned char *b, size_t n, void *ud) {
   if (!wants) { net_json_free(j); libSyncing = 0; if (r->cb) r->cb(0, r->ud); free(r); return; }
   cJSON_ArrayForEach(row, rows) { if (!cJSON_IsArray(row) || cJSON_GetArraySize(row) < 2) continue; const char *id = cJSON_GetArrayItem(row, 0)->valuestring; double mt = tms(cJSON_GetArrayItem(row, 1)); if (!id) continue;
     cJSON_AddNumberToObject(remote, id, mt); cJSON *loc = cJSON_GetObjectItemCaseSensitive(lib, id);
-    if ((!loc || tms(cJSON_GetObjectItemCaseSensitive(loc, "_mtime")) < mt) && nw < nrows) { copy_str(wants[nw].id, 64, id); wants[nw].mt = mt; nw++; } }
+    if ((!loc || tms(cJSON_GetObjectItemCaseSensitive(loc, "_mtime")) < mt) && nw < nrows) { copy_str(wants[nw].id, sizeof wants[nw].id, id); wants[nw].mt = mt; nw++; } }
   /* what we have newer than the account (or it never saw) */
   cJSON *push = cJSON_CreateArray(); int np = 0, npAll = 0; const cJSON *it; /* sent 100 to a request, all of them (it stopped at the first 100) */
   cJSON_ArrayForEach(it, lib) { const char *id = js_str(it, "_id", NULL); if (!id || !strcmp(js_str(it, "type", ""), "other")) continue; const cJSON *rm = cJSON_GetObjectItemCaseSensitive(remote, id);
@@ -923,7 +939,7 @@ static void on_pull_meta(int st, const unsigned char *b, size_t n, void *ud) {
   cJSON_Delete(remote);
   /* newest first, every one (it took the newest 500 a sync: a library of thousands filled in over many syncs) */
   qsort(wants, (size_t)nw, sizeof *wants, want_newer);
-  r->ids = malloc(64 * (size_t)(nw ? nw : 1)); r->nwant = r->ids ? nw : 0; for (int i = 0; i < r->nwant; i++) copy_str(r->ids[i], 64, wants[i].id); r->at = 0; free(wants);
+  r->ids = malloc(sizeof *r->ids * (size_t)(nw ? nw : 1)); r->nwant = r->ids ? nw : 0; for (int i = 0; i < r->nwant; i++) copy_str(r->ids[i], sizeof r->ids[i], wants[i].id); r->at = 0; free(wants);
   fprintf(stderr, "[lib] sync: %d titles on the account, %d newer there, %d sent\n", nrows, nw, npAll);
   net_json_free(j); pull_next(r);
 }
@@ -1001,7 +1017,7 @@ static void stream_part_done(StreamPart *p) {
 static void on_streams(int st, const unsigned char *b, size_t n, void *ud) {
   StreamPart *p = ud; StreamReq *r = p->req;
   if (!r->cancelled) { cJSON *j = st == 200 ? net_json(b) : NULL;
-    if (st != 200 || !j) fprintf(stderr, "[addon] streams from %s: %s\n", p->name, st == 200 ? "not JSON" : st > 0 ? "HTTP error" : "no answer");
+    if (st != 200 || !j) { if (st > 0 && st != 200) fprintf(stderr, "[addon] streams from %s: HTTP error %d\n", p->name, st); else fprintf(stderr, "[addon] streams from %s: %s\n", p->name, st == 200 ? "not JSON" : "no answer"); } /* (the code says why: refused, not found, the server's own failure) */
     streams_answer(p, js_arr(j, "streams")); net_json_free(j); }
   stream_part_done(p);
 }

@@ -5,12 +5,22 @@
    core/, ui/ and screens/. */
 #include <SDL2/SDL.h>
 #include <stdio.h>
+#ifdef SB_ANDROIDTV
+#include <dlfcn.h>
+#endif
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 #include <locale.h>
 #include <unistd.h>
 #include <signal.h>
+/* a start that gives up (no window, no GPU programs, no fonts): said in the log, and a moment for the log to reach the
+   start's own file before Android closes the app (Android TV: shown at the next open) */
+#ifdef SB_ANDROIDTV
+#define START_FAIL(why) do { fprintf(stderr, "[start] gave up: %s\n", why); usleep(400000); return 1; } while (0)
+#else
+#define START_FAIL(why) return 1
+#endif
 #ifdef SB_MAC
 #include <execinfo.h>
 static void on_alarm(int sig) { (void)sig; void *fr[48]; int n = backtrace(fr, 48); backtrace_symbols_fd(fr, n, 2); _exit(3); }
@@ -69,8 +79,17 @@ static void prof_start(void) {
 static void on_crash(int sig, siginfo_t *si, void *uc) {
   ucontext_t *u = uc; char b[512]; int n = snprintf(b, sizeof b, "[crash] signal %d addr %p pc %p lr %p sp %p\n", sig, si ? si->si_addr : NULL, (void *)u->uc_mcontext.arm_pc, (void *)u->uc_mcontext.arm_lr, (void *)u->uc_mcontext.arm_sp);
   if (write(2, b, n) < 0) {}
+#ifdef SB_ANDROIDTV
+  FILE *m = fopen("/proc/self/maps", "r"); if (m) { char l[300]; while (fgets(l, sizeof l, m)) if (strstr(l, "r-xp") && strstr(l, ".so") && strstr(l, "stremioorigin")) fputs(l, stderr); fclose(m); } /* (the app's code only: where each library sits, for the pc above) */
+  if (write(2, b, n) < 0) {} /* (again, last: the line a photo of the report's end shows) */
+#else
   FILE *m = fopen("/proc/self/maps", "r"); if (m) { char l[300]; while (fgets(l, sizeof l, m)) if (strstr(l, "stremioorigin")) fputs(l, stderr); fclose(m); }
-  fflush(stderr); _exit(4);
+#endif
+  fflush(stderr);
+#ifdef SB_ANDROIDTV
+  { extern void atv_crash_drain(void); atv_crash_drain(); } /* (the start's own log keeps these lines: the next open shows them) */
+#endif
+  _exit(4);
 }
 #endif
 #include "core/castlink.h"
@@ -213,6 +232,8 @@ static void mem_guard(void) {
         if (lvl != gLvl) { fprintf(stderr, "[mem] guard %d -> %d: app %d MB, TV free %d MB of %d%s\n", gLvl, lvl, rss, fr, tot, film ? " (a film plays)" : ""); gLvl = lvl; } } }
 }
 #ifdef SB_ANDROIDTV
+int atvSafeStart; /* the last start died in its first seconds: this one skips what it can (platform/androidtv uses it too) */
+static char atvStartMark[1100], atvStartMarkJ[1100]; /* J: Java's own mark of a start under way (MainActivity), cleared with ours */
 static GfxTarget atvLow; /* the 1280x720 picture the frame is drawn into (main) */
 #endif
 int main(int argc, char **argv) {
@@ -226,13 +247,13 @@ int main(int argc, char **argv) {
   if (getenv("SB_ALARM")) { signal(SIGALRM, on_alarm); alarm(atoi(getenv("SB_ALARM"))); }
 #else
   if (getenv("SB_PROF")) prof_start();
-  { struct sigaction sa; memset(&sa, 0, sizeof sa); sa.sa_sigaction = on_crash; sa.sa_flags = SA_SIGINFO; sigaction(SIGSEGV, &sa, NULL); sigaction(SIGBUS, &sa, NULL); sigaction(SIGILL, &sa, NULL); sigaction(SIGABRT, &sa, NULL); sigaction(SIGFPE, &sa, NULL); }
+  { struct sigaction sa; memset(&sa, 0, sizeof sa); sa.sa_sigaction = on_crash; sa.sa_flags = SA_SIGINFO; sigaction(SIGSEGV, &sa, NULL); sigaction(SIGBUS, &sa, NULL); sigaction(SIGILL, &sa, NULL); sigaction(SIGABRT, &sa, NULL); sigaction(SIGFPE, &sa, NULL); sigaction(SIGSYS, &sa, NULL); /* (Android 8 brought a filter of system calls: a refused one ends the app with SIGSYS) */ }
 #endif /* development: a stuck run stops itself (under a debugger: with a backtrace) */
   plat_pre_init(APP_ID);
 #ifdef SB_MAC
   if (!getenv("SB_SHOW")) SDL_SetHint(SDL_HINT_MAC_BACKGROUND_APP, "1"); /* the preview takes no Dock icon and no focus */
 #endif
-  if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0) { fprintf(stderr, "SDL_Init: %s\n", SDL_GetError()); return 1; }
+  if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0) { fprintf(stderr, "SDL_Init: %s\n", SDL_GetError()); START_FAIL("SDL_Init"); }
 #ifdef SB_MAC
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2); SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
@@ -242,6 +263,14 @@ int main(int argc, char **argv) {
 #endif
   gl_config(getenv("SB_GLCFG") ? atoi(getenv("SB_GLCFG")) : 0); /* 0 RGBA8, 1 RGB8 (no alpha), 2 RGB565: which surface the compositor takes without a copy */
   store_init(plat_data_dir()); /* before the window: the drawing size is a setting */
+#ifdef SB_ANDROIDTV
+  { /* a start that dies in its first seconds (a TV whose driver refuses something new) leaves this mark behind: the next
+       start then skips what the start added lately (the GPU's measures, Android's own picture decoder) and says so */
+    snprintf(atvStartMark, sizeof atvStartMark, "%s/starting", plat_data_dir()); snprintf(atvStartMarkJ, sizeof atvStartMarkJ, "%s/starting.java", plat_data_dir()); FILE *f = fopen(atvStartMark, "r"); atvSafeStart = f != NULL; if (f) fclose(f);
+    if (atvSafeStart) fprintf(stderr, "[start] the last start did not get through its first seconds: a safe start (no GPU measure of picture uploads, the app's own picture decoder)\n");
+    f = fopen(atvStartMark, "w"); if (f) { fputs("1\n", f); fclose(f); } }
+  fprintf(stderr, "[start] stage: the window\n");
+#endif
   { extern void supportcard_start(int autoReload); supportcard_start(argc > 1 && argv[1] && strstr(argv[1], "autoReload") != NULL); } /* (a real start counted for the support card; the TV relaunching it on its own is not one) */
   int memMb = plat_mem_total_mb();
   int w, h; Uint32 flags; plat_window_size(&w, &h, &flags);
@@ -267,8 +296,11 @@ int main(int argc, char **argv) {
 #ifdef SB_MAC
   if (win && getenv("SB_SHOW")) { SDL_ShowWindow(win); SDL_RaiseWindow(win); } /* (started from a terminal it could stay behind, a Dock icon with no window in view) */
 #endif
-  if (!win) { fprintf(stderr, "window: %s\n", SDL_GetError()); return 1; }
-  if (!ctx) { fprintf(stderr, "context: %s\n", SDL_GetError()); return 1; }
+  if (!win) { fprintf(stderr, "window: %s\n", SDL_GetError()); START_FAIL("no window"); }
+#ifdef SB_ANDROIDTV
+  SDL_GetWindowSize(win, &w, &h); /* (the surface Java fixed, 1280x720 or 1920x1080: the pointer maps by it) */
+#endif
+  if (!ctx) { fprintf(stderr, "context: %s\n", SDL_GetError()); START_FAIL("no GL context"); }
 #ifdef SB_MAC
   SDL_GL_SetSwapInterval(0); /* the Mac swap blocks for ever on an occluded window with vsync; the loop paces itself */
 #else
@@ -286,19 +318,37 @@ int main(int argc, char **argv) {
   SDL_StopTextInput();
   int dw, dh; SDL_GL_GetDrawableSize(win, &dw, &dh);
   fprintf(stderr, "[start] %s window %dx%d drawable %dx%d\n", plat_device_name(), w, h, dw, dh);
-  if (!gfx_init(dw, dh)) return 1;
 #ifdef SB_ANDROIDTV
-  { /* Android TV draws at 1280x720 into a picture of its own, copied scaled to the whole screen at the end of each frame:
-       a third of 1080p's pixels to fill and blend, the part a weak box's GPU spends most of its frame on. The window and
-       the surface stay 1920x1080 (the pointer and the video plane read them as before). SB_RES=1080 (or "full") draws at
-       the screen's size */
-    const char *r = getenv("SB_RES"); if (!r) r = store_get("uiRes", "full"); /* sharp by default: the screen's own 1080p; "720" goes back to the light 1280x720 picture, "1440" draws at 2560x1440 and scales down (a 4K screen) */
-    int lw = r && !strcmp(r, "720") ? 1280 : r && !strcmp(r, "1440") ? 2560 : 0, lh = lw == 1280 ? 720 : lw == 2560 ? 1440 : 0;
-    if (lw && gfx_target_create(&atvLow, lw, lh)) { gfx_set_screen_fbo(atvLow.fbo); gfx_resize(lw, lh); dw = lw; dh = lh; }
-    fprintf(stderr, "[start] drawing at %dx%d%s\n", dw, dh, atvLow.fbo ? ", scaled to the screen" : "");
+  fprintf(stderr, "[start] stage: the GPU programs\n");
+#endif
+  if (!gfx_init(dw, dh)) START_FAIL("the GPU programs (gfx_init)");
+#ifdef SB_ANDROIDTV
+  { int fullW0 = dw, fullH0 = dh;
+    /* the size is Java's (MainActivity.drawLines, before the surface exists): 720 only on a really cheap box (2 cores
+       or fewer, about 512 MB), its surface fixed at 1280x720 and the TV's display hardware scaling it; 1080 everywhere
+       else. SB_RES=720 (development) on a 1080 surface draws at 720 into a picture of its own, copied scaled */
+    const char *r = getenv("SB_RES"), *gr = (const char *)glGetString(GL_RENDERER); int want = 0; const char *why;
+    if (dh <= 720) { want = 1; why = "a really cheap box (Java fixed a 720 surface)"; }
+    else if (r && !strcmp(r, "720")) { want = 1; why = "SB_RES"; }
+    else if (!r && !strcmp(store_get("uiRes", "full"), "720")) { want = 1; why = "the Picture quality setting (light)"; }
+    else why = r ? "SB_RES" : dh >= 2160 ? "4K: a 4K screen and a strong box whose GPU measured fast" : "full size: every box but the really cheap ones";
+    if (getenv("SB_UI4K_TEST") && dh == 1080) { /* (Java asks once on a strong box on a 4K screen: can this GPU draw the pages at 4K?
+         one full-screen blended layer at 3840x2160, warmed up: 2 ms or less (a Shield-class GPU; a Mali-G52 reads ~5) and
+         the next start draws at 4K) */
+      fprintf(stderr, "[start] stage: the GPU measured at 4K\n"); double l4 = gfx_layer_ms(3840, 2160); char kp[1100]; snprintf(kp, sizeof kp, "%s/ui4k", plat_data_dir());
+      FILE *f = fopen(kp, "w"); if (f) { fprintf(f, "%d\n", l4 > 0 && l4 <= 2.0 ? 2160 : 1080); fclose(f); }
+      fprintf(stderr, "[perf] GPU at 4K: %.2f ms a full-screen layer -> %s\n", l4, l4 > 0 && l4 <= 2.0 ? "the pages at 4K from the next start" : "the pages stay at 1080"); }
+    if (want && dh > 720 && gfx_target_create(&atvLow, 1280, 720)) { gfx_set_screen_fbo(atvLow.fbo); gfx_resize(1280, 720); dw = 1280; dh = 720; }
+    else if (!want && dh == 1080 && !r && !strcmp(store_get("uiRes", "full"), "1440") && gfx_target_create(&atvLow, 2560, 1440)) { gfx_set_screen_fbo(atvLow.fbo); gfx_resize(2560, 1440); dw = 2560; dh = 1440; why = "the Picture quality setting (1440p)"; }
+    fprintf(stderr, "[perf] GPU %s -> drawing at %dx%d into a %dx%d surface%s (%s)\n", gr ? gr : "?", dw, dh, fullW0, fullH0,
+      atvLow.fbo ? ", scaled by the GPU" : dh <= 720 ? ", the TV's display hardware scales it" : "", why);
     /* a frame the same as the last one is not drawn again: still on the screen (a page at rest, the background trailer
        under a still page), the GPU does nothing and the box's memory and CPU are the video's. SB_STILL=0: every frame drawn */
-    gfx_still(!getenv("SB_STILL") || atoi(getenv("SB_STILL"))); }
+    gfx_still(!getenv("SB_STILL") || atoi(getenv("SB_STILL")));
+    { /* pictures to the GPU: about 3 ms of this box's own rate each frame (the LG TV's measured 320 KB was a guess here) */
+      double kbms = atvSafeStart ? 0 : gfx_upload_kb_ms(); long bud = kbms > 0 ? (long)(kbms * 3 * 1024) : 0;
+      if (bud) { if (bud < 192L * 1024) bud = 192L * 1024; if (bud > 3L * 1024 * 1024) bud = 3L * 1024 * 1024; extern void img_set_upload_budget(long); img_set_upload_budget(bud); }
+      fprintf(stderr, "[perf] pictures to the GPU at %.0f KB/ms -> %ld KB a frame\n", kbms, bud ? bud / 1024 : 320); } }
 #endif
   video_set_surface(dw, dh); /* the TV reads the video plane's rectangle in the drawable's pixels (720p light: 1280x720) */
 #ifdef SB_MAC
@@ -314,9 +364,19 @@ int main(int argc, char **argv) {
   cache_prune_start(400);
 #endif
   snprintf(p, sizeof p, "%s/cache", store_data_dir()); img_init(p); img_set_draw_scale(gfx_scale());
+#ifdef SB_ANDROIDTV
+  if (memMb > 0 && memMb < 1500) { gfx_low_memory(); { extern void atlas_low_memory(void); atlas_low_memory(); } } /* (fewer text pages and a smaller pool of spare textures: Google's TV memory guidance) */
+#endif
   if (memMb > 0) img_set_budget_mb(memMb < 1200 ? 40 : memMb < 3000 ? 128 : 192); /* pictures under the RAM the TV has (the shared atlas, backdrop and text add ~20 MB) */
+#ifdef SB_ANDROIDTV
+  if (gfx_scale() >= 1.5f) { extern void img_allow_hidpi(int on); img_allow_hidpi(1); img_set_draw_scale(gfx_scale()); img_set_budget_mb(memMb < 3000 ? 192 : 256); { extern void atlas_hidpi(void); atlas_hidpi(); } } /* (pages at 4K: pictures decoded and fetched at the size drawn, four times the pixels, a larger budget on these 3 GB+ boxes) */
+#endif
   i18n_init(plat_asset_dir(), getenv("SB_LANG") ? getenv("SB_LANG") : store_get("uiLang", "auto")); /* SB_LANG=ar: development */
-  if (!text_init(plat_asset_dir(), gfx_scale())) return 1;
+  #ifdef SB_ANDROIDTV
+  fprintf(stderr, "[start] stage: the fonts (%s/fonts)\n", plat_asset_dir());
+#endif
+  if (!text_init(plat_asset_dir(), gfx_scale())) START_FAIL("the fonts (text_init)");
+  { int z = atoi(store_get("uiZoom", "100")); if (z >= 90 && z <= 140) text_set_zoom(z / 100.0f); } /* Settings › Text size */
   if (getenv("SB_SUPCARD_FIT")) { extern int supportcard_fit_check(const char *assetDir); int bad = supportcard_fit_check(plat_asset_dir()); return bad ? 2 : 0; } /* (development / test: the support card's words in every language against the card) */
   text_set_rtl(i18n_rtl()); icon_init(plat_asset_dir()); sb_init();
   app_init(); player_init();
@@ -335,15 +395,35 @@ int main(int argc, char **argv) {
 #endif
   while (!app_quitting()) {
     SDL_Event e; Uint32 tEv0 = SDL_GetTicks();
+#ifdef SB_ANDROIDTV
+    static int glCheck; extern void atv_call_int(const char *name, int v);
+    if (glCheck) { glCheck = 0; if (!gfx_context_ok()) { fprintf(stderr, "[life] back in front: the GPU state was lost while away (this box drops it): the app starts again\n"); store_flush(); if (atvStartMark[0]) { remove(atvStartMark); remove(atvStartMarkJ); } atv_call_int("restartApp", 0); } }
+#endif
     while (SDL_PollEvent(&e)) {
 #ifdef SB_ANDROIDTV
       if (e.type == SDL_WINDOWEVENT || (e.type >= SDL_APP_TERMINATING && e.type <= SDL_APP_DIDENTERFOREGROUND) || e.type == SDL_RENDER_TARGETS_RESET || e.type == SDL_RENDER_DEVICE_RESET) gfx_still_reset(); /* (the surface may have lost its frame: the next is drawn) */
+      if (e.type == SDL_APP_DIDENTERFOREGROUND || e.type == SDL_RENDER_DEVICE_RESET) glCheck = 1;
+      if ((e.type == SDL_APP_WILLENTERBACKGROUND || e.type == SDL_APP_DIDENTERBACKGROUND) && atvStartMark[0]) { remove(atvStartMark); remove(atvStartMarkJ); } /* (left on purpose: not a start that died) */ /* (the GPU state is looked at once the events are read) */
 #endif
       if (getenv("SB_EVLOG") || frame < 120) if (e.type == SDL_QUIT || e.type == SDL_KEYDOWN || e.type == SDL_KEYUP || e.type == SDL_WINDOWEVENT) fprintf(stderr, "[ev] type=%d%s sc=%d sym=%d win=%d\n", e.type, e.type == SDL_QUIT ? " QUIT" : "", e.type == SDL_KEYDOWN || e.type == SDL_KEYUP ? e.key.keysym.scancode : 0, e.type == SDL_KEYDOWN || e.type == SDL_KEYUP ? e.key.keysym.sym : 0, e.type == SDL_WINDOWEVENT ? e.window.event : 0);
       if (e.type == SDL_QUIT) { fprintf(stderr, "[exit] SDL_QUIT\n"); app_quit(); }
       else if (e.type == SDL_KEYDOWN || e.type == SDL_KEYUP) { int k = plat_map_key(&e.key);
+#ifdef SB_ANDROIDTV
+        /* a held arrow: its repeats at most every 80 ms across, 112 ms up and down, and one a frame; a slow box no longer
+           queues them faster than it draws (the focus ran on after the key was let go) */
+        if (e.type == SDL_KEYDOWN && e.key.repeat && (k == K_LEFT || k == K_RIGHT || k == K_UP || k == K_DOWN)) {
+          static Uint32 lastAt; static unsigned lastFrame; Uint32 now = SDL_GetTicks(), gap = (k == K_UP || k == K_DOWN) ? 112 : 80;
+          if (now - lastAt < gap || lastFrame == (unsigned)frame) continue;
+          lastAt = now; lastFrame = (unsigned)frame; }
+#endif
         if (k == K_BACK && e.key.keysym.sym == SDLK_ESCAPE && e.type == SDL_KEYDOWN && SCR == SCR_LOGIN) app_quit();
-        if (k) app_key(k, e.type == SDL_KEYDOWN, e.key.repeat); }
+        if (k) app_key(k, e.type == SDL_KEYDOWN, e.key.repeat);
+        /* the remote's number keys: digits typed into whatever takes text (a sign-in field, Search, a profile's name,
+           the lock's code); with a real keyboard's text input on, its own text event brings them instead */
+        else if (e.type == SDL_KEYDOWN && !SDL_IsTextInputActive()) { SDL_Scancode sc = e.key.keysym.scancode; SDL_Keycode sy = e.key.keysym.sym; int d = -1;
+          if (sy >= SDLK_0 && sy <= SDLK_9) d = (int)(sy - SDLK_0); else if (sc >= SDL_SCANCODE_1 && sc <= SDL_SCANCODE_9) d = 1 + (int)(sc - SDL_SCANCODE_1); else if (sc == SDL_SCANCODE_0) d = 0;
+          else if (sc >= SDL_SCANCODE_KP_1 && sc <= SDL_SCANCODE_KP_9) d = 1 + (int)(sc - SDL_SCANCODE_KP_1); else if (sc == SDL_SCANCODE_KP_0) d = 0;
+          if (d >= 0) { char t[2] = { (char)('0' + d), 0 }; app_text(t); } } }
       else if (e.type == SDL_TEXTINPUT) app_text(e.text.text);
       else if (script && (e.type == SDL_MOUSEMOTION || e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEBUTTONUP || e.type == SDL_MOUSEWHEEL)) {} /* a scripted run: the real mouse stays out */
       else if (e.type == SDL_MOUSEMOTION) { if (e.motion.x || e.motion.y) app_pointer_move(e.motion.x * SB_W / w, e.motion.y * SB_H / h); }
@@ -412,7 +492,18 @@ int main(int argc, char **argv) {
     if (getenv("SB_STATS")) { char fs[96]; snprintf(fs, sizeof fs, "%d fps  %d calls  %d quads  %d MB", fps, gfx_draw_calls(), gfx_quads(), img_used_mb()); text_draw(fs, 1870, 1030, 22, 500, WHITE_A(120), 0, 0, ALIGN_RIGHT); }
     gfx_end();
     Uint32 tC = SDL_GetTicks(); accEnd += tC - tB;
+#ifdef SB_ANDROIDTV
+    { /* a film on a box with little memory (under 2.3 GB): the pages' pictures, unseen under it for two seconds, are let
+         go down to 8 MB, and the kept spare textures freed, so the decoder and the player's buffer have the room; they
+         come back from their small copies when the film closes */
+      static int small = -1; static int was; if (small < 0) { int mb = plat_mem_total_mb(); small = mb > 0 && mb < 2300; }
+      int film = small && player_open() && (player_live() || player_art_full()); /* (from the moment the loading picture covers the page: before the decoder takes its memory, and nothing under it shows) */
+      if (film) { img_release_unused(8); gfx_pool_clear(); } else img_release_unused(0);
+      if (film != was) { fprintf(stderr, "[mem] %s\n", film ? "a film: the pages' pictures let go (a small box)" : "the film closed: pictures as before"); was = film;
+        if (film) { int (*mo)(int, int) = (int (*)(int, int))dlsym(RTLD_DEFAULT, "mallopt"); if (mo) mo(-101 /* M_PURGE */, 0); } } } /* (the freed native memory handed back to the system: Android 9 and up, a no-op before) */
+#else
     img_release_unused(0);
+#endif
     Uint32 tCpu1 = SDL_GetTicks(); accPump += tCpu1 - tC;
     static int glFinishDev = -1; if (glFinishDev < 0) glFinishDev = getenv("SB_GLFINISH") != NULL; /* development: the GPU's own time shows as "gpu" */
     Uint64 tG0 = SDL_GetPerformanceCounter(); if (glFinishDev) glFinish(); Uint64 tG1 = SDL_GetPerformanceCounter();
@@ -468,16 +559,16 @@ int main(int argc, char **argv) {
 #ifdef SB_MAC
     if (stress_on()) pace_wait((double)(tSwap - tCpu0) + accPreFrame); else SDL_Delay(16); /* a stress run on the Mac checks the run itself (its numbers are not the TV's) */
 #else
-#ifdef SB_ANDROIDTV
-    { /* over a playing film, while its controls (or a tray) are up: no vsync, the loop paces itself, so a press shows
-         without waiting for the next refresh (the film is on its own plane: its frames never wait for ours) */
-      static int base = -1; if (base < 0) base = vsyncOn;
-      int want = base && !player_controls_up();
-      if (want != vsyncOn) { vsyncOn = want; SDL_GL_SetSwapInterval(vsyncOn); fprintf(stderr, "[pace] vsync %s\n", vsyncOn ? "on" : "off (player controls up)"); } }
-#endif
     { int pm = profN; if (!vsyncOn || stillFrame) pace_wait((double)(tSwap - tCpu0) + accPreFrame); else pace_observe(); if (profSlow) profN = pm; } /* the wait is not the frame's */
 #endif
-    frames++; frame++; if (frame == 1 || frame == 10 || frame % 300 == 0) { { int q, w; img_queue_stats(&q, &w); fprintf(stderr, "[frame] pictures: %d queued, %d to upload\n", q, w); } fprintf(stderr, "[frame] %d drawn, %d fps, %d MB of pictures, cpu %.1f ms (pumps %.1f tick %.1f draw %.1f flush %.1f evict %.1f), swap %.1f ms, %d calls %d quads\n", frame, fps, img_used_mb(), accN ? accCpu / accN : 0, accN ? accPre / accN : 0, accN ? accTick / accN : 0, accN ? accDraw / accN : 0, accN ? accEnd / accN : 0, accN ? accPump / accN : 0, accN ? accSwap / accN : 0, gfx_draw_calls(), gfx_quads()); { char pr[256]; pace_report(pr, sizeof pr); fprintf(stderr, "[frame] %s\n", pr); } if (getenv("SB_MIDLOG")) { extern int gfx_mid_switches(void); fprintf(stderr, "[mid] %d mid-frame target switches since the last line\n", gfx_mid_switches()); } { char fr[300]; gfx_fill_report(fr, sizeof fr); fprintf(stderr, "[fill] %s %s\n", stress_screen(), fr); } { double lm, wm; int r, sh, lk; text_stats(&lm, &wm, &r, &sh, &lk); fprintf(stderr, "[frame] gl flushes %.1f ms per frame; text: lines %.1f ms, widths %.1f ms, %d rasterised, %d shaped, %d lookups (per frame over %d)\n", accN ? gfx_flush_ms(1) / accN : 0, accN ? lm / accN : 0, accN ? wm / accN : 0, r, sh, lk, accN); } accCpu = accSwap = accPre = accTick = accDraw = accEnd = accPump = 0; accN = 0;
+    frames++; frame++;
+#ifdef SB_ANDROIDTV
+    if (frame == 1) fprintf(stderr, "[start] stage: the first frame is on the screen\n");
+    { static Uint32 firstAt; if (frame == 1) firstAt = SDL_GetTicks(); /* (through the first seconds: the next start is a normal one; 300 frames, or 6 s after the first frame on a box that draws slowly: a TV switched off in those seconds never reads as a start that died) */
+      if (atvStartMark[0] && (frame == 300 || (frame > 1 && firstAt && SDL_GetTicks() - firstAt > 6000))) { remove(atvStartMark); remove(atvStartMarkJ); atvStartMark[0] = 0; } }
+#endif
+    static int statEvery = -1; if (statEvery < 0) { statEvery = getenv("SB_FRAMEEVERY") ? atoi(getenv("SB_FRAMEEVERY")) : 300; if (statEvery < 30) statEvery = 300; } /* (development: the frame lines more often) */
+    if (frame == 1 || frame == 10 || frame % statEvery == 0) { { int q, w; img_queue_stats(&q, &w); fprintf(stderr, "[frame] pictures: %d queued, %d to upload\n", q, w); } fprintf(stderr, "[frame] %d drawn, %d fps, %d MB of pictures, cpu %.1f ms (pumps %.1f tick %.1f draw %.1f flush %.1f evict %.1f), swap %.1f ms, %d calls %d quads\n", frame, fps, img_used_mb(), accN ? accCpu / accN : 0, accN ? accPre / accN : 0, accN ? accTick / accN : 0, accN ? accDraw / accN : 0, accN ? accEnd / accN : 0, accN ? accPump / accN : 0, accN ? accSwap / accN : 0, gfx_draw_calls(), gfx_quads()); { char pr[256]; pace_report(pr, sizeof pr); fprintf(stderr, "[frame] %s\n", pr); } if (getenv("SB_MIDLOG")) { extern int gfx_mid_switches(void); fprintf(stderr, "[mid] %d mid-frame target switches since the last line\n", gfx_mid_switches()); } if (getenv("SB_FILL")) { char fr[300]; gfx_fill_report(fr, sizeof fr); fprintf(stderr, "[fill] %s %s\n", stress_screen(), fr); } { double lm, wm; int r, sh, lk; text_stats(&lm, &wm, &r, &sh, &lk); fprintf(stderr, "[frame] gl flushes %.1f ms per frame; text: lines %.1f ms, widths %.1f ms, %d rasterised, %d shaped, %d lookups (per frame over %d)\n", accN ? gfx_flush_ms(1) / accN : 0, accN ? lm / accN : 0, accN ? wm / accN : 0, r, sh, lk, accN); } accCpu = accSwap = accPre = accTick = accDraw = accEnd = accPump = 0; accN = 0;
 #ifndef SB_MAC
       if (getenv("SB_PROF")) prof_report();
 #endif
@@ -494,6 +585,9 @@ int main(int argc, char **argv) {
   }
   fprintf(stderr, "[exit] after %d frames\n", frame);
   p2p_shutdown(); /* the engine's threads end and its buffer files go */
+#ifdef SB_ANDROIDTV
+  if (atvStartMark[0]) { remove(atvStartMark); remove(atvStartMarkJ); } /* (a clean end: the next start is a normal one) */
+#endif
   store_flush();
   SDL_GL_DeleteContext(ctx); SDL_DestroyWindow(win); SDL_Quit();
   return 0;

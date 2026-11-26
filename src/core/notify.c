@@ -28,12 +28,14 @@ static int eligible(const cJSON *it) {
 }
 
 /* ---- asking ---- */
-static struct { int busy, pending, gotAny; double retryAt, bootAt; cJSON *eps, *up; void (*changed)(void); int force; } N;
+static struct { int busy, pending, gotAny; double retryAt, bootAt; cJSON *eps, *up, *cal; void (*changed)(void); int force; } N; /* cal: every episode a month back and two ahead, for the Calendar */
+#define CAL_BACK (35 * 86400.0)
+#define CAL_AHEAD (70 * 86400.0)
 static cJSON *node(void) { cJSON *n = store_node("notifs"); return cJSON_IsObject(n) ? n : NULL; }
 static void finish(void) {
   N.busy = 0;
-  if (!N.gotAny) { cJSON_Delete(N.eps); cJSON_Delete(N.up); N.eps = N.up = NULL; N.retryAt = SDL_GetTicks() / 1000.0 + 1800; fprintf(stderr, "[notify] no answer: asked again in 30 min\n"); return; }
-  cJSON *n = cJSON_CreateObject(); cJSON_AddNumberToObject(n, "at", (double)time(NULL)); cJSON_AddItemToObject(n, "eps", N.eps); cJSON_AddItemToObject(n, "up", N.up); N.eps = N.up = NULL;
+  if (!N.gotAny) { cJSON_Delete(N.eps); cJSON_Delete(N.up); cJSON_Delete(N.cal); N.eps = N.up = N.cal = NULL; N.retryAt = SDL_GetTicks() / 1000.0 + 1800; fprintf(stderr, "[notify] no answer: asked again in 30 min\n"); return; }
+  cJSON *n = cJSON_CreateObject(); cJSON_AddNumberToObject(n, "at", (double)time(NULL)); cJSON_AddItemToObject(n, "eps", N.eps); cJSON_AddItemToObject(n, "up", N.up); cJSON_AddItemToObject(n, "cal", N.cal ? N.cal : cJSON_CreateArray()); N.eps = N.up = N.cal = NULL;
   cJSON *old = node(); char *a = old ? cJSON_PrintUnformatted(cJSON_GetObjectItem(old, "eps")) : NULL, *b = cJSON_PrintUnformatted(cJSON_GetObjectItem(n, "eps"));
   char *a2 = old ? cJSON_PrintUnformatted(cJSON_GetObjectItem(old, "up")) : NULL, *b2 = cJSON_PrintUnformatted(cJSON_GetObjectItem(n, "up"));
   int same = a && b && !strcmp(a, b) && a2 && b2 && !strcmp(a2, b2); free(a); free(b); free(a2); free(b2);
@@ -49,6 +51,9 @@ static void take(const cJSON *metas, int calendar) {
     cJSON_ArrayForEach(v, js_arr(m, "videos")) {
       double r = iso_time(js_str(v, "released", js_str(v, "firstAired", ""))); if (r <= 0) continue;
       int s = (int)js_num(v, "season", -1), e = (int)js_num(v, "episode", js_num(v, "number", -1)); if (s < 0 || e < 0) continue;
+      if (N.cal && r >= now - CAL_BACK && r <= now + CAL_AHEAD && s > 0) { const char *vid = js_str(v, "id", ""); int dup = 0; const cJSON *c; cJSON_ArrayForEach(c, N.cal) if (!strcmp(js_str(c, "id", ""), vid)) { dup = 1; break; }
+        if (!dup && *vid && cJSON_GetArraySize(N.cal) < 600) { cJSON *o = cJSON_CreateObject(); cJSON_AddStringToObject(o, "sid", id); cJSON_AddStringToObject(o, "id", vid); cJSON_AddNumberToObject(o, "r", r); cJSON_AddNumberToObject(o, "s", s); cJSON_AddNumberToObject(o, "e", e);
+          const char *tt = js_str(v, "name", js_str(v, "title", "")); if (*tt) cJSON_AddStringToObject(o, "t", tt); cJSON_AddItemToArray(N.cal, o); } } /* (the Calendar: aired or coming, whichever catalog told it) */
       if (calendar) { if (r > now && r <= now + AHEAD && (!best || r < bestR)) { best = v; bestR = r; } continue; } /* the soonest one coming */
       if (r > now) continue; /* only what is out */
       cJSON *o = cJSON_CreateObject(); cJSON_AddStringToObject(o, "id", js_str(v, "id", "")); cJSON_AddNumberToObject(o, "r", r); cJSON_AddNumberToObject(o, "s", s); cJSON_AddNumberToObject(o, "e", e); cJSON_AddItemToArray(keep, o);
@@ -68,9 +73,9 @@ static void ask(void) {
   cJSON *lib = store_node("lib"); if (!cJSON_IsObject(lib)) return;
   const cJSON *it, *picks[512]; int n = 0;
   cJSON_ArrayForEach(it, lib) if (eligible(it) && n < 512) picks[n++] = it;
-  if (!n) { fprintf(stderr, "[notify] no series in the library to follow\n"); cJSON *z = cJSON_CreateObject(); cJSON_AddNumberToObject(z, "at", (double)time(NULL)); cJSON_AddItemToObject(z, "eps", cJSON_CreateObject()); cJSON_AddItemToObject(z, "up", cJSON_CreateArray()); store_set_node("notifs", z); return; }
+  if (!n) { fprintf(stderr, "[notify] no series in the library to follow\n"); cJSON *z = cJSON_CreateObject(); cJSON_AddNumberToObject(z, "at", (double)time(NULL)); cJSON_AddItemToObject(z, "eps", cJSON_CreateObject()); cJSON_AddItemToObject(z, "up", cJSON_CreateArray()); cJSON_AddItemToObject(z, "cal", cJSON_CreateArray()); store_set_node("notifs", z); return; }
   qsort(picks, (size_t)n, sizeof picks[0], cmp_mtime); if (n > MAXIDS) n = MAXIDS;
-  N.eps = cJSON_CreateObject(); N.up = cJSON_CreateArray(); N.pending = 1; N.gotAny = 0; N.busy = 1; /* (1: held while the requests go out) */
+  N.eps = cJSON_CreateObject(); N.up = cJSON_CreateArray(); N.cal = cJSON_CreateArray(); N.pending = 1; N.gotAny = 0; N.busy = 1; /* (1: held while the requests go out) */
   cJSON *a = sb_addons(); const cJSON *ad;
   if (a) cJSON_ArrayForEach(ad, a) { if (!sb_addon_on(ad)) continue; char base[512]; addon_base(ad, base, sizeof base);
     const cJSON *cat; cJSON_ArrayForEach(cat, js_arr(js_obj(ad, "manifest"), "catalogs")) {
@@ -149,3 +154,22 @@ void notify_up_dismiss(const Item *it) {
   cJSON *e = n->child; while (e) { cJSON *nx = e->next; if (cJSON_IsNumber(e) && e->valuedouble < now - 86400) cJSON_Delete(cJSON_DetachItemViaPointer(n, e)); e = nx; } /* (aired: no longer needed) */
   store_set_node("upHide", n); fprintf(stderr, "[upcoming] dismissed %s\n", it->videoId);
 }
+
+/* ---- the Calendar ---- */
+static int cmp_air2(const void *a, const void *b) { double x = ((const Item *)a)->airAt, y = ((const Item *)b)->airAt; if (x != y) return x < y ? -1 : 1; return strcmp(((const Item *)a)->name, ((const Item *)b)->name); }
+int notify_calendar(ItemList *out) {
+  memset(out, 0, sizeof *out); cJSON *n = node(); const cJSON *cal = n ? cJSON_GetObjectItem(n, "cal") : NULL;
+  if (!cal) { if (!N.busy) N.force = 1; return -1; } /* (kept from before the Calendar: asked again now) */
+  int m = cJSON_GetArraySize(cal); if (m <= 0) return 0;
+  out->items = calloc((size_t)m, sizeof(Item)); if (!out->items) return 0;
+  const cJSON *u;
+  cJSON_ArrayForEach(u, cal) { const cJSON *l = lib_get(js_str(u, "sid", "")); if (!l || !eligible(l)) continue;
+    Item *it = &out->items[out->n++]; memset(it, 0, sizeof *it);
+    snprintf(it->id, sizeof it->id, "%s", js_str(l, "_id", "")); snprintf(it->type, sizeof it->type, "series"); snprintf(it->name, sizeof it->name, "%s", js_str(l, "name", ""));
+    snprintf(it->poster, sizeof it->poster, "%s", js_str(l, "poster", "")); snprintf(it->background, sizeof it->background, "%s", js_str(l, "background", "")); snprintf(it->logo, sizeof it->logo, "%s", js_str(l, "logo", ""));
+    snprintf(it->videoId, sizeof it->videoId, "%s", js_str(u, "id", "")); it->airAt = js_num(u, "r", 0);
+    it->ep = (int)js_num(u, "e", 0); snprintf(it->metaLine, sizeof it->metaLine, "T%d:E%d", (int)js_num(u, "s", 0), it->ep); snprintf(it->epName, sizeof it->epName, "%s", js_str(u, "t", "")); }
+  if (!out->n) { free(out->items); out->items = NULL; return 0; }
+  qsort(out->items, (size_t)out->n, sizeof(Item), cmp_air2); return out->n;
+}
+int notify_busy(void) { return N.busy; }

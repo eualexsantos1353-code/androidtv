@@ -97,6 +97,7 @@ public final class VideoPlane {
         root.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> { applyPlace(); applyPlace2(); });
 
         selector = new DefaultTrackSelector(a);
+        if (keptParams != null) { selector.setParameters(keptParams); keptParams = null; } /* (the film's own track choices, kept over a release in the background) */
         selector.setParameters(selector.buildUponParameters().setPreferredAudioLanguage(null).setTunnelingEnabled(false)
             .setAllowInvalidateSelectionsOnRendererCapabilitiesChange(true));   /* a receiver switched on mid-film: passthrough taken again */
         /* Settings › Audio › DTS sound: Auto = the box's decoders (or passthrough) first, FFmpeg after; Convert = FFmpeg first
@@ -110,11 +111,17 @@ public final class VideoPlane {
             .setEnableDecoderFallback(true);
         builtDts = dtsMode;
         /* the buffer from the box's memory: a 1 GB box keeps less ahead than a 4 GB one (the torrent engine has its own) */
-        long memMb = 0; try { android.app.ActivityManager.MemoryInfo mi = new android.app.ActivityManager.MemoryInfo();
-            ((android.app.ActivityManager) a.getSystemService(android.content.Context.ACTIVITY_SERVICE)).getMemoryInfo(mi); memMb = mi.totalMem / (1024 * 1024); } catch (Throwable e) { }
-        int bufMb = memMb > 0 && memMb < 1300 ? 12 : memMb < 2600 ? 32 : 64;   /* (a 1 GB box has ~150 MB for the whole app; the torrent window is on flash) */
+        long memMb = 0, freeMb = -1; try { android.app.ActivityManager.MemoryInfo mi = new android.app.ActivityManager.MemoryInfo();
+            ((android.app.ActivityManager) a.getSystemService(android.content.Context.ACTIVITY_SERVICE)).getMemoryInfo(mi); memMb = mi.totalMem / (1024 * 1024);
+            freeMb = (mi.availMem - mi.threshold) / (1024 * 1024); } catch (Throwable e) { }
+        /* as much as the box can spare: a remux at 40-60 Mbit/s needs tens of MB to ride out a slow second (12 MB was two
+           seconds of it). The size for the box's memory, then no more than what is free now, less the system's own low
+           mark and room for the video decoder */
+        int tierMb = memMb > 0 && memMb < 1300 ? 64 : memMb < 2600 ? 128 : memMb < 4600 ? 256 : 384;
+        int reserveMb = 240;   /* (the player is made once, before the film is known: room for a 4K decoder always) */
+        int bufMb = freeMb < 0 ? (memMb > 0 && memMb < 1300 ? 12 : memMb < 2600 ? 32 : 64) : (int) Math.max(12, Math.min(tierMb, freeMb - reserveMb));
         int bufBytes = bufMb * 1024 * 1024;
-        MainActivity.log("[video] player buffer " + bufMb + " MB (" + memMb + " MB of RAM)");
+        MainActivity.log("[video] player buffer " + bufMb + " MB (" + memMb + " MB of RAM, " + freeMb + " MB free)");
         DefaultLoadControl lc = new DefaultLoadControl.Builder()
             .setBufferDurationsMs(bufMb <= 12 ? 8000 : 15000, bufMb <= 12 ? 20000 : 50000, 1500, 3000).setTargetBufferBytes(bufBytes).setPrioritizeTimeOverSizeThresholds(false).build();
         DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory().setAllowCrossProtocolRedirects(true)
@@ -124,6 +131,13 @@ public final class VideoPlane {
         msfS = msf; /* (the separate picture and sound files of a Piped mirror: the app's own user agent) */
         player = new ExoPlayer.Builder(a, rf).setTrackSelector(selector).setLoadControl(lc).setMediaSourceFactory(msf)
             .setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS).build();
+        /* what the logs need to tell a stutter's cause: the decoder (a box's own, or software), frames dropped (the decoder or
+           the box too slow), and each wait for data once the picture runs (the source too slow) */
+        player.addAnalyticsListener(new androidx.media3.exoplayer.analytics.AnalyticsListener() {
+            @Override public void onVideoDecoderInitialized(EventTime t, String name, long initializedMs, long initMs) { MainActivity.log("[video] decoder " + name + " (ready in " + initMs + " ms)"); }
+            @Override public void onDroppedVideoFrames(EventTime t, int dropped, long elapsedMs) { droppedFilm += dropped; MainActivity.log("[video] " + dropped + " frames dropped in " + elapsedMs + " ms (" + droppedFilm + " this film)"); }
+            @Override public void onPlaybackStateChanged(EventTime t, int st) { if (st == androidx.media3.common.Player.STATE_BUFFERING && firstFrame == 1) MainActivity.log("[video] waiting for data at " + (t.currentPlaybackPositionMs / 100) / 10.0 + " s (" + (player != null ? player.getTotalBufferedDuration() : 0) + " ms buffered)"); }
+        });
         player.setVideoSurfaceView(view);
         /* a film takes the sound (another app's sound pauses it, a call or the assistant ducks it); headphones or a
            receiver going away pauses it */
@@ -237,14 +251,24 @@ public final class VideoPlane {
             player.setMediaSource(new MergingMediaSource(mf.createMediaSource(MediaItem.fromUri(Uri.parse(pa[0]))), mf.createMediaSource(MediaItem.fromUri(Uri.parse(pa[3])))), at); player.prepare(); player.setPlayWhenReady(wantPlay); return true;
         } catch (Exception x) { return false; }
     }
+    /* what the next load is (video_atv.c, before each load): a film the player opened (1), or the home screen's trailer (0) */
+    private static volatile boolean film;
+    public static void setFilm(int on) { film = on != 0; }
     public static void load(final String url, final long startMs, final boolean isLive) {
-        state = 1; firstFrame = 0; hasMedia = 1; error = ""; hdr = ""; vw = vh = 0; pos = startMs; dur = 0; buf = 0; unsup = 0; seeking = 0; changed = 1;
+        lastUrl = url; freed = false;
+        droppedFilm = 0; state = 1; firstFrame = 0; hasMedia = 1; error = ""; hdr = ""; vw = vh = 0; pos = startMs; dur = 0; buf = 0; unsup = 0; seeking = 0; changed = 1;
         audioLines = ""; textLines = ""; audioCur = -1; wantPlay = true; live = isLive;
         MainActivity.keepScreen(true);
         run(() -> {
             ensure(); if (player == null) { state = 6; error = "no player"; return; }
             /* no subtitle of the file's own until the app picks one (a track flagged "default" was shown by itself) */
-            selector.setParameters(selector.buildUponParameters().clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).setForceHighestSupportedBitrate(false));
+            DefaultTrackSelector.Parameters.Builder pb = selector.buildUponParameters().clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).setForceHighestSupportedBitrate(false);
+            /* a film's stream with several sizes (HLS, DASH): its largest the decoder plays, not only up to the screen's
+               present mode (Media3's default: a box running its menus at 1080p never took a 4K track; the TV's mode then
+               follows the film, matchMode). The trailer stays within the screen's mode */
+            MainActivity a = MainActivity.self;
+            if (film) pb.clearViewportSizeConstraints(); else if (a != null) pb.setViewportSizeToPhysicalDisplaySize(a, true);
+            selector.setParameters(pb);
             if (url.indexOf('\n') > 0) { /* "picture\naudio": YouTube's two files, played together */
                 String[] pa = url.split("\n"); curPa = pa; paStage = 0;
                 DefaultMediaSourceFactory mf = pa[0].contains("googlevideo.com") ? new DefaultMediaSourceFactory(new YtChunked(pa.length > 2 ? pa[2] : "")) : msfS; /* (YouTube's own files: in pieces, with the user agent of the client that asked) */
@@ -371,29 +395,53 @@ public final class VideoPlane {
     }
     public static String text(int what) { return what == 0 ? error : hdr; }
 
-    /* ---- the TV's mode follows the film (frame-rate matching): a mode at the same size or the film's own (a 4K film on a box
-       in 1080p) whose refresh rate is the film's or a whole multiple of it (23.976 at 23.976 / 47.95, 25 at 50, ...);
-       nothing when the screen already fits it or has no such mode. The mode the app found is restored when the film
-       ends. Android 6 and up. ---- */
+    /* ---- the TV's mode follows the film: a 4K film on a box in 1080p goes to the screen's 4K mode (its refresh rate the
+       film's or a whole multiple of it when the screen has one, else the rate the box runs at now, else the closest), so
+       it is shown in 4K, also when the file does not say its frame rate; a film whose rate the screen's mode does not fit
+       goes to a mode of the same size that fits (23.976 at 23.976 / 47.95, 25 at 50, ...). Nothing when the screen
+       already fits it or has no such mode. The mode the app found is restored when the film ends. Android 6 and up ---- */
+    private static long droppedFilm; /* (frames dropped since this film was loaded: the log) */
     private static int savedMode = -1;
     private static void matchMode(final float fps, final int height) {
-        if (android.os.Build.VERSION.SDK_INT < 23 || fps <= 1) return;
+        if (android.os.Build.VERSION.SDK_INT < 23 || !film) return; /* (the home screen's trailer never changes the TV's mode) */
         ui.post(() -> {
             MainActivity a = MainActivity.self; if (a == null) return;
             android.view.Display d = a.getWindowManager().getDefaultDisplay(); android.view.Display.Mode cur = d.getMode(), best = null;
-            int want = Math.max(Math.min(cur.getPhysicalWidth(), cur.getPhysicalHeight()), height > 1080 ? 2160 : 0);
-            if (fits(cur.getRefreshRate(), fps) && Math.min(cur.getPhysicalWidth(), cur.getPhysicalHeight()) >= want) return;
+            int curH = Math.min(cur.getPhysicalWidth(), cur.getPhysicalHeight()), want = Math.max(curH, height > 1080 ? 2160 : 0);
+            boolean known = fps > 1, up = want > curH, locked = false; float curHz = cur.getRefreshRate();
+            /* the TV's own "match content frame rate" setting (Android 12 and up): "never" leaves the rate alone (a 4K film
+               still goes to the 4K mode, at the box's own rate); "seamless only" changes the rate only where the screen does
+               it without going blank (the present mode's alternative rates) */
+            float[] seamless = null;
+            if (android.os.Build.VERSION.SDK_INT >= 31) try { android.hardware.display.DisplayManager dm = (android.hardware.display.DisplayManager) a.getSystemService(android.content.Context.DISPLAY_SERVICE);
+                int pref = dm != null ? dm.getMatchContentFrameRateUserPreference() : android.hardware.display.DisplayManager.MATCH_CONTENT_FRAMERATE_UNKNOWN;
+                if (pref == android.hardware.display.DisplayManager.MATCH_CONTENT_FRAMERATE_NEVER) { known = false; locked = true; }
+                else if (pref == android.hardware.display.DisplayManager.MATCH_CONTENT_FRAMERATE_SEAMLESSS_ONLY) seamless = cur.getAlternativeRefreshRates(); } catch (Throwable t) { }
+            if (!up && (!known || fits(curHz, fps))) return;
+            /* a film file (not live, not HLS or DASH: those streams are often 50 or 60 fps when they do not say) */
+            String u = lastUrl != null ? lastUrl.toLowerCase(java.util.Locale.ROOT) : "";
+            boolean fileFilm = !live && !u.contains(".m3u8") && !u.contains(".mpd") && !u.contains("/hls") && !u.contains("/dash");
+            int bestScore = -1;
             for (android.view.Display.Mode m : d.getSupportedModes()) {
-                int h = Math.min(m.getPhysicalWidth(), m.getPhysicalHeight());
-                if (!fits(m.getRefreshRate(), fps) || (h != want && h != Math.min(cur.getPhysicalWidth(), cur.getPhysicalHeight()))) continue;
-                if (best == null || (h == want && Math.min(best.getPhysicalWidth(), best.getPhysicalHeight()) != want) || m.getRefreshRate() < best.getRefreshRate()) best = m;
+                int h = Math.min(m.getPhysicalWidth(), m.getPhysicalHeight()); float hz = m.getRefreshRate();
+                if (h != want) continue;
+                boolean fit = known && fits(hz, fps);
+                if (!up && !fit) continue;   /* (the same size: only for a rate that fits) */
+                if (!up && seamless != null && !inRates(seamless, hz)) continue;   /* ("seamless only": a rate the screen changes to without a blank) */
+                /* fitting the film first (its lowest multiple); a 4K film whose rate the file does not say: a cinema rate (nearly
+                   every such film is 23.976 or 24, and the TV's 4K at 24 needs less of the HDMI link than at 60), unless the TV's
+                   setting keeps the rate; then the box's own rate, then the closest to it */
+                boolean cinema = up && !known && !locked && fileFilm && hz < 30.5f && (fits(hz, 23.976f) || fits(hz, 24f)); /* (23.976 or 24 Hz itself, never a multiple: a TV with 4K at 60 and 120 kept 60) */
+                int score = fit ? 3000 - Math.round(hz) : cinema ? 2500 - Math.round(hz) : Math.abs(hz - curHz) < 0.5f ? 2000 : 1000 - Math.round(Math.abs(hz - curHz) * 10);
+                if (score > bestScore) { bestScore = score; best = m; }
             }
             if (best == null || best.getModeId() == cur.getModeId()) return;
             if (savedMode < 0) savedMode = cur.getModeId();
             android.view.WindowManager.LayoutParams lp = a.getWindow().getAttributes(); lp.preferredDisplayModeId = best.getModeId(); a.getWindow().setAttributes(lp);
-            MainActivity.log("[video] screen mode " + best.getPhysicalWidth() + "x" + best.getPhysicalHeight() + " @ " + best.getRefreshRate() + " Hz for a " + fps + " fps film");
+            MainActivity.log("[video] screen mode " + best.getPhysicalWidth() + "x" + best.getPhysicalHeight() + " @ " + best.getRefreshRate() + " Hz for a " + height + "p film at " + (known ? fps + " fps" : "an unknown frame rate") + " (was " + curH + "p @ " + curHz + " Hz)");
         });
     }
+    private static boolean inRates(float[] rates, float hz) { for (float r : rates) if (Math.abs(r - hz) < 0.01f) return true; return false; }
     private static boolean fits(float hz, float fps) { float k = hz / fps; return Math.abs(k - Math.round(k)) < 0.01f && Math.round(k) >= 1; }
     private static void restoreMode() {
         if (savedMode < 0) return; final int id = savedMode; savedMode = -1;
@@ -401,6 +449,25 @@ public final class VideoPlane {
     }
 
     /* the activity leaves (Home, another app): the film pauses where it is */
+    /* a box with little memory: the player let go while the app is not seen (its decoder and buffers are what Android
+       kills the app for in the background; Google's TV memory rule), the film brought back at the same place, paused, with
+       its tracks, when the app is seen again. What the app reads (state, place) stays as it was meanwhile */
+    private static String lastUrl; private static boolean freed; private static long freedPos; private static DefaultTrackSelector.Parameters keptParams;
+    private static boolean smallBox() { try { android.app.ActivityManager.MemoryInfo mi = new android.app.ActivityManager.MemoryInfo(); MainActivity a = MainActivity.self;
+            ((android.app.ActivityManager) a.getSystemService(android.content.Context.ACTIVITY_SERVICE)).getMemoryInfo(mi); return mi.totalMem > 0 && mi.totalMem < 2300L * 1024 * 1024; } catch (Throwable t) { return false; } }
+    static void onStop() { run(() -> {
+        if (player == null || hasMedia != 1 || lastUrl == null || !smallBox()) return;
+        freedPos = Math.max(0, player.getCurrentPosition()); keptParams = selector != null ? selector.getParameters() : null; freed = true;
+        MainActivity.log("[video] the app is not seen: the player let go (a small box), the film kept at " + freedPos / 1000 + " s");
+        player.release(); player = null;
+        ViewGroup root = MainActivity.layout(); if (root != null) { if (box != null) root.removeView(box); if (subs != null) root.removeView(subs); } box = null; view = null; subs = null; }); }
+    static void onStart() { run(() -> {
+        if (!freed || lastUrl == null) return; freed = false; final String u = lastUrl; final long at = freedPos; final boolean lv = live;
+        MainActivity.log("[video] the app is seen again: the film loaded back at " + at / 1000 + " s, paused");
+        ensure(); if (player == null) return;
+        MediaItem.Builder b = new MediaItem.Builder().setUri(Uri.parse(u)); if (lv) b.setLiveConfiguration(new MediaItem.LiveConfiguration.Builder().build());
+        player.setVolume(volTarget / 100f); if (at > 0 && !lv) player.setMediaItem(b.build(), at); else player.setMediaItem(b.build());
+        wantPlay = false; player.setPlayWhenReady(false); player.prepare(); cues(java.util.Collections.emptyList()); }); }
     static void onPause() { run(() -> { if (player != null && player.isPlaying()) { player.pause(); } }); }
     static void release() { run(() -> { if (player != null) { player.release(); player = null; }
         ViewGroup root = MainActivity.layout(); if (root != null) { if (box != null) root.removeView(box); if (subs != null) root.removeView(subs); } box = null; view = null; subs = null; }); }

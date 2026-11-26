@@ -42,7 +42,7 @@
 
 typedef struct { char name[96]; const LiveCh **p; LiveCh *own; int n; int rest, more, hid; } Tab; /* p: the tab's channels (pointing at the catalogs', or at own: the pinned and recent ones) */
 static struct {
-  int open, inPlayer, zone; /* zone 0 the grid, 1 the tabs */ Tab tab[MAXTAB]; int ntab, cur, idx; double focusAt, openAt; int tunedFor; char playing[64];
+  int open, inPlayer, zone; /* zone 0 the grid, 1 the tabs */ Tab tab[MAXTAB]; int ntab, cur, idx; double focusAt, openAt; int tunedFor; char playing[SB_ID];
   int liveN; Tween a, gridY, tabX, ring; Timer1 swap; double introAt; /* introAt: the switch-on, opened from Home */ int okDown, holdFired; double okAt; /* over the picture: OK held on a channel (the player's keys come here) */ int ptrHold; float tabPx[MAXTAB], tabW[MAXTAB]; int partial; Tween selX, selW; int selSet; int leaving; double leaveAt; /* leaving: a channel picked from Home, the hub stays until the player's art covers it */ /* sel: the chosen tab's pill, gliding */
 } H;
 /* each tile's colours, from its logo (once it is in) */
@@ -82,7 +82,7 @@ static const char *short_name(const char *t, char *buf, size_t cap) { /* "TvVoo 
   return buf; }
 static int moreOpen; static void tabs_group(void);
 static void build(void) {
-  char keepTab[96] = "", keepId[64] = ""; if (H.ntab && H.cur < H.ntab) { snprintf(keepTab, sizeof keepTab, "%s", H.tab[H.cur].name); if (H.idx < H.tab[H.cur].n) snprintf(keepId, sizeof keepId, "%s", H.tab[H.cur].p[H.idx]->id); }
+  char keepTab[96] = "", keepId[SB_ID] = ""; if (H.ntab && H.cur < H.ntab) { snprintf(keepTab, sizeof keepTab, "%s", H.tab[H.cur].name); if (H.idx < H.tab[H.cur].n) snprintf(keepId, sizeof keepId, "%s", H.tab[H.cur].p[H.idx]->id); }
   for (int i = 0; i < H.ntab; i++) tab_free(&H.tab[i]); H.ntab = 0;
   int tot = 0; for (int c = 0; c < live_catalogs(); c++) { int n = live_catalog(c, NULL, NULL); if (n > 0) tot += n; }
   ItemList p; if (live_pins(&p)) tab_items(T("Favorites"), &p); itemlist_clear(&p);
@@ -253,7 +253,7 @@ static void tile(const LiveCh *it, float x, float y, int f, float k, int playing
   else { gfx_rrect_v(x, y, TW, TH, 18, name_hue(it->name, 0.62f), name_hue(it->name, 0.28f)); gfx_rrect_v(x, y, TW, TH * 0.5f, 18, WHITE_A(20), WHITE_A(0)); gfx_ring(x, y, TW, TH, 18, 1, WHITE_A(22));
     text_draw(it->name, cx, cy - text_line_height(24) / 2, 24, 800, WHITE_A(240), 0, TW - 24, ALIGN_CENTER); }
   { int st = live_reach(it->id); if (playing) st = 1; /* its dot only once tried: red and breathing, or struck through, fading in as it comes */
-    static struct { char id[64]; int st; double at; } MK[256]; unsigned hh = 2166136261u; for (const char *p = it->id; *p; p++) hh = (hh ^ (unsigned char)*p) * 16777619u;
+    static struct { char id[SB_ID]; int st; double at; } MK[256]; unsigned hh = 2166136261u; for (const char *p = it->id; *p; p++) hh = (hh ^ (unsigned char)*p) * 16777619u;
     int mi = hh & 255; if (strcmp(MK[mi].id, it->id) || MK[mi].st != st) { snprintf(MK[mi].id, sizeof MK[mi].id, "%s", it->id); MK[mi].st = st; MK[mi].at = app_now(); }
     float mk = (float)((app_now() - MK[mi].at) / 0.35); mk = mk < 0 ? 0 : mk > 1 ? 1 : mk; mk = mk * mk * (3 - 2 * mk); gfx_opacity_push(mk);
     if (st > 0) live_dot(x + 18, y + 18, 5);
@@ -271,7 +271,7 @@ static void tile(const LiveCh *it, float x, float y, int f, float k, int playing
 static void hub_draw_body(void);
 /* where "Live TV" was: the focused channel's state (live_mark) */
 static void reach_mark(float x, float y, const char *id) {
-  static float k3[3]; static char kid[64]; if (id && strcmp(kid, id)) { snprintf(kid, sizeof kid, "%s", id); k3[0] = k3[1] = k3[2] = 0; } /* (from nothing for each channel) */
+  static float k3[3]; static char kid[SB_ID]; if (id && strcmp(kid, id)) { snprintf(kid, sizeof kid, "%s", id); k3[0] = k3[1] = k3[2] = 0; } /* (from nothing for each channel) */
   int st = id ? live_reach(id) : 0; if (id && (H.inPlayer ? !strcmp(id, H.playing) : !strcmp(id, lpk_full_id()))) st = 1;
   live_mark(x, y, 1, 0, k3, st);
 }
@@ -351,7 +351,7 @@ static void draw_list(float a) {
       if (pc >= 0) { gfx_rrect(rx, y, rw, 8, 4, WHITE_A(40)); gfx_rrect(rx, y, rw * pc / 100.f, 8, 4, WHITE_A(230)); y += 40; }
       if (nx[0]) { float uw = text_draw(T("Up next"), rx, y, 36, 500, WHITE_A(150), 0, 0, ALIGN_LEFT); text_draw(nx, rx + uw + 18, y, 36, 600, WHITE_A(220), 0, rw - uw - 14, ALIGN_LEFT); } }
     else { const char *where = H.cur < H.ntab ? H.tab[H.cur].name : ""; text_draw(f->name, rx, y, 62, 800, WHITE_A(255), -0.5f, rw, ALIGN_LEFT); y += 84; text_draw(where, rx, y, 36, 500, WHITE_A(160), 0, rw, ALIGN_LEFT); y += 50; }
-    { float hy = cy + ch - 60, hx = rx, s = 1.45f; hx += key_hint_s(hx, hy, K_OK, T("Play"), WHITE_A(190), 1, s) + 34; hx += key_hint_s(hx, hy, K_GREEN, T(live_pinned(f->id) ? "Unfavorite" : "Favorite"), WHITE_A(190), 1, s) + 34; key_hint_s(hx, hy, K_BACK, T("Close"), WHITE_A(190), 1, s); } }
+    { float hy = cy + ch - 60, hx = rx, s = 1.45f; hx += key_hint_s(hx, hy, K_OK, T("Play"), WHITE_A(190), 0, s) + 34; hx += key_hint_s(hx, hy, K_GREEN, T(live_pinned(f->id) ? "Unfavorite" : "Favorite"), WHITE_A(190), 0, s) + 34; key_hint_s(hx, hy, K_BACK, T("Close"), WHITE_A(190), 0, s); } }
   gfx_opacity_pop();
 }
 static void hub_draw_body(void) {
@@ -395,7 +395,7 @@ static void hub_draw_body(void) {
       const char *where = H.cur < H.ntab ? H.tab[H.cur].name : ""; text_draw(where, lx, y2, 25, 600, WHITE_A(170), 0, mw, ALIGN_LEFT); y2 += text_line_height(25) + 22;
       gfx_opacity_pop(); if (w) ly = y2; }
     if (f) { /* the line under it fades in whenever what it says changes */
-      { int sk = lpk_state(f->id, NULL, 0) * 4 + (live_reach(f->id) < 0) + (H.inPlayer && live_card()->tuning) * 2; static int lastK = -99; static char lastId[64]; static double kAt;
+      { int sk = lpk_state(f->id, NULL, 0) * 4 + (live_reach(f->id) < 0) + (H.inPlayer && live_card()->tuning) * 2; static int lastK = -99; static char lastId[SB_ID]; static double kAt;
         if (sk != lastK || strcmp(lastId, f->id)) { lastK = sk; snprintf(lastId, sizeof lastId, "%s", f->id); kAt = now; } float lk = (float)((now - kAt) / 0.25); lk = lk < 0 ? 0 : lk > 1 ? 1 : lk * lk * (3 - 2 * lk); gfx_opacity_push(lk); }
       const LiveCard *c = live_card(); int playing = H.inPlayer && !strcmp(f->id, H.playing);
       if (H.inPlayer && c->tuning && c->it && !strcmp(c->it->id, f->id)) { float ph = (float)fmod(now / 0.9, 1) * 6.2832f; for (int q = 0; q <= 8; q++) { float an = ph - 2.356f + 1.5708f * q / 8; gfx_circle(lx + 10 + cosf(an) * 8, ly + 14 + sinf(an) * 8, 1.5f, ac); } text_draw(T("Tuning in…"), lx + 32, ly, 25, 700, WHITE_A(230), 0, 0, ALIGN_LEFT); }

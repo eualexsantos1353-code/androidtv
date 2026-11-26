@@ -32,7 +32,7 @@
    One FT_Face per (family, weight): the variable fonts are set to that weight once, and glyph
    rendering never changes the coordinates again (changing them per glyph is what makes variable
    fonts slow). Sizes are set per line with FT_Set_Pixel_Sizes. */
-enum { FAM_LATIN = 0, FAM_ARABIC = 1, FAM_SUB = 2, FAM_FB = FAM_SUB + TEXT_SUBFONTS }; /* fam >= FAM_FB: the fallback file fam - FAM_FB; FAM_SUB + i: subtitle font i (0-9 Latin, 10-19 Arabic) */
+enum { FAM_LATIN = 0, FAM_ARABIC = 1, FAM_SUB = 2, FAM_ARABIC_FULL = FAM_SUB + TEXT_SUBFONTS, FAM_FB = FAM_ARABIC_FULL + 1 }; /* fam >= FAM_FB: the fallback file fam - FAM_FB; FAM_SUB + i: subtitle font i (0-9 Latin, 10-19 Arabic); FAM_ARABIC_FULL: Noto Sans Arabic, for a run with letters Cairo (FAM_ARABIC) lacks */
 /* the subtitle fonts (assets/fonts/subs, one weight each), read on first use; a weight carries the choice: bits 12-16
    the Latin one (1-10, 0 none), bits 17-21 the Arabic one (text_sub_weight) */
 static const char *const SUBFILE[TEXT_SUBFONTS] = { "roboto", "opensans", "notosans", "lato", "montserrat", "sourcesans3", "firasans", "atkinson", "merriweather", "robotoslab",
@@ -64,7 +64,7 @@ void text_stats(double *lineMs, double *widthMs, int *raster, int *shape, int *l
 static long read_file(const char *path, unsigned char **out);
 static Font *font_get(int fam, int weight) {
   int i; for (i = 0; i < nfonts; i++) if (fonts[i].fam == fam && fonts[i].weight == weight) return &fonts[i];
-  if (fam >= FAM_SUB && fam < FAM_FB && !fontData[fam] && !fontLen[fam]) { pthread_mutex_lock(&subMu); /* (a subtitle font: read once, whichever thread asks first) */
+  if (fam >= FAM_SUB && fam < FAM_SUB + TEXT_SUBFONTS && !fontData[fam] && !fontLen[fam]) { pthread_mutex_lock(&subMu); /* (a subtitle font: read once, whichever thread asks first) */
     if (!fontData[fam] && !fontLen[fam]) { char p[1200]; unsigned char *d = NULL; snprintf(p, sizeof p, "%s/fonts/subs/%s.ttf", assetBase, SUBFILE[fam - FAM_SUB]); long n = read_file(p, &d); if (n > 0) { fontLen[fam] = n; fontData[fam] = d; } else fontLen[fam] = -1; fprintf(stderr, "[text] subtitle font %s: %s\n", SUBFILE[fam - FAM_SUB], n > 0 ? "ready" : "missing"); }
     pthread_mutex_unlock(&subMu); }
   if (nfonts >= MAX_FONTS || !fontData[fam]) return NULL;
@@ -95,7 +95,7 @@ static void font_size(Font *f, int px) { /* px in surface pixels */
 }
 
 /* ---- fallback fonts ------------------------------------------------------------------------
-   What Inter and Noto Sans Arabic lack (emoji, symbols, CJK, Korean, Hebrew, Thai, Indic scripts...)
+   What Inter, Cairo and Noto Sans Arabic lack (emoji, symbols, CJK, Korean, Hebrew, Thai, Indic scripts...)
    comes from the system's fonts, found by name at start (a directory listing: nothing is opened) and
    mapped only when a character first needs one. The TV's wide fonts are 5-13 MB; mapped pages cost
    nothing until touched and are never copied into the heap. The mapping and the HarfBuzz face are
@@ -214,7 +214,8 @@ int text_init(const char *assetDir, float surfaceScale) {
   sscale = surfaceScale;
   snprintf(assetBase, sizeof assetBase, "%s", assetDir);
   snprintf(p, sizeof p, "%s/fonts/InterVariable.ttf", assetDir); fontLen[0] = read_file(p, &fontData[0]);
-  snprintf(p, sizeof p, "%s/fonts/NotoSansArabic.ttf", assetDir); fontLen[1] = read_file(p, &fontData[1]);
+  snprintf(p, sizeof p, "%s/fonts/Cairo.ttf", assetDir); fontLen[FAM_ARABIC] = read_file(p, &fontData[FAM_ARABIC]); /* the Arabic face: Cairo, read better on a TV than Noto Sans Arabic */
+  snprintf(p, sizeof p, "%s/fonts/NotoSansArabic.ttf", assetDir); fontLen[FAM_ARABIC_FULL] = read_file(p, &fontData[FAM_ARABIC_FULL]); /* (what Cairo lacks: presentation forms some old subtitle files carry, Kurdish, Pashto, Sindhi letters) */
   if (!fontLen[0]) { fprintf(stderr, "[text] no font at %s\n", p); return 0; }
   if (!(mainSet.inter = font_get(FAM_LATIN, 400))) return 0;
   uf = hb_unicode_funcs_get_default(); fb_init();
@@ -230,7 +231,12 @@ void text_frame_begin(void) { budgetLines = 0; frameNo++; atlas_frame(); frameT0
 /* Inter's metrics scaled: ascent .969, descent .242 of the em (so the line box is ~1.21 em);
    Arabic lines use the same box so mixed layouts don't jump. Line height in the CSS was set per
    element; the box here is just where the texture starts and ends. */
-int text_line_height(int px) { return (int)(px * 1.21f + 0.999f); }
+static float zoomK = 1; static int zoomOff; /* the interface's text size (Settings › Look › Text size); off for the subtitles, which have their own */
+void text_set_zoom(float k) { zoomK = k < 0.8f ? 0.8f : k > 1.4f ? 1.4f : k; }
+float text_zoom(void) { return zoomOff ? 1 : zoomK; }
+void text_zoom_off(int off) { zoomOff = off; }
+#define ZPX(px) (zoomOff || zoomK == 1 ? (px) : (int)((px) * zoomK + 0.5f))
+int text_line_height(int px) { px = ZPX(px); return (int)(px * 1.21f + 0.999f); }
 
 /* ---- unicode helpers --------------------------------------------------------------------- */
 /* -1: a byte that is not UTF-8 and means nothing; a stray byte from 0xA0 up is read as Latin-1 (some addons send it raw) */
@@ -424,6 +430,9 @@ static float shape_line(Shaped *out, const uint32_t *cps, int n, int px, int wei
       Font *s2 = font_get(FAM_SUB + (r->fid == FAM_LATIN ? sl - 1 : 10 + sa - 1), rw); int all = s2 != NULL;
       for (int q = r->a; q < r->b && all; q++) { uint32_t c = cps[q]; if (c > 0x20 && c != 0xa0 && !is_ign(c)) all = font_has(s2, c); }
       if (all) f = s2; }
+    if (f->fam == FAM_ARABIC) { int all = 1; /* a letter Cairo lacks: the whole run in Noto Sans Arabic, so its letters still join */
+      for (int q = r->a; q < r->b && all; q++) { uint32_t c = cps[q]; if (c > 0x20 && c != 0xa0 && !is_ign(c)) all = font_has(f, c); }
+      if (!all) { Font *n2 = font_get(FAM_ARABIC_FULL, rw); if (n2) f = n2; } }
     pen += shape_run(out, f, cps, r->a, r->b, r->lv & 1, px, tracking, pen, r->sc, rw >= 600 && f->fam >= FAM_FB);
   }
   free(types); free(brk); free(levels); free(runs); free(rl); free(map);
@@ -636,7 +645,7 @@ static void build_key(char *b, size_t cap, const char *utf8, int px, int weight,
   size_t n = strlen(utf8), room = cap - (size_t)(q - b) - 1; if (n > room) n = room; memcpy(q, utf8, n); q[n] = 0;
 }
 static const SbLine *text_line_(const char *utf8, int px, int weight, float tracking, float maxW);
-const SbLine *text_line(const char *utf8, int px, int weight, float tracking, float maxW) { Uint32 t0 = SDL_GetTicks(); const SbLine *l = text_line_(utf8, px, weight, tracking, maxW); statLineMs += SDL_GetTicks() - t0; statLookups++; return l; }
+const SbLine *text_line(const char *utf8, int px, int weight, float tracking, float maxW) { px = ZPX(px); Uint32 t0 = SDL_GetTicks(); const SbLine *l = text_line_(utf8, px, weight, tracking, maxW); statLineMs += SDL_GetTicks() - t0; statLookups++; return l; }
 static const SbLine *text_line_(const char *utf8, int px, int weight, float tracking, float maxW) {
   if (!utf8) utf8 = "";
   build_key(keybuf, sizeof keybuf, utf8, px, weight, tracking, maxW);
@@ -667,7 +676,7 @@ static const SbLine *text_line_(const char *utf8, int px, int weight, float trac
 typedef struct { unsigned hash; char *key; float w; } WEnt;
 static WEnt wcache[WC_N];
 float text_width(const char *utf8, int px, int weight, float tracking) {
-  if (!utf8 || !*utf8) return 0;
+  if (!utf8 || !*utf8) return 0; px = ZPX(px);
   static char wk[4200]; build_key(wk, sizeof wk, utf8, px, weight, tracking, 0); unsigned h = fnv(wk); int slot;
   Entry *e = cache_find(wk, h, &slot); if (e) return e->line.width;
   WEnt *we = &wcache[h & (WC_N - 1)]; if (we->key && we->hash == h && !strcmp(we->key, wk)) return we->w;
@@ -788,7 +797,7 @@ int text_draw_wrapped(const char *utf8, float x, float y, float maxW, int maxLin
      first line drawn alone made the rest pop in under it; nothing is drawn until every line is in */
   int miss = 0; for (int i = 0; i < nl; i++) if (!text_line(lines[i], px, weight, tracking, (i == nl - 1 && ell) ? maxW : 0)) miss = 1;
   if (miss) return nl;
-  float lh = lineHeight > 0 ? lineHeight : text_line_height(px);
+  float lh = lineHeight > 0 ? lineHeight * text_zoom() : text_line_height(px);
   int rr = uiRtl && !gfx_mirrored(), al = align == ALIGN_START ? (rr ? ALIGN_RIGHT : ALIGN_LEFT) : align == ALIGN_END ? (rr ? ALIGN_LEFT : ALIGN_RIGHT) : align;
   for (int i = 0; i < nl; i++) /* x is the anchor, as in text_draw: the left edge, the centre or the right edge */
     text_draw(lines[i], x, y + i * lh, px, weight, color, tracking, (i == nl - 1 && ell) ? maxW : 0, al);

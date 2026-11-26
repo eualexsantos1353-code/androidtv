@@ -37,6 +37,21 @@ public class MainActivity extends SDLActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        /* the last start died or gave up in its first seconds (its mark still there) and left its own log: that log on
+           the screen first (StartReport), so whoever sees it can photograph it; the next open is a normal (safe) start */
+        File data = new File(getFilesDir(), "data"); data.mkdirs();
+        File mark = new File(data, "starting.java"), last = new File(data, "laststart.txt"); /* (data/starting is the native part's own: there, it makes the next start a safe one) */
+        if ((mark.exists() || new File(data, "starting").exists()) && last.length() > 0) {
+            File shown = new File(data, "laststart.shown.txt"); shown.delete();
+            if (last.renameTo(shown)) {
+                super.onCreate(savedInstanceState);
+                startActivity(new android.content.Intent(this, StartReport.class));
+                finish(); return; } }
+        startFile = last; last.delete();
+        try { FileOutputStream o = new FileOutputStream(mark); o.write("java\n".getBytes("UTF-8")); o.close(); } catch (Throwable e) { }
+        startLog("[java] open " + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ROOT).format(new java.util.Date()) + " · " + appVersion(this));
+        startLog("[java] " + Build.MANUFACTURER + " " + Build.MODEL + " · Android " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ") · " + Build.DISPLAY);
+        startLog("[java] ABIs " + java.util.Arrays.toString(Build.SUPPORTED_ABIS) + " · libraries " + getApplicationInfo().nativeLibraryDir);
         self = this;
         crashWatch(this);
         /* development: the app's test settings as the TV build takes them from its environment
@@ -58,7 +73,18 @@ public class MainActivity extends SDLActivity {
         usbWatch();
         /* the app's drawing over the video plane: clear where the picture shows */
         if (mSurface != null) { mSurface.setZOrderMediaOverlay(true); mSurface.getHolder().setFormat(android.graphics.PixelFormat.TRANSLUCENT); }
+        /* the drawing surface's size, fixed before SDL makes its surface (set later, the app had already drawn at the old
+           size): 1280x720 on a box found weak (the app's own measure of this GPU, kept in data/drawsize, or under 1.5 GB of
+           memory), the TV's display hardware scaling it to the screen for nothing; else 1920x1080 (a 4K screen scales that) */
+        { int lines = drawLines(); if (mSurface != null) { mSurface.getHolder().setFixedSize(lines * 16 / 9, lines);
+            /* (SDL adds its view sized to its content: with a fixed buffer smaller than the screen the view itself shrank to it,
+               in the top-left corner. Filling the screen, the compositor scales the buffer to the whole view) */
+            mSurface.setLayoutParams(new android.widget.RelativeLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT)); } log("[start] drawing surface " + (lines * 16 / 9) + "x" + lines + " (Java)"); }
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        /* a video app, never a game: the TV keeps its picture mode (a window asking for minimal post-processing makes Android
+           send the TV ALLM / Game Content Type over HDMI, and the TV switches to Game mode; asked off here, and the manifest
+           says appCategory video for TVs that decide by the app's category) */
+        if (Build.VERSION.SDK_INT >= 30) { try { getWindow().setPreferMinimalPostProcessing(false); } catch (Throwable t) { } }
         try {   /* the phone finds the TV app by a broadcast on the network: Wi-Fi drops them without this */
             WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
             if (wm != null) { mcLock = wm.createMulticastLock("origin-cast"); mcLock.setReferenceCounted(false); mcLock.acquire(); }
@@ -67,6 +93,8 @@ public class MainActivity extends SDLActivity {
 
     @Override
     protected void onPause() { inFront = false; VideoPlane.onPause(); super.onPause(); }
+    @Override protected void onStop() { VideoPlane.onStop(); super.onStop(); }
+    @Override protected void onStart() { super.onStart(); VideoPlane.onStart(); }
     static volatile boolean inFront;
     /* back in front after the system's install screen with no answer from it (cancelled, or Android 5's "Install blocked"
        closed: no status comes then): the update is not stuck as installing, it can be tried again */
@@ -306,6 +334,15 @@ public class MainActivity extends SDLActivity {
        logs have them; before the app's library is loaded, the system log only ---- */
     static native void nativeLog(String s);
     static void log(String s) { try { nativeLog(s); } catch (Throwable e) { android.util.Log.i("StremioOrigin", s); } }
+    /* the start's own log (data/laststart.txt): Java's lines before the app's native part runs; native appends its own */
+    static File startFile;
+    static synchronized void startLog(String s) {
+        android.util.Log.i("StremioOrigin", s); File f = startFile; if (f == null) return;
+        try (FileOutputStream o = new FileOutputStream(f, true)) { o.write((s + "\n").getBytes("UTF-8")); } catch (Throwable e) { }
+    }
+    static String appVersion(Context c) {
+        try { android.content.pm.PackageInfo i = c.getPackageManager().getPackageInfo(c.getPackageName(), 0); return "version " + i.versionName + " (" + i.versionCode + ")"; } catch (Throwable e) { return "version ?"; }
+    }
 
     /* a Java crash: its kind and where, straight into the kept log (data/applog.log, as the app writes it: the next
        Share logs shows it under "the last crash"), then Android's own handling. No message: it may hold an address */
@@ -323,6 +360,7 @@ public class MainActivity extends SDLActivity {
                     if (x != e) b.append(ts).append(" [crash] caused by ").append(x.getClass().getName()).append('\n');
                     for (StackTraceElement el : x.getStackTrace()) { if (n++ >= 14) break; b.append(ts).append(" [crash] at ").append(el.getClassName()).append('.').append(el.getMethodName()).append(':').append(el.getLineNumber()).append('\n'); } }
                 b.append(ts).append(" [crash] end\n"); o.write(b.toString().getBytes("UTF-8"));
+                File sf = startFile; if (sf != null) try (FileOutputStream so = new FileOutputStream(sf, true)) { so.write(b.toString().getBytes("UTF-8")); } catch (Throwable ignored) { }
             } catch (Throwable ignored) { }
             if (prev != null) prev.uncaughtException(t, e); else System.exit(2);
         });
@@ -421,6 +459,67 @@ public class MainActivity extends SDLActivity {
         return false;
     }
 
+    /* a JPEG by Android's own decoder (the box's libjpeg-turbo, NEON), at a half, quarter or eighth of its size when that
+       still covers w x h: much less work than the whole picture decoded and then shrunk (src: img.c). Returned as
+       {the RGBA pixels, then width and height (4 bytes each, little-endian)}, or null (the app's own decoder then) */
+    public static byte[] decodeJpeg(byte[] data, int w, int h) {
+        try {
+            android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options(); o.inJustDecodeBounds = true;
+            android.graphics.BitmapFactory.decodeByteArray(data, 0, data.length, o);
+            int w0 = o.outWidth, h0 = o.outHeight; if (w0 <= 0 || h0 <= 0) return null;
+            int n = 1; while (n < 8 && (w0 + 2 * n - 1) / (2 * n) >= w && (h0 + 2 * n - 1) / (2 * n) >= h) n *= 2;   /* (cover: both sides at least the box) */
+            o = new android.graphics.BitmapFactory.Options(); o.inSampleSize = n; o.inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888; o.inScaled = false;
+            android.graphics.Bitmap b = android.graphics.BitmapFactory.decodeByteArray(data, 0, data.length, o); if (b == null) return null;
+            int bw = b.getWidth(), bh = b.getHeight();
+            if (b.getConfig() != android.graphics.Bitmap.Config.ARGB_8888 || b.getRowBytes() != bw * 4) { b.recycle(); return null; }
+            /* the pixels first, the size after them: the buffer handed to Android starts at the array's first byte. (Android 9
+               and older, AOSP b/130390512: copyPixelsToBuffer into a buffer starting further in released the pointer at its
+               start instead of the array's, and the runtime freed it as if a copy: "Invalid address passed to free", then a
+               crash, on every Android TV 5-9 since 1.1.2) */
+            int px = bw * bh * 4; byte[] out = new byte[px + 8];
+            b.copyPixelsToBuffer(java.nio.ByteBuffer.wrap(out)); b.recycle();   /* (ARGB_8888 is R, G, B, A in memory) */
+            out[px] = (byte) bw; out[px + 1] = (byte) (bw >> 8); out[px + 2] = (byte) (bw >> 16); out[px + 3] = (byte) (bw >> 24);
+            out[px + 4] = (byte) bh; out[px + 5] = (byte) (bh >> 8); out[px + 6] = (byte) (bh >> 16); out[px + 7] = (byte) (bh >> 24);
+            return out;
+        } catch (Throwable t) { return null; }
+    }
+    /* the app started again (the GPU state was lost while it was away): opened anew a moment after this process ends */
+    public static void restartApp(int unused) {
+        final MainActivity a = self; if (a == null) return;
+        a.runOnUiThread(() -> {
+            /* started while the app is still in front (Android 10+ refuses activity starts from the background, so an alarm
+               after the process ended did not reopen it), then this process ends; the new task opens the app afresh */
+            try { a.startActivity(android.content.Intent.makeRestartActivityTask(a.getComponentName())); } catch (Throwable t) { }
+            android.os.Process.killProcess(android.os.Process.myPid());
+        });
+    }
+    /* the drawing size: 1080 lines everywhere, 720 only on the really cheap boxes (2 cores or fewer and about 512 MB of
+       memory: under 700 MB told), the TV's display hardware scaling it. SB_RES (development) decides instead. (The GPU
+       measure and its kept answer, data/drawsize, are gone: everything else looked soft at 720) */
+    private int drawLines() {
+        try { String r = android.system.Os.getenv("SB_RES"); if (r != null) return r.equals("720") ? 720 : r.equals("2160") ? 2160 : 1080; } catch (Throwable t) { }
+        new File(getFilesDir(), "data/drawsize").delete();
+        long mem = 0; int cores = Runtime.getRuntime().availableProcessors();
+        try { ActivityManager.MemoryInfo mi = new ActivityManager.MemoryInfo(); ((ActivityManager) getSystemService(Context.ACTIVITY_SERVICE)).getMemoryInfo(mi); mem = mi.totalMem; } catch (Throwable t) { }
+        try (FileInputStream in = new FileInputStream("/sys/devices/system/cpu/present")) { byte[] b = new byte[32]; int n = in.read(b); String v = n > 0 ? new String(b, 0, n).trim() : "";   /* ("0-3": every core, also those asleep, which availableProcessors leaves out) */
+            int d = v.lastIndexOf('-'); if (d >= 0) cores = Math.max(cores, Integer.parseInt(v.substring(d + 1).trim()) + 1); } catch (Throwable t) { }
+        boolean cheap = cores <= 2 && mem > 0 && mem < 700L * 1024 * 1024;
+        if (cheap) { log("[start] " + cores + " cores, " + (mem >> 20) + " MB: drawing at 720 (a really cheap box)"); return 720; }
+        /* a 4K screen in its 4K mode, on a strong box (4 cores or more, about 3 GB or more: 2.5 GB told), whose GPU this app
+           measured at 4K (data/ui4k "2160", from a start before: the native part measures once, SB_UI4K_TEST): the
+           pages drawn at 3840x2160, sharp on the panel instead of scaled from 1080 */
+        int panel = 0;
+        try { if (Build.VERSION.SDK_INT >= 23) { Display.Mode m = ((WindowManager) getSystemService(Context.WINDOW_SERVICE)).getDefaultDisplay().getMode(); panel = Math.min(m.getPhysicalWidth(), m.getPhysicalHeight()); } } catch (Throwable t) { }
+        boolean strong = cores >= 4 && mem >= 2500L * 1024 * 1024; String k = "";
+        File kf = new File(getFilesDir(), "data/ui4k");
+        try (FileInputStream in = new FileInputStream(kf)) { byte[] b = new byte[16]; int n = in.read(b); k = n > 0 ? new String(b, 0, n).trim() : ""; } catch (Throwable t) { }
+        if (panel >= 2160 && strong) {
+            if (k.equals("2160")) { log("[start] " + cores + " cores, " + (mem >> 20) + " MB, a 4K screen: drawing at 2160 (this GPU measured fast enough)"); return 2160; }
+            if (k.isEmpty()) try { android.system.Os.setenv("SB_UI4K_TEST", "1", true); } catch (Throwable t) { }
+        }
+        log("[start] " + cores + " cores, " + (mem >> 20) + " MB, screen mode " + panel + " lines: drawing at 1080" + (panel >= 2160 && strong && k.isEmpty() ? " (the GPU measured at 4K this start, for the next)" : ""));
+        return 1080;
+    }
     /* the drawing surface's size, fixed (the TV scales it to the screen): 1080 or 720 lines (src: plat_window_size) */
     public static void surfaceSize(int lines) {
         final MainActivity a = self; if (a == null) return;
@@ -436,30 +535,30 @@ public class MainActivity extends SDLActivity {
 
     /* ---- files ---- */
     /* the app reads its fonts, dictionaries and icons as files: copied out of the APK once per version */
+    /* the app's own files (the APK's assets/), copied out once per install: read from the APK itself, never through
+       AssetManager.list, which also lists the system's assets (Fire OS has its own); a file that fails is skipped and
+       said, the rest still copied, and the stamp only written when all came through */
     private void copyAssets() {
         File dst = new File(getFilesDir(), "assets"), stamp = new File(dst, ".version");
         String ver = "";
         try { ver = String.valueOf(getPackageManager().getPackageInfo(getPackageName(), 0).lastUpdateTime); } catch (Exception e) { }
-        try {
-            if (stamp.exists() && ver.equals(new String(readAll(new FileInputStream(stamp)), "UTF-8"))) return;
-            copyDir(getAssets(), "", dst);
-            FileOutputStream o = new FileOutputStream(stamp); o.write(ver.getBytes("UTF-8")); o.close();
-        } catch (IOException e) { MainActivity.log("assets: " + e); }
-    }
-    private static void copyDir(AssetManager am, String path, File dst) throws IOException {
-        String[] names = am.list(path);
-        if (names == null || names.length == 0) {
-            if (path.isEmpty()) return;
-            dst.getParentFile().mkdirs();
-            InputStream in = am.open(path); FileOutputStream out = new FileOutputStream(dst);
-            byte[] b = new byte[65536]; int n; while ((n = in.read(b)) > 0) out.write(b, 0, n);
-            in.close(); out.close(); return;
-        }
-        dst.mkdirs();
-        for (String n : names) {
-            if (path.isEmpty() && (n.equals("images") || n.equals("webkit") || n.equals("geoid_map"))) continue;   /* the system's own */
-            copyDir(am, path.isEmpty() ? n : path + "/" + n, new File(dst, n));
-        }
+        try { if (stamp.exists() && ver.equals(new String(readAll(new FileInputStream(stamp)), "UTF-8")) && new File(dst, "fonts/InterVariable.ttf").length() > 0) { startLog("[java] assets: already copied"); return; } } catch (Throwable e) { }
+        int ok = 0, bad = 0; long t0 = System.currentTimeMillis(); byte[] b = new byte[65536];
+        try (java.util.zip.ZipFile z = new java.util.zip.ZipFile(getApplicationInfo().sourceDir)) {
+            java.util.Enumeration<? extends java.util.zip.ZipEntry> en = z.entries();
+            while (en.hasMoreElements()) {
+                java.util.zip.ZipEntry e = en.nextElement(); String n = e.getName();
+                if (e.isDirectory() || !n.startsWith("assets/") || n.contains("..") || n.startsWith("assets/dexopt/")) continue;
+                File out = new File(dst, n.substring(7));
+                try { out.getParentFile().mkdirs();
+                    try (InputStream in = z.getInputStream(e); FileOutputStream o = new FileOutputStream(out)) { int r; while ((r = in.read(b)) > 0) o.write(b, 0, r); }
+                    ok++;
+                } catch (Throwable x) { bad++; if (bad <= 5) startLog("[java] assets: " + n + " not copied: " + x); }
+            }
+        } catch (Throwable x) { bad++; startLog("[java] assets: the APK not readable: " + x); }
+        File font = new File(dst, "fonts/InterVariable.ttf");
+        startLog("[java] assets: " + ok + " copied, " + bad + " failed, " + (System.currentTimeMillis() - t0) + " ms; the font " + (font.length() > 0 ? font.length() + " bytes" : "MISSING"));
+        if (bad == 0) try { FileOutputStream o = new FileOutputStream(stamp); o.write(ver.getBytes("UTF-8")); o.close(); } catch (IOException e) { startLog("[java] assets: stamp " + e); }
     }
     private static byte[] readAll(InputStream in) throws IOException {
         java.io.ByteArrayOutputStream o = new java.io.ByteArrayOutputStream(); byte[] b = new byte[4096]; int n;
@@ -483,6 +582,6 @@ public class MainActivity extends SDLActivity {
             try { android.system.Os.symlink(new File(sys, name).getAbsolutePath(), new File(dir, name).getAbsolutePath()); n++; } catch (Throwable e) { }
             if (n >= 90) break;
         }
-        MainActivity.log("[text] " + n + " system faces linked");
+        startLog("[text] " + n + " system faces linked");
     }
 }

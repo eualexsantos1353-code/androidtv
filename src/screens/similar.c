@@ -17,6 +17,8 @@
 #include "core/coll.h"
 #include "core/tmdb.h"
 #include "core/debrid.h"
+#include "core/notify.h"
+#include "ui/sound.h"
 #include "ui/icon.h"
 #include "core/app.h"
 #include <stdlib.h>
@@ -26,7 +28,7 @@
 #define GX (G.person ? 708.0f : 62.0f)
 #define GTOP (G.person ? 214.0f : 224.0f)
 #define COLS (G.person ? 4 : 6) /* a person: the films on the right, their face and story on the left */
-static struct { DetailParams p; ItemList items; int idx; char title[300], sub[200]; int loading, empty, person, coll, cloud, bioF, bioOpen, pendTmdb; float bioScroll; unsigned cloudGen; double pendAt; unsigned collVer; char from[16], ckey[24]; double loadT0; struct { float x, y; int shown; Timer1 pop; } ring; Tween gridY; Timer1 fade; Nudge nudge; unsigned gen; } G;
+static struct { DetailParams p; ItemList items; int idx; char title[300], sub[200]; int loading, empty, person, coll, cloud, cal, bioF, bioOpen, pendTmdb; float bioScroll; unsigned cloudGen; double pendAt; unsigned collVer; char from[16], ckey[24]; double loadT0; struct { float x, y; int shown; Timer1 pop; } ring; Tween gridY; Timer1 fade; Nudge nudge; unsigned gen; } G;
 #define MAXPT 48
 typedef struct { char id[16], type[8], name[128]; int yr; } PT;
 typedef struct { char who[16]; int n; PT t[MAXPT]; } PersonMem;
@@ -142,9 +144,83 @@ static void cloud_tile(const Item *it, float x, float y, int f) {
   icon_draw("p_film", x + w / 2 - 34, y + 70, 68, WHITE_A(120));
   text_draw_wrapped(it->name, x + 18, y + 180, w - 36, 5, 22, 700, WHITE_A(235), 0, ALIGN_LEFT, 28);
   if (it->metaLine[0]) text_draw(it->metaLine, x + 18, y + h - 44, 20, 600, WHITE_A(150), 0, w - 36, ALIGN_LEFT); }
+
+/* ---- the Calendar: a month of days on the left, the focused day's episodes on the right (the series in the
+   Library, from the addons' calendar catalogs, core/notify). Arrows move the day (across months too), OK or Right
+   into the day's list, OK there opens the series */
+static struct { int zone, idx, got; long day; double pollAt; Tween listY; } C; /* day: yyyymmdd focused; zone 1: the list */
+static long day_of(time_t t) { struct tm tm; localtime_r(&t, &tm); return (tm.tm_year + 1900) * 10000L + (tm.tm_mon + 1) * 100 + tm.tm_mday; }
+static time_t time_of(long d) { struct tm tm; memset(&tm, 0, sizeof tm); tm.tm_year = (int)(d / 10000) - 1900; tm.tm_mon = (int)(d / 100 % 100) - 1; tm.tm_mday = (int)(d % 100); tm.tm_hour = 12; tm.tm_isdst = -1; return mktime(&tm); }
+static long day_add(long d, int n) { return day_of(time_of(d) + (time_t)n * 86400); }
+static int wday_of(long d) { time_t t = time_of(d); struct tm tm; localtime_r(&t, &tm); return tm.tm_wday; }
+static int day_eps(long d, int *first) { int n = 0; *first = -1; for (int i = 0; i < G.items.n; i++) if (day_of((time_t)G.items.items[i].airAt) == d) { if (*first < 0) *first = i; n++; } return n; }
+static void cal_load(void) { itemlist_clear(&G.items); int r = notify_calendar(&G.items); C.got = r >= 0; G.loading = r < 0 || (r == 0 && notify_busy()); G.empty = r == 0 && !G.loading; C.pollAt = app_now() + 1; }
+static void cal_enter(void) { memset(&C, 0, sizeof C); C.day = day_of(time(NULL)); snprintf(G.title, sizeof G.title, "%s", T("Calendar")); cal_load(); }
+static void cal_tick(float dt) { tween_tick(&C.listY, dt); if ((!C.got || G.loading) && app_now() > C.pollAt) cal_load(); }
+static const Item *cal_focused(void) { if (C.zone != 1) return NULL; int f; int n = day_eps(C.day, &f); return n && C.idx < n ? &G.items.items[f + C.idx] : NULL; }
+static int cal_key(int k) {
+  int f, n = day_eps(C.day, &f); long d0 = C.day;
+  if (C.zone == 1) {
+    if (k == K_UP) { if (C.idx > 0) C.idx--; else nudge_start(&G.nudge, k); }
+    else if (k == K_DOWN) { if (C.idx < n - 1) C.idx++; else nudge_start(&G.nudge, k); }
+    else if (k == K_LEFT || k == K_BACK) { C.zone = 0; }
+    tween_to(&C.listY, C.idx > 3 ? -(C.idx - 3) * 150.0f : 0, 0.24f, EASE_OUT); sound_focus(); return 1; }
+  if (k == K_LEFT) C.day = day_add(C.day, -1); else if (k == K_RIGHT) { if (wday_of(C.day) == 6 && n) { C.zone = 1; C.idx = 0; tween_set(&C.listY, 0); sound_focus(); return 1; } C.day = day_add(C.day, 1); }
+  else if (k == K_UP) C.day = day_add(C.day, -7); else if (k == K_DOWN) C.day = day_add(C.day, 7);
+  else if (k == K_OK) { if (n) { C.zone = 1; C.idx = 0; tween_set(&C.listY, 0); sound_focus(); } else nudge_start(&G.nudge, k); return 1; }
+  else if (k == K_BACK) return 0; else return 1;
+  { long lo = day_add(day_of(time(NULL)), -92), hi = day_add(day_of(time(NULL)), 92); if (C.day < lo || C.day > hi) { C.day = d0; nudge_start(&G.nudge, k); return 1; } }
+  if (C.day != d0) sound_focus(); return 1; }
+static void cal_draw(void) {
+  static const char *M[12] = { "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December" };
+  static const char *W[7] = { "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday" }, *WS[7] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
+  uint32_t ac = ACC2 | 0xff000000u; long today = day_of(time(NULL)); int y = (int)(C.day / 10000), m = (int)(C.day / 100 % 100);
+  text_draw(G.title, 80, 118, 52, 800, WHITE_A(255), -0.8f, 0, ALIGN_LEFT);
+  { char my[64]; snprintf(my, sizeof my, "%s %d", T(M[m - 1]), y); text_draw(my, 80 + 7 * 116 - 8, 134, 36, 700, WHITE_A(200), 0, 0, ALIGN_RIGHT); }
+  /* the month */
+  float gx = 80, gy = 262, cw = 108, chh = 100, gap = 8; long first = (long)(y * 10000L + m * 100 + 1); int w0 = wday_of(first);
+  for (int c = 0; c < 7; c++) text_draw(T(WS[c]), gx + c * (cw + gap) + cw / 2, gy - 44, 24, 700, WHITE_A(c == 0 || c == 6 ? 130 : 170), 0, 0, ALIGN_CENTER);
+  long d = day_add(first, -w0);
+  for (int r = 0; r < 6; r++) for (int c = 0; c < 7; c++, d = day_add(d, 1)) {
+    float x = gx + c * (cw + gap), yy = gy + r * (chh + gap); int inM = (int)(d / 100 % 100) == m, fo = d == C.day, ff; int ne = day_eps(d, &ff);
+    if (!inM && r == 5 && c == 0) break;
+    if (fo) gfx_rrect(x, yy, cw, chh, 18, C.zone == 0 ? WHITE_A(250) : WHITE_A(60)); else gfx_rrect(x, yy, cw, chh, 18, WHITE_A(inM ? 16 : 6));
+    if (d == today && !fo) gfx_ring(x, yy, cw, chh, 18, 3, ac);
+    char dn[8]; snprintf(dn, sizeof dn, "%d", (int)(d % 100)); uint32_t fg = fo && C.zone == 0 ? RGB(16, 16, 20) : WHITE_A(inM ? 235 : 90);
+    text_draw(dn, x + 14, yy + 10, 30, 700, fg, 0, 0, ALIGN_LEFT);
+    if (ne) { /* the first poster, small, and how many */
+      const Item *it = &G.items.items[ff]; float aspect; GLuint t = it->poster[0] ? img_get(it->poster, 60, 90, &aspect) : 0;
+      if (t) gfx_image(t, x + cw - 48, yy + chh - 66, 38, 56, 6, WHITE_A(inM ? 255 : 120), 0, 0, 1, 1); else gfx_rrect(x + cw - 48, yy + chh - 66, 38, 56, 6, col_alpha(ac, 0.6f));
+      if (ne > 1) { char nn[8]; snprintf(nn, sizeof nn, "+%d", ne - 1); text_draw(nn, x + 14, yy + chh - 40, 24, 800, fo && C.zone == 0 ? ac : col_alpha(ac, inM ? 1 : 0.5f), 0, 0, ALIGN_LEFT); }
+      else gfx_circle(x + 22, yy + chh - 24, 6, col_alpha(ac, inM ? 1 : 0.5f)); }
+    }
+  /* the day */
+  float rx = 960, rw = SB_W - 80 - rx, ry = 150;
+  gfx_rrect(rx - 30, ry - 30, rw + 60, SB_H - ry - 30, 30, BLACK_A(90)); gfx_ring(rx - 30, ry - 30, rw + 60, SB_H - ry - 30, 30, 1.2f, WHITE_A(22));
+  { char dn[8], hd[160]; snprintf(dn, sizeof dn, "%d", (int)(C.day % 100)); const char *ds = T2("{weekday}, {month} {day}", "month", T(M[m - 1]), "day", dn); const char *wp = strstr(ds, "{weekday}");
+    if (wp) snprintf(hd, sizeof hd, "%.*s%s%s", (int)(wp - ds), ds, T(W[wday_of(C.day)]), wp + 9); else snprintf(hd, sizeof hd, "%s", ds);
+    if (C.day == today) { char h2[200]; snprintf(h2, sizeof h2, "%s  \xc2\xb7  %s", T("Today"), hd); snprintf(hd, sizeof hd, "%s", h2); }
+    text_draw(hd, rx, ry, 40, 800, WHITE_A(255), -0.4f, rw, ALIGN_LEFT); }
+  int f, n = day_eps(C.day, &f); float ly = ry + 80, lh = SB_H - 60 - ly;
+  if (G.loading && !G.items.n) text_draw(T("Getting the calendar…"), rx, ly + 20, 30, 600, WHITE_A(160), 0, rw, ALIGN_LEFT);
+  else if (!G.items.n) text_draw_wrapped(T("Add series to your Library to see their episodes here"), rx, ly + 20, rw, 3, 30, 600, WHITE_A(160), 0, ALIGN_LEFT, 40);
+  else if (!n) text_draw(T("No episodes on this day"), rx, ly + 20, 30, 600, WHITE_A(150), 0, rw, ALIGN_LEFT);
+  gfx_clip_push(rx - 24, ly - 6, rw + 48, lh + 12);
+  for (int i = 0; i < n; i++) { const Item *it = &G.items.items[f + i]; float yy = ly + i * 150 + C.listY.v; if (yy + 150 < ly || yy > ly + lh) continue; int fo = C.zone == 1 && i == C.idx;
+    if (fo) { gfx_rrect(rx - 16, yy, rw + 32, 138, 20, WHITE_A(28)); gfx_ring(rx - 16, yy, rw + 32, 138, 20, 3, ac); }
+    float aspect; GLuint t = it->poster[0] ? img_get(it->poster, 120, 180, &aspect) : 0; if (t) gfx_image(t, rx, yy + 9, 80, 120, 10, WHITE_A(255), 0, 0, 1, 1); else gfx_rrect(rx, yy + 9, 80, 120, 10, WHITE_A(30));
+    text_draw(it->name, rx + 104, yy + 16, 34, 800, WHITE_A(255), -0.3f, rw - 120, ALIGN_LEFT);
+    char ln[360]; if (it->epName[0]) snprintf(ln, sizeof ln, "%s  \xc2\xb7  %s", it->metaLine, it->epName); else snprintf(ln, sizeof ln, "%s", it->metaLine);
+    text_draw(ln, rx + 104, yy + 62, 28, 600, WHITE_A(200), 0, rw - 120, ALIGN_LEFT);
+    { char tm2[32]; time_t at = (time_t)it->airAt; struct tm lt; localtime_r(&at, &lt); snprintf(tm2, sizeof tm2, "%02d:%02d", lt.tm_hour, lt.tm_min);
+      const char *st = at <= time(NULL) ? T("Out") : T("Coming"); char l3[96]; snprintf(l3, sizeof l3, "%s  \xc2\xb7  %s", st, tm2); text_draw(l3, rx + 104, yy + 100, 24, 600, at <= time(NULL) ? col_alpha(ac, 1) : WHITE_A(150), 0, rw - 120, ALIGN_LEFT); } }
+  gfx_clip_pop();
+  { float hy = SB_H - 52, hx = 80; hx += key_hint(hx, hy, K_OK, T(C.zone ? "Open" : "Episodes"), WHITE_A(170), 0) + 30; key_hint(hx, hy, K_BACK, T("Back"), WHITE_A(170), 0); }
+}
 static void enter(const void *pp) {
   if (pp) G.p = *(const DetailParams *)pp; G.gen++; itemlist_clear(&G.items); G.idx = 0; G.loading = 1; G.loadT0 = app_now(); G.empty = 0; G.ring.shown = 0; tween_set(&G.gridY, 0);
-  G.person = !strcmp(G.p.it.type, "person"); G.coll = !strcmp(G.p.it.type, "collection"); G.cloud = !strcmp(G.p.it.type, "cloud"); G.bioF = G.bioOpen = 0; G.sub[0] = 0;
+  G.person = !strcmp(G.p.it.type, "person"); G.coll = !strcmp(G.p.it.type, "collection"); G.cloud = !strcmp(G.p.it.type, "cloud"); G.cal = !strcmp(G.p.it.type, "calendar"); G.bioF = G.bioOpen = 0; G.sub[0] = 0;
+  if (G.cal) { cal_enter(); return; }
   if (G.cloud) { snprintf(G.title, sizeof G.title, "%s \xc2\xb7 %s", T("My cloud"), deb_service_name()); deb_refresh(); G.cloudGen = 0; cloud_poll(); return; }
   if (G.coll) { snprintf(G.ckey, sizeof G.ckey, "%s", G.p.it.id + 5); G.loadT0 = app_now(); G.collVer = 0; snprintf(G.from, sizeof G.from, "%s", G.p.it.videoId); snprintf(G.title, sizeof G.title, "%s", G.p.it.name[0] ? G.p.it.name : T("Collection")); coll_show(); return; }
 
@@ -152,10 +228,11 @@ static void enter(const void *pp) {
   snprintf(G.title, sizeof G.title, "%s", T("Similar"));
   sb_meta(G.p.it.type, G.p.it.id, on_meta, (void *)(uintptr_t)G.gen);
 }
-static const Item *focused(void) { if (G.bioF || G.bioOpen) return NULL; /* (on the biography: OK is its own, not the film's) */ return G.idx < G.items.n ? &G.items.items[G.idx] : NULL; }
+static const Item *focused(void) { if (G.cal) return cal_focused(); if (G.bioF || G.bioOpen) return NULL; /* (on the biography: OK is its own, not the film's) */ return G.idx < G.items.n ? &G.items.items[G.idx] : NULL; }
 static void open_it(const Item *it) { if (!strncmp(it->id, "deb:", 4)) { deb_play(atoi(it->id + 4)); return; } if (!strncmp(it->id, "tmdb:", 5)) { G.pendTmdb = atoi(it->id + 5); G.pendAt = app_now(); return; } /* (its IMDb id on its way: opened when it comes, see tick) */
   DetailParams p; memset(&p, 0, sizeof p); p.it = *it; app_go(SCR_DETAIL, &p, 0); }
 static int key(int k) {
+  if (G.cal) return cal_key(k);
   if (G.bioOpen) { if (k == K_DOWN) G.bioScroll += 120; else if (k == K_UP) { G.bioScroll -= 120; if (G.bioScroll < 0) G.bioScroll = 0; } else if (k == K_BACK || k == K_OK) G.bioOpen = 0; return 1; } /* the whole story, read */
   if (G.bioF) { if (k == K_RIGHT || k == K_DOWN) G.bioF = 0; else if (k == K_OK) { G.bioOpen = 1; G.bioScroll = 0; } else if (k == K_UP) { G.bioF = 0; topnav_focus(); } else if (k == K_BACK) return 0; return 1; }
   if (G.person && PI.bio[0] && k == K_LEFT && G.idx % COLS == 0) { G.bioF = 1; return 1; } /* the first column: left onto the biography */
@@ -174,6 +251,7 @@ static int key(int k) {
 static void logos_ahead(void) { static double at0; double now = app_now(); if (now - at0 < 0.5) return; at0 = now;
   for (int i = G.idx - COLS; i <= G.idx + COLS; i++) { if (i < 0 || i >= G.items.n) continue; char lu[512]; sb_logo_of(&G.items.items[i], lu, sizeof lu); if (lu[0]) img_prefetch_pri(lu, 520, 175); } }
 static void tick(float dt) {
+  if (G.cal) { cal_tick(dt); nudge_tick(&G.nudge, dt); return; }
   coll_show(); cloud_poll(); logos_ahead();
   if (G.pendTmdb) { if (app_now() - G.pendAt > 15) G.pendTmdb = 0; else for (int i = 0; i < G.items.n; i++) { const Coll *c = coll_get(G.ckey); if (!c) break; for (int k = 0; k < c->n; k++) if (c->part[k].tmdb == G.pendTmdb && c->part[k].id[0]) { Item it = G.items.items[i]; for (int q = 0; q < G.items.n; q++) if (!strcmp(G.items.items[q].id, c->part[k].id)) it = G.items.items[q]; G.pendTmdb = 0; open_it(&it); return; } break; } } /* (a film picked before its id came) */
   timer_tick(&G.ring.pop, dt); tween_tick(&G.gridY, dt); timer_tick(&G.fade, dt); nudge_tick(&G.nudge, dt);
@@ -182,7 +260,7 @@ static void tick(float dt) {
   if (G.items.n) { int rtl = app_rtl(); float cx = GX + (G.idx % COLS) * (CARD_W + CARD_GAP), cy = 16 + row * ROWH; if (rtl) cx = SB_W - cx - CARD_W;
     if (!G.ring.shown || G.ring.x != cx || G.ring.y != cy) { static double last; int pop = !G.ring.shown || focus_pops(&last); G.ring.x = cx; G.ring.y = cy; G.ring.shown = 1; if (pop) timer_start(&G.ring.pop, 0.2f); else G.ring.pop.on = 0; } } /* held: it jumps, lit */
 }
-static int origin(float *x, float *y) { if (topNav.active || G.bioF || G.idx >= G.items.n) return 0; int row = G.idx / COLS; float cx = GX + (G.idx % COLS) * (CARD_W + CARD_GAP); if (app_rtl()) cx = SB_W - cx - CARD_W; *x = cx + CARD_W / 2; *y = GTOP + G.gridY.v + 16 + row * ROWH + CARD_H / 2; return 1; }
+static int origin(float *x, float *y) { if (G.cal || topNav.active || G.bioF || G.idx >= G.items.n) return 0; int row = G.idx / COLS; float cx = GX + (G.idx % COLS) * (CARD_W + CARD_GAP); if (app_rtl()) cx = SB_W - cx - CARD_W; *x = cx + CARD_W / 2; *y = GTOP + G.gridY.v + 16 + row * ROWH + CARD_H / 2; return 1; }
 static void sim_focus(int i, int b) { (void)b; int was = topNav.active; topNav.active = 0; if (was || G.idx != i) G.idx = i; }
 static void person_panel(void) {
   float x = 62, y = 124, ph = 236;
@@ -214,6 +292,7 @@ static void person_panel(void) {
       else if (lines > 0) text_draw("\xe2\x80\xa6", x + 30, cy + 24 + 54, 25, 400, WHITE_A(150), 0, 0, ALIGN_LEFT); } }
 }
 static void draw(void) {
+  if (G.cal) { gfx_offset_push(nudge_x(&G.nudge), nudge_y(&G.nudge)); cal_draw(); gfx_offset_pop(); return; }
   int rtl = app_rtl();
   if (G.person) { person_panel(); text_draw(T("Filmography"), GX, 128, 40, 800, WHITE_A(255), -0.6f, 0, ALIGN_LEFT); }
   else text_draw(G.title, rtl ? SB_W - 48 : 48, 120, 44, 800, WHITE_A(255), -0.8f, SB_W - 96, rtl ? ALIGN_RIGHT : ALIGN_LEFT);
