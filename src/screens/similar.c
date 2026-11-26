@@ -152,18 +152,18 @@ static void enter(const void *pp) {
   snprintf(G.title, sizeof G.title, "%s", T("Similar"));
   sb_meta(G.p.it.type, G.p.it.id, on_meta, (void *)(uintptr_t)G.gen);
 }
-static const Item *focused(void) { return G.idx < G.items.n ? &G.items.items[G.idx] : NULL; }
+static const Item *focused(void) { if (G.bioF || G.bioOpen) return NULL; /* (on the biography: OK is its own, not the film's) */ return G.idx < G.items.n ? &G.items.items[G.idx] : NULL; }
 static void open_it(const Item *it) { if (!strncmp(it->id, "deb:", 4)) { deb_play(atoi(it->id + 4)); return; } if (!strncmp(it->id, "tmdb:", 5)) { G.pendTmdb = atoi(it->id + 5); G.pendAt = app_now(); return; } /* (its IMDb id on its way: opened when it comes, see tick) */
   DetailParams p; memset(&p, 0, sizeof p); p.it = *it; app_go(SCR_DETAIL, &p, 0); }
 static int key(int k) {
   if (G.bioOpen) { if (k == K_DOWN) G.bioScroll += 120; else if (k == K_UP) { G.bioScroll -= 120; if (G.bioScroll < 0) G.bioScroll = 0; } else if (k == K_BACK || k == K_OK) G.bioOpen = 0; return 1; } /* the whole story, read */
-  if (G.bioF) { if (k == K_RIGHT) G.bioF = 0; else if (k == K_OK) { G.bioOpen = 1; G.bioScroll = 0; } else if (k == K_UP) { G.bioF = 0; topnav_focus(); } else if (k == K_BACK) return 0; return 1; }
+  if (G.bioF) { if (k == K_RIGHT || k == K_DOWN) G.bioF = 0; else if (k == K_OK) { G.bioOpen = 1; G.bioScroll = 0; } else if (k == K_UP) { G.bioF = 0; topnav_focus(); } else if (k == K_BACK) return 0; return 1; }
   if (G.person && PI.bio[0] && k == K_LEFT && G.idx % COLS == 0) { G.bioF = 1; return 1; } /* the first column: left onto the biography */
   if (!G.items.n) { if (k == K_UP) topnav_focus(); return k != K_BACK; } int i0 = G.idx;
   if (k == K_RIGHT) G.idx = G.idx + 1 < G.items.n ? G.idx + 1 : G.idx;
   else if (k == K_LEFT) { if (G.idx > 0) G.idx--; }
   else if (k == K_DOWN) G.idx = G.idx + COLS < G.items.n ? G.idx + COLS : (G.items.n - 1 > G.idx && G.idx / COLS < (G.items.n - 1) / COLS ? G.items.n - 1 : G.idx);
-  else if (k == K_UP) { if (G.idx - COLS >= 0) G.idx -= COLS; else { topnav_focus(); return 1; } }
+  else if (k == K_UP) { if (G.idx - COLS >= 0) G.idx -= COLS; else if (G.person && PI.bio[0]) { G.bioF = 1; return 1; } else { topnav_focus(); return 1; } } /* (a person: up from the first row onto the biography, then up again to the tabs) */
   else if (k == K_OK) { open_it(&G.items.items[G.idx]); return 1; }
   else if (k == K_BACK) return 0;
   if (G.idx == i0) nudge_start(&G.nudge, k);
@@ -182,7 +182,7 @@ static void tick(float dt) {
   if (G.items.n) { int rtl = app_rtl(); float cx = GX + (G.idx % COLS) * (CARD_W + CARD_GAP), cy = 16 + row * ROWH; if (rtl) cx = SB_W - cx - CARD_W;
     if (!G.ring.shown || G.ring.x != cx || G.ring.y != cy) { static double last; int pop = !G.ring.shown || focus_pops(&last); G.ring.x = cx; G.ring.y = cy; G.ring.shown = 1; if (pop) timer_start(&G.ring.pop, 0.2f); else G.ring.pop.on = 0; } } /* held: it jumps, lit */
 }
-static int origin(float *x, float *y) { if (topNav.active || G.idx >= G.items.n) return 0; int row = G.idx / COLS; float cx = GX + (G.idx % COLS) * (CARD_W + CARD_GAP); if (app_rtl()) cx = SB_W - cx - CARD_W; *x = cx + CARD_W / 2; *y = GTOP + G.gridY.v + 16 + row * ROWH + CARD_H / 2; return 1; }
+static int origin(float *x, float *y) { if (topNav.active || G.bioF || G.idx >= G.items.n) return 0; int row = G.idx / COLS; float cx = GX + (G.idx % COLS) * (CARD_W + CARD_GAP); if (app_rtl()) cx = SB_W - cx - CARD_W; *x = cx + CARD_W / 2; *y = GTOP + G.gridY.v + 16 + row * ROWH + CARD_H / 2; return 1; }
 static void sim_focus(int i, int b) { (void)b; int was = topNav.active; topNav.active = 0; if (was || G.idx != i) G.idx = i; }
 static void person_panel(void) {
   float x = 62, y = 124, ph = 236;
@@ -207,7 +207,7 @@ static void person_panel(void) {
     cy += ch + 26; }
   /* the story */
   if (PI.bio[0] || PI.state == 1) { float bh = SB_H - 40 - cy; if (bh > 160) { gfx_rrect(x, cy, cw, bh, 26, BLACK_A(110)); gfx_ring(x, cy, cw, bh, 26, 1.2f, WHITE_A(26));
-      if (G.bioF) gfx_ring(x, cy, cw, bh, 26, 3, ACC2 | 0xff000000u);
+      if (G.bioF) { gfx_rrect(x, cy, cw, bh, 26, WHITE_A(20)); gfx_ring(x, cy, cw, bh, 26, 4, ACC2 | 0xff000000u); }
       text_draw(T("Biography"), x + 30, cy + 24, 30, 700, WHITE_A(255), 0, 0, ALIGN_LEFT);
       if (PI.bio[0]) key_hint(x + cw - 30 - key_hint(-9999, 0, G.bioF ? K_OK : K_LEFT, T("Read more"), 0, 1), cy + 28, G.bioF ? K_OK : K_LEFT, T("Read more"), WHITE_A(G.bioF ? 230 : 130), 1);
       int lines = (int)((bh - 24 - 50 - 28) / 38); if (lines > 0 && PI.bio[0]) text_draw_wrapped(PI.bio, x + 30, cy + 24 + 54, cw - 60, lines, 25, 400, WHITE_A(214), 0, ALIGN_LEFT, 38);
@@ -229,7 +229,7 @@ static void draw(void) {
   if (G.empty && !G.loading) text_draw(T("Nothing found."), rtl ? SB_W - 48 - 40 : 48 + 40, 40, 27, 400, WHITE_A(191), 0, 0,
  rtl ? ALIGN_RIGHT : ALIGN_LEFT);
   /* the cards; the focused one last, over its neighbours as it grows */
-  int fi = !topNav.active && G.idx < G.items.n ? G.idx : -1; float hp = app_hold_progress();
+  int fi = !topNav.active && !G.bioF && !G.bioOpen && G.idx < G.items.n ? G.idx : -1; float hp = app_hold_progress();
   for (int pass = 0; pass < 2; pass++) for (int i = 0; i < G.items.n; i++) { if ((i == fi) != pass) continue;
     int row = i / COLS; float y = 16 + row * ROWH; if (y + G.gridY.v > SB_H - top || y + CARD_H + G.gridY.v < 0) continue;
     float x = GX + (i % COLS) * (CARD_W + CARD_GAP); if (rtl) x = SB_W - x - CARD_W; unsigned long long lk = lift_key(&G, i);

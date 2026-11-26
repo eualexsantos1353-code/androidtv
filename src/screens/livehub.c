@@ -172,7 +172,7 @@ static void watch(void) {
   live_start_list(t->p, t->n, H.idx, H.inPlayer);
   if (H.inPlayer) hub_close(); else { H.leaving = 1; H.leaveAt = app_now(); } /* (from Home: the loader comes over it, its logo flying from the tile) */
 }
-#define LROW 96.0f   /* the list: one channel a row (the TV tab's page, as a channel guide) */
+#define LROW 128.0f   /* the list: one channel a row (the TV tab's page, as a channel guide) */
 static int list_mode(void) { return !H.inPlayer; }
 static int tab_step(int d) { int nx = H.cur + d; while (nx >= 0 && nx < H.ntab && (H.tab[nx].more || !H.tab[nx].n)) nx += d; return nx >= 0 && nx < H.ntab ? nx : -1; }
 static int list_key(int k) {
@@ -222,7 +222,7 @@ void hub_tick(float dt) {
   if (H.leaving && player_open() && (player_art_full() || app_now() - H.leaveAt > 3)) { H.leaving = 0; } /* covered by the player: it stays under it, so Back from the channel comes back here */
   else if (H.leaving && !player_open() && app_now() - H.leaveAt > 0.4) { H.leaving = 0; H.a.v = 0; tween_set(&H.a, 0); hub_close(); return; } /* (the channel did not open: gone, as before) */
   { int tot = 0; for (int c = 0; c < live_catalogs(); c++) { int n = live_catalog(c, NULL, NULL); if (n > 0) tot += n; } if (tot != H.liveN) build(); } /* the catalogs came in */
-  if (list_mode()) { float want = H.idx > 3 ? -(H.idx - 3) * LROW : 0; if (!H.ptrHold) tween_to(&H.gridY, want, 0.24f, EASE_ROW); }
+  if (list_mode()) { float want = H.idx > 2 ? -(H.idx - 2) * LROW : 0; if (!H.ptrHold) tween_to(&H.gridY, want, 0.24f, EASE_ROW); }
   else { int row = H.idx / COLS; if (!H.ptrHold) tween_to(&H.gridY, -row * PITCH, 0.28f, EASE_ROW); } /* the focused row right under the pills (the one above gone, never half under them) */
   { const LiveCh *f = focused(); if (H.inPlayer && f && H.zone == 0 && strcmp(f->id, H.playing) && !live_reach(f->id) && app_now() - H.focusAt > 0.6 && !live_card()->tuning) { Item it; live_item(f, &it); live_peek(&it); } }
   /* (over a channel: OK switches to another; from Home: the preview box plays the focused one, see hub_draw_body) */
@@ -302,56 +302,56 @@ static void draw_list(float a) {
   gfx_opacity_push(a);
   if (v < 0.999f) gfx_rect(0, 0, SB_W, SB_H, col_alpha(RGB(8, 8, 12), 1 - v));
   gfx_rect(0, 0, SB_W, SB_H, BLACK_A((int)(150 * v)));
-  float cx = 90, cy = 118, cw = SB_W - 90 - 60, ch = SB_H - 118 - 36, r = 38; /* the card */
-  gfx_shadow(cx, cy + 18, cw, ch, r, 60, BLACK_A(170)); gfx_rrect_v(cx, cy, cw, ch, r, RGBA(26, 26, 30, 246), RGBA(14, 14, 17, 246)); gfx_ring(cx, cy, cw, ch, r, 1.2f, WHITE_A(22));
-  float px = cx + 64; /* inside */
-  text_draw(T("Channels"), px, cy + 34, 56, 800, WHITE_A(255), -0.4f, 0, ALIGN_LEFT);
+  float cx = 0, cy = 0, cw = SB_W, ch = SB_H; /* the whole screen: a channel guide */
+  gfx_rrect_v(0, 0, SB_W, SB_H, 0, RGBA(22, 22, 28, 250), RGBA(10, 10, 13, 250));
+  float px = 80; /* the margin */
+  text_draw(T("Channels"), px, 34, 72, 800, WHITE_A(255), -0.5f, 0, ALIGN_LEFT);
   { int tot = 0; for (int i = 0; i < H.ntab; i++) if (!strcmp(H.tab[i].name, T("All channels"))) tot = H.tab[i].n; if (!tot && l) tot = l->n; char nb[16]; snprintf(nb, sizeof nb, "%d", tot);
-    text_draw(T1("{n} channels", "n", nb), cx + cw - 56, cy + 52, 30, 600, WHITE_A(150), 0, 0, ALIGN_RIGHT); }
+    text_draw(T1("{n} channels", "n", nb), cx + cw - 80, 56, 36, 600, WHITE_A(160), 0, 0, ALIGN_RIGHT); }
   /* the topics: pills along the top, the chosen one white */
-  { float tx = px, ty = cy + 122, th = 62; static float scroll; float want = 0, x = 0;
-    for (int i = 0; i < H.ntab; i++) { if (H.tab[i].more || !H.tab[i].n) continue; float w = text_width(H.tab[i].name, 28, 600, 0) + 52; if (i == H.cur) { if (x + w - scroll > cw - 140) want = x + w - (cw - 140); else if (x < scroll) want = x; else want = scroll; } x += w + 10; }
+  { float tx = px, ty = 138, th = 76; static float scroll; float want = 0, x = 0;
+    for (int i = 0; i < H.ntab; i++) { if (H.tab[i].more || !H.tab[i].n) continue; float w = text_width(H.tab[i].name, 36, 600, 0) + 64; if (i == H.cur) { if (x + w - scroll > cw - 200) want = x + w - (cw - 200); else if (x < scroll) want = x; else want = scroll; } x += w + 14; }
     scroll += (want - scroll) * fminf(1, app_dt() * 10);
-    gfx_clip_push(px - 6, ty - 6, cw - 120, th + 12); x = tx - scroll;
-    for (int i = 0; i < H.ntab; i++) { if (H.tab[i].more || !H.tab[i].n) continue; const char *nm = H.tab[i].name; float w = text_width(nm, 28, 600, 0) + 52; int sel = i == H.cur;
-      if (sel) gfx_rrect(x, ty, w, th, th / 2, WHITE_A(245)); text_draw(nm, x + 26, ty + (th - text_line_height(28)) / 2, 28, sel ? 700 : 600, sel ? RGB(14, 14, 18) : WHITE_A(175), 0, 0, ALIGN_LEFT);
-      hit_add(x, ty, w, th, chip_pick, NULL, i, 0); x += w + 10; }
+    gfx_clip_push(px - 6, ty - 6, cw - 160, th + 12); x = tx - scroll;
+    for (int i = 0; i < H.ntab; i++) { if (H.tab[i].more || !H.tab[i].n) continue; const char *nm = H.tab[i].name; float w = text_width(nm, 36, 600, 0) + 64; int sel = i == H.cur;
+      if (sel) gfx_rrect(x, ty, w, th, th / 2, ac); else gfx_rrect(x, ty, w, th, th / 2, WHITE_A(16)); text_draw(nm, x + 32, ty + (th - text_line_height(36)) / 2, 36, sel ? 800 : 600, sel ? WHITE_A(255) : WHITE_A(185), 0, 0, ALIGN_LEFT);
+      hit_add(x, ty, w, th, chip_pick, NULL, i, 0); x += w + 14; }
     gfx_clip_pop();
     }
   /* the list */
-  float lx = px, lw = cw * 0.55f, ly = cy + 222, lh = ch - 222 - 26;
+  float lx = px, lw = cw * 0.55f, ly = 250, lh = ch - 250 - 24;
   gfx_clip_push(lx - 24, ly - 8, lw + 48, lh + 16);
   if (l) { const char *ids[16], *tys[16]; int nv = 0; if (f) { ids[nv] = f->id; tys[nv++] = f->type; }
     for (int i = 0; i < l->n; i++) { float y = ly + i * LROW + H.gridY.v; if (y + LROW < ly - 8 || y > ly + lh) continue; const LiveCh *c = l->p[i]; int isf = i == H.idx;
       if (c != f && nv < 16) { ids[nv] = c->id; tys[nv++] = c->type; }
-      if (isf) { gfx_rrect(lx - 20, y, lw + 40, LROW - 6, 18, WHITE_A(24)); gfx_ring(lx - 20, y, lw + 40, LROW - 6, 18, 1.5f, col_alpha(ac, 0.8f)); }
-      float mid = y + (LROW - 6) / 2; char num[12]; snprintf(num, sizeof num, "%d", i + 1);
-      text_draw(num, lx + 44, mid - text_line_height(28) / 2, 28, 600, WHITE_A(isf ? 220 : 120), 0, 0, ALIGN_RIGHT);
-      { float w2, h2; GLuint t; const char *art = art_of(c); if (fit_logo(art, 128, 60, &w2, &h2, &t)) gfx_image(t, lx + 66 + (128 - w2) / 2, mid - h2 / 2, w2, h2, 0, WHITE_A((int)(255 * gfx_tex_fade(t))), 0, 0, 1, 1);
-        else { gfx_rrect(lx + 66, mid - 30, 128, 60, 12, name_hue(c->name, 0.45f)); } }
+      if (isf) { gfx_rrect(lx - 20, y, lw + 40, LROW - 8, 22, WHITE_A(30)); gfx_ring(lx - 20, y, lw + 40, LROW - 8, 22, 3, ac); }
+      float mid = y + (LROW - 8) / 2; char num[12]; snprintf(num, sizeof num, "%d", i + 1);
+      text_draw(num, lx + 52, mid - text_line_height(36) / 2, 36, 700, WHITE_A(isf ? 220 : 120), 0, 0, ALIGN_RIGHT);
+      { float w2, h2; GLuint t; const char *art = art_of(c); if (fit_logo(art, 176, 88, &w2, &h2, &t)) gfx_image(t, lx + 76 + (176 - w2) / 2, mid - h2 / 2, w2, h2, 0, WHITE_A((int)(255 * gfx_tex_fade(t))), 0, 0, 1, 1);
+        else { gfx_rrect(lx + 76, mid - 44, 176, 88, 14, name_hue(c->name, 0.45f)); } }
       char nw[96] = "", nx[96]; int pc = -1; int ep = iptv_is(c->id) && iptv_epg(c->id, nw, sizeof nw, nx, sizeof nx, &pc) && nw[0];
-      float tx = lx + 220, tw = lw - 220 - 170;
-      if (ep) { text_draw(c->name, tx, mid - 34, 31, 700, WHITE_A(isf ? 255 : 225), 0, tw, ALIGN_LEFT); text_draw(nw, tx, mid + 4, 24, 500, WHITE_A(140), 0, tw, ALIGN_LEFT); }
-      else text_draw(c->name, tx, mid - text_line_height(31) / 2, 31, 700, WHITE_A(isf ? 255 : 225), 0, tw, ALIGN_LEFT);
-      { int st = live_reach(c->id); if (st > 0) live_dot(lx + lw - 160, mid, 5); }
-      if (ep && pc >= 0) { float bx = lx + lw - 130, bw = 120; gfx_rrect(bx, mid - 2, bw, 4, 2, WHITE_A(40)); gfx_rrect(bx, mid - 2, bw * pc / 100.f, 4, 2, WHITE_A(220)); }
-      if (live_pinned(c->id)) icon_draw("star", lx + lw - 150, mid - 38, 22, RGB(0xf5, 0xc5, 0x18));
-      hit_add(lx - 20, y, lw + 40, LROW - 6, row_focus, NULL, i, 0); }
+      float tx = lx + 280, tw = lw - 280 - 190;
+      if (ep) { text_draw(c->name, tx, mid - 46, 42, 700, WHITE_A(isf ? 255 : 225), 0, tw, ALIGN_LEFT); text_draw(nw, tx, mid + 6, 31, 500, WHITE_A(150), 0, tw, ALIGN_LEFT); }
+      else text_draw(c->name, tx, mid - text_line_height(42) / 2, 42, 700, WHITE_A(isf ? 255 : 225), 0, tw, ALIGN_LEFT);
+      { int st = live_reach(c->id); if (st > 0) live_dot(lx + lw - 175, mid, 7); }
+      if (ep && pc >= 0) { float bx = lx + lw - 145, bw = 135; gfx_rrect(bx, mid - 3, bw, 6, 3, WHITE_A(40)); gfx_rrect(bx, mid - 3, bw * pc / 100.f, 6, 3, WHITE_A(230)); }
+      if (live_pinned(c->id)) icon_draw("star", lx + lw - 170, mid - 50, 28, RGB(0xf5, 0xc5, 0x18));
+      hit_add(lx - 20, y, lw + 40, LROW - 8, row_focus, NULL, i, 0); }
     if (H.open && !H.leaving) live_probe_visible(ids, tys, nv); }
   gfx_clip_pop();
-  if (!l || !l->n) text_draw(T("Loading channels…"), lx, ly + 40, 26, 600, WHITE_A(160), 0, 0, ALIGN_LEFT);
+  if (!l || !l->n) text_draw(T("Loading channels…"), lx, ly + 40, 38, 600, WHITE_A(160), 0, 0, ALIGN_LEFT);
   /* the focused channel, at the right */
-  if (f) { float rx = cx + cw * 0.61f, rw = cx + cw - 64 - rx, bh = rw * 9 / 16, by = ly - 4; Item it; live_item(f, &it);
-    if (H.open) { lpk_want(&it, rx, by, rw, bh); lpk_draw(f->id, art_of(f), rx, by, rw, bh, 22, 1, RGB(24, 24, 30), RGB(12, 12, 16)); }
-    float y = by + bh + 30; char num[12]; snprintf(num, sizeof num, "%d", H.idx + 1);
-    { float bw = text_width(T("LIVE"), 24, 800, 0.6f) + 48, bhh = 42; gfx_rrect(rx, y, bw, bhh, 8, RGB(0xe5, 0x2b, 0x2b)); gfx_circle(rx + 17, y + bhh / 2, 5, WHITE_A(255)); text_draw(T("LIVE"), rx + 32, y + (bhh - text_line_height(24)) / 2, 24, 800, WHITE_A(255), 0.6f, 0, ALIGN_LEFT);
-      char hd[140]; snprintf(hd, sizeof hd, "%s  %s", num, f->name); text_draw(hd, rx + bw + 16, y + (bhh - text_line_height(30)) / 2, 30, 600, WHITE_A(220), 0, rw - bw - 14, ALIGN_LEFT); }
-    y += 66; char nw[96] = "", nx[96] = ""; int pc = -1; int ep = iptv_is(f->id) && iptv_epg(f->id, nw, sizeof nw, nx, sizeof nx, &pc) && nw[0];
-    if (ep) { int nl = text_draw_wrapped(nw, rx, y, rw, 2, 50, 800, WHITE_A(255), -0.5f, ALIGN_LEFT, 58); y += nl * 58 + 18;
-      if (pc >= 0) { gfx_rrect(rx, y, rw, 6, 3, WHITE_A(40)); gfx_rrect(rx, y, rw * pc / 100.f, 6, 3, WHITE_A(230)); y += 34; }
-      if (nx[0]) { float uw = text_draw(T("Up next"), rx, y, 28, 500, WHITE_A(140), 0, 0, ALIGN_LEFT); text_draw(nx, rx + uw + 16, y, 28, 600, WHITE_A(220), 0, rw - uw - 14, ALIGN_LEFT); } }
-    else { const char *where = H.cur < H.ntab ? H.tab[H.cur].name : ""; text_draw(f->name, rx, y, 50, 800, WHITE_A(255), -0.5f, rw, ALIGN_LEFT); y += 70; text_draw(where, rx, y, 28, 500, WHITE_A(150), 0, rw, ALIGN_LEFT); y += 40; }
-    { float hy = cy + ch - 64, hx = rx; hx += key_hint(hx, hy, K_OK, T("Play"), WHITE_A(170), 1) + 24; hx += key_hint(hx, hy, K_GREEN, T(live_pinned(f->id) ? "Unfavorite" : "Favorite"), WHITE_A(170), 1) + 24; key_hint(hx, hy, K_BACK, T("Close"), WHITE_A(170), 1); } }
+  if (f) { float rx = cx + cw * 0.60f, rw = cx + cw - 80 - rx, bh = rw * 9 / 16, by = ly - 4; Item it; live_item(f, &it);
+    if (H.open) { lpk_want(&it, rx, by, rw, bh); lpk_draw(f->id, art_of(f), rx, by, rw, bh, 26, 1, RGB(24, 24, 30), RGB(12, 12, 16)); }
+    float y = by + bh + 34; char num[12]; snprintf(num, sizeof num, "%d", H.idx + 1);
+    { float bw = text_width(T("LIVE"), 30, 800, 0.6f) + 60, bhh = 52; gfx_rrect(rx, y, bw, bhh, 10, RGB(0xd0, 0x1e, 0x1e)); gfx_circle(rx + 21, y + bhh / 2, 6, WHITE_A(255)); text_draw(T("LIVE"), rx + 38, y + (bhh - text_line_height(30)) / 2, 30, 800, WHITE_A(255), 0.6f, 0, ALIGN_LEFT);
+      char hd[140]; snprintf(hd, sizeof hd, "%s  %s", num, f->name); text_draw(hd, rx + bw + 18, y + (bhh - text_line_height(36)) / 2, 36, 600, WHITE_A(225), 0, rw - bw - 18, ALIGN_LEFT); }
+    y += 80; char nw[96] = "", nx[96] = ""; int pc = -1; int ep = iptv_is(f->id) && iptv_epg(f->id, nw, sizeof nw, nx, sizeof nx, &pc) && nw[0];
+    if (ep) { int nl = text_draw_wrapped(nw, rx, y, rw, 2, 62, 800, WHITE_A(255), -0.5f, ALIGN_LEFT, 70); y += nl * 70 + 20;
+      if (pc >= 0) { gfx_rrect(rx, y, rw, 8, 4, WHITE_A(40)); gfx_rrect(rx, y, rw * pc / 100.f, 8, 4, WHITE_A(230)); y += 40; }
+      if (nx[0]) { float uw = text_draw(T("Up next"), rx, y, 36, 500, WHITE_A(150), 0, 0, ALIGN_LEFT); text_draw(nx, rx + uw + 18, y, 36, 600, WHITE_A(220), 0, rw - uw - 14, ALIGN_LEFT); } }
+    else { const char *where = H.cur < H.ntab ? H.tab[H.cur].name : ""; text_draw(f->name, rx, y, 62, 800, WHITE_A(255), -0.5f, rw, ALIGN_LEFT); y += 84; text_draw(where, rx, y, 36, 500, WHITE_A(160), 0, rw, ALIGN_LEFT); y += 50; }
+    { float hy = cy + ch - 60, hx = rx, s = 1.45f; hx += key_hint_s(hx, hy, K_OK, T("Play"), WHITE_A(190), 1, s) + 34; hx += key_hint_s(hx, hy, K_GREEN, T(live_pinned(f->id) ? "Unfavorite" : "Favorite"), WHITE_A(190), 1, s) + 34; key_hint_s(hx, hy, K_BACK, T("Close"), WHITE_A(190), 1, s); } }
   gfx_opacity_pop();
 }
 static void hub_draw_body(void) {
