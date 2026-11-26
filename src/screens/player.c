@@ -1901,6 +1901,94 @@ static void back(void) {
 }
 static void ss_exit(void) { P.ssOn = 0; P.lastAct = now_(); }
 static void try_next(void);
+
+/* ---- X-Ray (as Prime Video's): Up while the film plays opens a panel at the left, the film going on behind it:
+   Cast (OK on a face: the person, as Apple TV's card) and Trivia. Back closes the card, then the panel ---- */
+static struct { int on, tab, zone, idx, card, cardPid; Mo a, card_a; float scroll; char cardRole[96], cardName[80], cardPhoto[200]; } XR; /* zone 0 the tabs, 1 the list */
+static void xr_open(void) { if (P.isTrailer || live_title()) return; hide_osd(); XR.on = 1; XR.zone = 1; XR.idx = 0; XR.card = 0; XR.scroll = 0; mo_to(&XR.a, 1, .28f, C_OUT, 0); sound_focus(); }
+static void xr_close(void) { XR.on = 0; XR.card = 0; mo_to(&XR.a, 0, .22f, C_OUT, 0); mo_to(&XR.card_a, 0, .18f, C_OUT, 0); }
+static int xr_count(void) { if (XR.tab == 0) { const InsightFace *fc; int ep = episodic(); return insight_get(P.type, P.id, ep ? P.season : -1, ep ? P.episode : -1, &fc); } const char **tl; int st; return insight_trivia(P.id, &tl, &st); }
+static void xr_key(int k) {
+  if (XR.card) { if (k == K_BACK || k == K_OK || k == K_LEFT) { XR.card = 0; mo_to(&XR.card_a, 0, .18f, C_OUT, 0); sound_focus(); } return; }
+  int n = xr_count();
+  if (k == K_BACK) { xr_close(); return; }
+  if (XR.zone == 0) {
+    if (k == K_LEFT || k == K_RIGHT) { int t = k == K_RIGHT ? 1 : 0; if (t != XR.tab) { XR.tab = t; XR.idx = 0; XR.scroll = 0; sound_focus(); } else nudge_start(&P.nudge, k); }
+    else if (k == K_DOWN || k == K_OK) { if (n) { XR.zone = 1; sound_focus(); } else nudge_start(&P.nudge, k); }
+    else if (k == K_UP) nudge_start(&P.nudge, k);
+    return; }
+  if (k == K_UP) { if (XR.idx > 0) XR.idx--; else XR.zone = 0; sound_focus(); }
+  else if (k == K_DOWN) { if (XR.idx < n - 1) { XR.idx++; sound_focus(); } else nudge_start(&P.nudge, k); }
+  else if (k == K_RIGHT) { if (XR.tab == 0) { XR.tab = 1; XR.idx = 0; XR.scroll = 0; sound_focus(); } else nudge_start(&P.nudge, k); }
+  else if (k == K_LEFT) { if (XR.tab == 1) { XR.tab = 0; XR.idx = 0; XR.scroll = 0; sound_focus(); } else xr_close(); }
+  else if (k == K_OK && XR.tab == 0 && XR.idx < n) { const InsightFace *fc; int ep = episodic(); if (insight_get(P.type, P.id, ep ? P.season : -1, ep ? P.episode : -1, &fc) > XR.idx) {
+      const InsightFace *f = &fc[XR.idx]; XR.card = 1; XR.cardPid = f->pid; snprintf(XR.cardName, sizeof XR.cardName, "%s", f->name); snprintf(XR.cardRole, sizeof XR.cardRole, "%s", f->role); snprintf(XR.cardPhoto, sizeof XR.cardPhoto, "%s", f->photo);
+      insight_person(f->pid); mo_to(&XR.card_a, 1, .26f, C_OUT, 0); sound_focus(); } }
+}
+static void xr_date(const char *ymd, char *out, size_t cap) { int y = 0, m = 0, d = 0; out[0] = 0; static const char *MO[12] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+  if (sscanf(ymd, "%d-%d-%d", &y, &m, &d) == 3 && m >= 1 && m <= 12) snprintf(out, cap, "%d %s %d", d, T(MO[m - 1]), y); }
+static int xr_age(const char *born, const char *died) { int y, m, d, y2, m2, d2; if (sscanf(born, "%d-%d-%d", &y, &m, &d) != 3) return -1;
+  if (!died || sscanf(died, "%d-%d-%d", &y2, &m2, &d2) != 3) { time_t t = time(NULL); struct tm tm; localtime_r(&t, &tm); y2 = tm.tm_year + 1900; m2 = tm.tm_mon + 1; d2 = tm.tm_mday; }
+  return y2 - y - ((m2 < m || (m2 == m && d2 < d)) ? 1 : 0); }
+static void xr_draw(void) {
+  { static double lt; double nw = now_(); float fdt = lt ? (float)(nw - lt) : 0; lt = nw; if (fdt > 0.05f) fdt = 0.05f; mo_tick(&XR.a, fdt); mo_tick(&XR.card_a, fdt); }
+  float a = XR.a.v; if (a < 0.003f) return; uint32_t ac = ACC2 | 0xff000000u; int ep = episodic();
+  float PW = 700, ox = -PW * (1 - a) * 0.25f; gfx_opacity_push(a);
+  gfx_rrect_h(0, 0, PW + 260, SB_H, 0, RGBA(8, 8, 12, 236), RGBA(8, 8, 12, 0)); gfx_rect(0, 0, PW, SB_H, RGBA(8, 8, 12, 120));
+  gfx_offset_push(ox, 0);
+  float x = 72, y = 70;
+  text_draw("X-Ray", x, y, 46, 800, WHITE_A(255), -0.6f, 0, ALIGN_LEFT);
+  { char sub[300]; if (ep && P.season >= 0) snprintf(sub, sizeof sub, "%s  \xc2\xb7  T%d:E%d", P.name, P.season, P.episode); else snprintf(sub, sizeof sub, "%s", P.name); text_draw(sub, x, y + 62, 24, 600, WHITE_A(160), 0, PW - 120, ALIGN_LEFT); }
+  /* the tabs */
+  float ty = y + 112, th = 58, tx = x; const char *TB[2] = { T("Cast"), T("Trivia") };
+  for (int t = 0; t < 2; t++) { float w = text_width(TB[t], 26, 700, 0) + 56; int sel = XR.tab == t, f = sel && XR.zone == 0;
+    gfx_rrect(tx, ty, w, th, th / 2, f ? WHITE_A(250) : sel ? WHITE_A(46) : WHITE_A(14)); text_draw(TB[t], tx + 28, ty + (th - text_line_height(26)) / 2, 26, 700, f ? RGB(16, 16, 20) : WHITE_A(sel ? 255 : 170), 0, 0, ALIGN_LEFT); tx += w + 12; }
+  float ly = ty + th + 34, lh = SB_H - 90 - ly;
+  if (XR.tab == 0) { const InsightFace *fc; int nf = insight_get(P.type, P.id, ep ? P.season : -1, ep ? P.episode : -1, &fc);
+    if (!nf) text_draw(insight_state() == 1 || !insight_state() ? T("Getting the cast\xe2\x80\xa6") : T("No cast for this title"), x, ly + 10, 28, 600, WHITE_A(160), 0, PW - 140, ALIGN_LEFT);
+    float RH = 124, want = XR.idx > 3 ? -(XR.idx - 3) * RH : 0; XR.scroll += (want - XR.scroll) * fminf(1, app_dt() * 12);
+    gfx_clip_push(x - 20, ly - 6, PW - x + 10, lh + 12);
+    for (int i = 0; i < nf; i++) { float ry = ly + i * RH + XR.scroll; if (ry + RH < ly || ry > ly + lh) continue; int fo = XR.zone == 1 && i == XR.idx;
+      if (fo) { gfx_rrect(x - 16, ry, PW - x - 40, RH - 12, 22, WHITE_A(30)); gfx_ring(x - 16, ry, PW - x - 40, RH - 12, 22, 3, ac); }
+      float asp; GLuint tx2 = img_get(fc[i].photo, 185, 278, &asp); float d = 92, py = ry + (RH - 12 - d) / 2;
+      if (tx2) { float a2 = asp > 0 && asp < 1 ? asp : 0.667f, v0 = (1 - a2) * 0.2f; gfx_image(tx2, x, py, d, d, d / 2, WHITE_A(255), 0, v0, 1, v0 + a2); } else gfx_circle(x + d / 2, py + d / 2, d / 2, WHITE_A(36));
+      text_draw(fc[i].name, x + d + 24, py + 12, 30, 800, WHITE_A(fo ? 255 : 230), -0.2f, PW - x - d - 90, ALIGN_LEFT);
+      if (fc[i].role[0]) text_draw(T1("as {c}", "c", fc[i].role), x + d + 24, py + 54, 24, 500, WHITE_A(170), 0, PW - x - d - 90, ALIGN_LEFT); }
+    gfx_clip_pop(); }
+  else { const char **tl = NULL; int st = 0, nt = insight_trivia(P.id, &tl, &st);
+    if (!nt) text_draw(st == 2 ? T("No trivia for this title") : T("Getting the trivia\xe2\x80\xa6"), x, ly + 10, 28, 600, WHITE_A(160), 0, PW - 140, ALIGN_LEFT);
+    float cw = PW - x - 40, yy = ly; static float hts[24]; float off = 0; for (int i = 0; i < XR.idx && i < 24; i++) off += hts[i]; float want = off > lh * 0.35f ? -(off - lh * 0.35f) : 0; XR.scroll += (want - XR.scroll) * fminf(1, app_dt() * 12);
+    gfx_clip_push(x - 20, ly - 6, PW - x + 10, lh + 12); yy = ly + XR.scroll;
+    for (int i = 0; i < nt && i < 24; i++) { int fo = XR.zone == 1 && i == XR.idx; int nl = text_wrap_count(tl[i], cw - 48, 7, 25, 500, 0); float h = 28 + nl * 36 + 24; hts[i] = h + 14;
+      if (yy + h > ly - 10 && yy < ly + lh + 10) { gfx_rrect(x - 16, yy, cw, h, 22, fo ? WHITE_A(30) : WHITE_A(12)); if (fo) gfx_ring(x - 16, yy, cw, h, 22, 3, ac);
+        text_draw_wrapped(tl[i], x + 8, yy + 26, cw - 48, 7, 25, 500, WHITE_A(fo ? 245 : 200), 0, ALIGN_LEFT, 36); }
+      yy += h + 14; }
+    gfx_clip_pop(); }
+  { float hx = x, hy = SB_H - 52; if (XR.tab == 0) hx += key_hint(hx, hy, K_OK, T("Details"), WHITE_A(170), 0) + 28; key_hint(hx, hy, K_BACK, T("Close"), WHITE_A(170), 0); }
+  gfx_offset_pop(); gfx_opacity_pop();
+  /* the person, as Apple TV's card: the film paused or not behind, the panel under it */
+  float ca = XR.card_a.v; if (ca < 0.003f) return; const InsightPerson *pp = insight_person(XR.cardPid);
+  gfx_opacity_push(ca); gfx_rrect_h(0, 0, SB_W * 0.85f, SB_H, 0, RGBA(6, 6, 10, 245), RGBA(6, 6, 10, 0)); gfx_rect(0, 0, SB_W * 0.55f, SB_H, RGBA(6, 6, 10, 120));
+  float cx = 120, cy = 110; { float hw = key_hint(cx, cy + 10, K_BACK, T("Back"), WHITE_A(220), 0); (void)hw; }
+  float phW = 300, phH = 450, py = cy + 70; float asp; GLuint t = img_get(XR.cardPhoto, 300, 450, &asp);
+  gfx_shadow(cx, py + 14, phW, phH, 28, 40, BLACK_A(160)); if (t) gfx_image(t, cx, py, phW, phH, 28, WHITE_A(255), 0, 0, 1, 1); else gfx_rrect(cx, py, phW, phH, 28, WHITE_A(30));
+  float tx3 = cx + phW + 56, tw = SB_W * 0.62f - tx3; if (tw < 520) tw = 520;
+  text_draw(XR.cardName, tx3, py + 6, 58, 800, WHITE_A(255), -0.8f, tw, ALIGN_LEFT);
+  if (XR.cardRole[0]) text_draw(T1("as {c}", "c", XR.cardRole), tx3, py + 84, 32, 600, WHITE_A(200), 0, tw, ALIGN_LEFT);
+  float fy = py + 146;
+  if (pp && pp->born[0]) { char d[40], ln[200]; xr_date(pp->born, d, sizeof d); int ag = xr_age(pp->born, pp->died[0] ? pp->died : NULL); char an[16]; snprintf(an, sizeof an, "%d", ag);
+    if (ag >= 0 && !pp->died[0]) snprintf(ln, sizeof ln, "%s  \xc2\xb7  %s", d, T1("{n} years", "n", an)); else snprintf(ln, sizeof ln, "%s", d);
+    icon_draw("p_cake", tx3, fy + 2, 28, WHITE_A(160)); text_draw(ln, tx3 + 42, fy, 26, 600, WHITE_A(220), 0, tw - 42, ALIGN_LEFT); fy += 44; }
+  if (pp && pp->place[0]) { icon_draw("d_country", tx3, fy + 2, 28, WHITE_A(160)); text_draw(pp->place, tx3 + 42, fy, 26, 600, WHITE_A(220), 0, tw - 42, ALIGN_LEFT); fy += 44; }
+  if (pp && pp->bio[0]) { fy += 12; text_draw_wrapped(pp->bio, tx3, fy, tw, 6, 25, 400, WHITE_A(205), 0, ALIGN_LEFT, 36); }
+  else if (!pp || pp->state == 1) text_draw("\xe2\x80\xa6", tx3, fy + 12, 28, 600, WHITE_A(150), 0, 0, ALIGN_LEFT);
+  if (pp && pp->nknown) { float ky = py + phH + 50; text_draw(T("Known for"), cx, ky, 30, 800, WHITE_A(240), -0.2f, 0, ALIGN_LEFT); ky += 52;
+    for (int i = 0; i < pp->nknown && i < 7; i++) { float kx = cx + i * 172; float a3; GLuint pt = img_get(pp->known[i].poster, 185, 278, &a3);
+      if (pt) gfx_image(pt, kx, ky, 150, 225, 14, WHITE_A(255), 0, 0, 1, 1); else gfx_rrect(kx, ky, 150, 225, 14, WHITE_A(24));
+      char lb[140]; if (pp->known[i].year[0]) snprintf(lb, sizeof lb, "%s", pp->known[i].year); else lb[0] = 0;
+      text_draw(pp->known[i].title, kx, ky + 236, 20, 700, WHITE_A(220), 0, 150, ALIGN_LEFT); if (lb[0]) text_draw(lb, kx, ky + 262, 18, 500, WHITE_A(150), 0, 150, ALIGN_LEFT); } }
+  gfx_opacity_pop();
+}
 void player_key(int k, int down) {
   if (!down) { if (P.open && P.mode == 6 && k == K_OK) hub_ok_up(); return; } /* (the hub over the picture: OK let go, a tap; held, its streams) */
   if (!P.open) return; if (shrinkAt > 0) return; /* (going back into its box) */ app_touch();
@@ -1915,6 +2003,7 @@ void player_key(int k, int down) {
   if (k == K_PLAYPAUSE) { toggle(); show_osd(1); return; }
   if (k == K_STOP || k == K_EXIT) { close_player(0, 0); return; }
   if (k == K_REW) { seek_by(-1); return; } if (k == K_FF) { seek_by(1); return; }
+  if (XR.on) { xr_key(k); return; } /* the X-Ray panel has the keys */
   if (k == K_BACK) { back(); return; }
   if (P.mode == 2) { tray_key(k); return; }
   if (P.mode == 4) { dly_key(k); return; }
@@ -1937,6 +2026,7 @@ void player_key(int k, int down) {
     if (k == K_OK) { if (P.seekT >= 0) commit_ok(); else if (P.prompt.k) prompt_go(P.prompt.idx); else { toggle(); show_osd(0); } return; }
     if (k == K_LEFT) { seek_by(-1); return; } if (k == K_RIGHT) { seek_by(1); return; }
     if ((k == K_UP || k == K_DOWN) && P.seekT >= 0 && chapters_on()) { chap_jump(k == K_UP ? 1 : -1); return; } /* seeking: from chapter to chapter */
+    if (k == K_UP && P.seekT < 0 && !P.prompt.k && !P.isTrailer && P.type[0] && strcmp(P.type, "other") && !strncmp(P.id, "tt", 2)) { xr_open(); return; } /* Up: the X-Ray panel (Down: the controls) */
     if (k == K_UP || k == K_DOWN) { if (P.seekT >= 0) commit_seek(); show_osd(0); return; }
     return; }
   arm_hide();
@@ -1944,7 +2034,7 @@ void player_key(int k, int down) {
     if ((k == K_UP || k == K_DOWN) && P.seekT >= 0 && chapters_on()) { chap_jump(k == K_UP ? 1 : -1); return; } /* seeking: from chapter to chapter */
     if (k == K_LEFT) seek_by(-1); else if (k == K_RIGHT) seek_by(1); else if (k == K_OK) { if (P.seekT >= 0) commit_ok(); else toggle(); }
     else if (k == K_DOWN) { if (P.seekT >= 0) commit_seek(); P.row = 0; }
-    else if (k == K_UP) { if (P.prompt.k) { P.mode = 3; } else nudge_start(&P.nudge, k); }
+    else if (k == K_UP) { if (P.prompt.k) { P.mode = 3; } else if (P.seekT < 0 && !P.isTrailer && !strncmp(P.id, "tt", 2)) xr_open(); else nudge_start(&P.nudge, k); }
     return; }
   if ((k == K_LEFT && P.bIdx == 0) || (k == K_RIGHT && P.bIdx == P.nbtn - 1)) nudge_start(&P.nudge, k); /* the row's end */
   else if (k == K_LEFT) P.bIdx--; else if (k == K_RIGHT) P.bIdx++;
@@ -2868,10 +2958,10 @@ static void draw_osd(void) {
   if (P.vig.v > 0.001f) gfx_alpha_tex(vigTex, 0, 0, W, H, BLACK_A((int)(255 * P.vig.v)));
   draw_subs();
   /* paused: who plays in it (Apple TV's InSight), top right under the clock */
-  if (P.vig.v > 0.02f && !P.isTrailer && !live_title() && P.tray.kind <= 0 && strcmp(store_get("insight", "true"), "false")) { const InsightFace *fc; int ep = episodic();
-    int nf = insight_get(P.type, P.id, ep ? P.season : -1, ep ? P.episode : -1, &fc);
+  if (P.vig.v > 0.02f && !XR.on && XR.a.v < 0.02f && !P.isTrailer && !live_title() && P.tray.kind <= 0 && strcmp(store_get("insight", "true"), "false")) { const InsightFace *fc; int ep = episodic();
+    int nf = insight_get(P.type, P.id, ep ? P.season : -1, ep ? P.episode : -1, &fc); if (nf > 5) nf = 5;
     if (nf > 0) { float cwid = 132, gap = 18, tot = nf * cwid + (nf - 1) * gap, x0 = W - 72 - tot, y0 = 150; gfx_opacity_push(P.vig.v);
-      text_draw(T(ep ? "In this episode" : "In this film"), x0, y0, 26, 800, WHITE_A(235), 0, 0, ALIGN_LEFT); y0 += 46;
+      text_draw(T(ep ? "In this episode" : "In this film"), x0, y0, 26, 800, WHITE_A(235), 0, 0, ALIGN_LEFT); key_hint(W - 72, y0 + 15, K_UP, T("X-Ray"), WHITE_A(190), 1); y0 += 46;
       for (int i = 0; i < nf; i++) { float x = x0 + i * (cwid + gap), d = 104, cx = x + (cwid - d) / 2; float asp; GLuint t = img_get(fc[i].photo, 185, 278, &asp);
         gfx_circle(cx + d / 2, y0 + d / 2, d / 2 + 3, WHITE_A(60));
         if (t) { float a2 = asp > 0 && asp < 1 ? asp : 0.667f, v0 = (1 - a2) * 0.2f; gfx_image(t, cx, y0, d, d, d / 2, WHITE_A(255), 0, v0, 1, v0 + a2); } /* (the top of the portrait, square, round) */ else gfx_circle(cx + d / 2, y0 + d / 2, d / 2, WHITE_A(40));
@@ -3276,7 +3366,7 @@ void player_draw(void) {
       if (lpk_take_back(P.id)) { keepVideo = 1; finish_close(); return; } close_player(0, 0); }
     return; }
   zap_shade();
-  if (P.live && P.artA.v < 0.999f) { prev_shade(); draw_osd(); if (stripT >= 0 && seekK.v > 0.01f && !live_bcast()) prev_strip(stripT, stripFrom, 1); draw_tray(); } /* (the previews over the controls, under a tray) */
+  if (P.live && P.artA.v < 0.999f) { prev_shade(); draw_osd(); if (stripT >= 0 && seekK.v > 0.01f && !live_bcast()) prev_strip(stripT, stripFrom, 1); draw_tray(); xr_draw(); } /* (the previews over the controls, under a tray) */
   else if (P.quiet && P.mode != 6) live_card_draw(); /* switching channels, nothing running yet: the corner pill alone */
   else if (P.artA.v < 0.999f) hand_draw();
   draw_art();

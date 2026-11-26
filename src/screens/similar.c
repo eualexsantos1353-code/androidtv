@@ -18,6 +18,7 @@
 #include "core/tmdb.h"
 #include "core/debrid.h"
 #include "core/notify.h"
+#include "core/store.h"
 #include "ui/sound.h"
 #include "ui/icon.h"
 #include "core/app.h"
@@ -154,9 +155,33 @@ static time_t time_of(long d) { struct tm tm; memset(&tm, 0, sizeof tm); tm.tm_y
 static long day_add(long d, int n) { return day_of(time_of(d) + (time_t)n * 86400); }
 static int wday_of(long d) { time_t t = time_of(d); struct tm tm; localtime_r(&t, &tm); return tm.tm_wday; }
 static int day_eps(long d, int *first) { int n = 0; *first = -1; for (int i = 0; i < G.items.n; i++) if (day_of((time_t)G.items.items[i].airAt) == d) { if (*first < 0) *first = i; n++; } return n; }
-static void cal_load(void) { itemlist_clear(&G.items); int r = notify_calendar(&G.items); C.got = r >= 0; G.loading = r < 0 || (r == 0 && notify_busy()); G.empty = r == 0 && !G.loading; C.pollAt = app_now() + 1; }
-static void cal_enter(void) { memset(&C, 0, sizeof C); C.day = day_of(time(NULL)); snprintf(G.title, sizeof G.title, "%s", T("Calendar")); cal_load(); }
-static void cal_tick(float dt) { tween_tick(&C.listY, dt); if ((!C.got || G.loading) && app_now() > C.pollAt) cal_load(); }
+/* besides what the addons' calendar catalogs said: each followed series' own episode list (its metadata, asked once
+   as the Calendar opens), so a library the catalogs don't cover still fills the month */
+static Item *CX; static int nCX, capCX, cxPend; static unsigned cxGen;
+static int cmp_cal(const void *a, const void *b) { double x = ((const Item *)a)->airAt, y = ((const Item *)b)->airAt; if (x != y) return x < y ? -1 : 1; return strcmp(((const Item *)a)->name, ((const Item *)b)->name); }
+static void cal_load(void) {
+  itemlist_clear(&G.items); int r = notify_calendar(&G.items); if (r < 0) r = 0;
+  if (nCX) { Item *m = realloc(G.items.items, (size_t)(G.items.n + nCX) * sizeof(Item)); if (m) { G.items.items = m;
+      for (int i = 0; i < nCX; i++) { int dup = 0; for (int k = 0; k < G.items.n; k++) if (!strcmp(G.items.items[k].videoId, CX[i].videoId)) { dup = 1; break; } if (!dup) G.items.items[G.items.n++] = CX[i]; }
+      qsort(G.items.items, (size_t)G.items.n, sizeof(Item), cmp_cal); } }
+  C.got = 1; G.loading = !G.items.n && (cxPend > 0 || notify_busy()) && app_now() - G.loadT0 < 20; /* (20 s at most: then what came) */ G.empty = !G.items.n && !G.loading; C.pollAt = app_now() + 1; }
+static void on_cal_meta(cJSON *m, void *ud) {
+  if ((unsigned)(uintptr_t)ud != cxGen) return; cxPend--; if (!m) return;
+  time_t now = time(NULL); const cJSON *v; const char *sid = js_str(m, "id", "");
+  cJSON_ArrayForEach(v, js_arr(m, "videos")) { const char *rel = js_str(v, "released", js_str(v, "firstAired", "")); struct tm tm; memset(&tm, 0, sizeof tm); int hh = 0, mi = 0;
+    if (sscanf(rel, "%d-%d-%dT%d:%d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday, &hh, &mi) < 3) continue; tm.tm_year -= 1900; tm.tm_mon--; tm.tm_hour = hh; tm.tm_min = mi; time_t r = timegm(&tm);
+    int se = (int)js_num(v, "season", 0), en = (int)js_num(v, "episode", js_num(v, "number", 0)); if (se <= 0 || r < now - 35 * 86400 || r > now + 92 * 86400) continue;
+    if (nCX == capCX) { capCX = capCX ? capCX * 2 : 64; Item *n2 = realloc(CX, (size_t)capCX * sizeof(Item)); if (!n2) return; CX = n2; }
+    Item *it = &CX[nCX++]; memset(it, 0, sizeof *it); sb_fill_item(it, m, "series"); snprintf(it->id, sizeof it->id, "%s", sid); snprintf(it->type, sizeof it->type, "series");
+    snprintf(it->videoId, sizeof it->videoId, "%s", js_str(v, "id", "")); it->airAt = (double)r; it->ep = en; snprintf(it->metaLine, sizeof it->metaLine, "T%d:E%d", se, en); snprintf(it->epName, sizeof it->epName, "%s", js_str(v, "name", js_str(v, "title", ""))); }
+  cal_load(); }
+static void cal_more(void) {
+  nCX = 0; cxGen++; cxPend = 0; cJSON *lib = store_node("lib"); const cJSON *it; int k = 0; if (!cJSON_IsObject(lib)) return;
+  cJSON_ArrayForEach(it, lib) { if (k >= 60) break; if (strcmp(js_str(it, "type", ""), "series") || js_bool(it, "removed", 0) || js_bool(it, "temp", 0)) continue; const char *id = js_str(it, "_id", ""); if (!*id) continue;
+    k++; cxPend++; sb_meta("series", id, on_cal_meta, (void *)(uintptr_t)cxGen); }
+  fprintf(stderr, "[calendar] asking the episode lists of %d series\n", k); }
+static void cal_enter(void) { memset(&C, 0, sizeof C); G.loadT0 = app_now(); C.day = day_of(time(NULL)); snprintf(G.title, sizeof G.title, "%s", T("Calendar")); cal_more(); cal_load(); }
+static void cal_tick(float dt) { tween_tick(&C.listY, dt); if ((!C.got || G.loading || notify_busy()) && app_now() > C.pollAt) cal_load(); }
 static const Item *cal_focused(void) { if (C.zone != 1) return NULL; int f; int n = day_eps(C.day, &f); return n && C.idx < n ? &G.items.items[f + C.idx] : NULL; }
 static int cal_key(int k) {
   int f, n = day_eps(C.day, &f); long d0 = C.day;
