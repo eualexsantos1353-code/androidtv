@@ -160,7 +160,7 @@ static int keys_opts(void) {
     set_act(&keyS[n++], "__iptv", pt ? "Lista IPTV" : "IPTV list", has ? (pt ? "Canais e guia da sua lista, em TV ao vivo. OK para trocar os links" : "Your list's channels and guide, in live TV. OK to change the links") : (pt ? "OK para colar o link da lista (M3U) e do guia (EPG) pelo celular" : "OK to add your list (M3U) and guide (EPG) links from your phone"));
     { int dh = deb_has_key(); /* debrid: its key, then its cloud */
       set_act(&keyS[n++], "__deb", "Debrid", dh ? (pt ? "Conectado ao servi\xc3\xa7o. OK para trocar a chave" : "Connected. OK to change the key") : (pt ? "TorBox, Real-Debrid ou Premiumize: OK para adicionar a chave pelo celular" : "TorBox, Real-Debrid or Premiumize: OK to add your key from the phone"));
-      if (dh) { set_act(&keyS[n++], "__cloud", pt ? "Minha nuvem" : "My cloud", pt ? "Os v\xc3\xaddeos que est\xc3\xa3o na sua conta do debrid" : "The videos in your debrid account");
+      if (dh) { set_act(&keyS[n++], "__cloud", pt ? "Minha nuvem" : "My cloud", pt ? "Os v\xc3\xad" "deos que est\xc3\xa3o na sua conta do debrid" : "The videos in your debrid account");
         set_act(&keyS[n++], "__debOff", pt ? "Remover a chave do debrid" : "Remove the debrid key", pt ? "A nuvem some deste app (os addons continuam como est\xc3\xa3o)" : "The cloud leaves this app (addons stay as they are)"); } }
     if (has) set_act(&keyS[n++], "__iptvOff", pt ? "Remover a lista IPTV" : "Remove the IPTV list", pt ? "Apaga os links e os canais dela desta TV" : "Deletes the links and its channels from this TV"); }
   return n;
