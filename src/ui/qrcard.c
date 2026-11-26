@@ -14,6 +14,7 @@
 #include "core/tmdb.h"
 #include "core/trakt.h"
 #include "core/mdblist.h"
+#include "core/debrid.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -151,6 +152,17 @@ void qrcard_show_mdb(void (*onClose)(int hasKey, void *ud), void *ud) {
   o.check = mdb_check; o.doneTitle = T("Key saved"); o.doneSub = T("Rotten Tomatoes, Metacritic and more now show on each title"); o.doneHold = 1.6f;
   o.onClose = mdb_closed;
   qrcard_show(&o); mb.cb = onClose; mb.ud = ud; mb.gen = mdb_generation();
+}
+/* Settings > Keys > Debrid: the service and its key */
+static struct { void (*cb)(int, void *); void *ud; unsigned gen; } db;
+static int deb_check(void *ud) { (void)ud; return deb_has_key() && deb_generation() != db.gen; }
+static void deb_closed(void *ud) { (void)ud; void (*cb)(int, void *) = db.cb; db.cb = NULL; if (cb) cb(deb_has_key(), db.ud); }
+void qrcard_show_deb(void (*onClose)(int hasKey, void *ud), void *ud) {
+  deb_has_key(); char url[600]; httpd_url("/deb", url, sizeof url);
+  QrCardOpts o; memset(&o, 0, sizeof o);
+  o.title = T("Debrid"); o.sub = T("Scan with your phone, pick TorBox, Real-Debrid or Premiumize and paste your key"); o.url = url;
+  o.check = deb_check; o.doneTitle = T("Key saved"); o.doneSub = T("Your cloud's files are in Settings, under Keys"); o.doneHold = 1.6f; o.onClose = deb_closed;
+  qrcard_show(&o); db.cb = onClose; db.ud = ud; db.gen = deb_generation();
 }
 /* Settings > Keys > IPTV list: the page for the list link and the guide link; onClose(hasList, ud) once it is closed */
 static struct { void (*cb)(int, void *); void *ud; unsigned gen; } ip;

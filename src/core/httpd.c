@@ -30,7 +30,7 @@ static int alive, stopReq, nconn; static double deadline;
 static char tok[17];
 static struct { int seq; char text[400]; } typed;
 static unsigned hits;
-static int (*keyFn)(const char *key), (*traktFn)(const char *key), (*mdbFn)(const char *key);
+static int (*keyFn)(const char *key), (*traktFn)(const char *key), (*mdbFn)(const char *key), (*debFn)(const char *svc, const char *key);
 static int (*iptvFn)(const char *m3u, const char *epg);
 
 /* the pages speak the app's language: its translations of these, taken when a screen asks for the server
@@ -122,6 +122,16 @@ static void mdb_page(Buf *b) {
     "x.open(\"GET\",location.pathname+\"/set?key=\"+encodeURIComponent(k.value.trim()));x.onload=function(){s.textContent=x.status===204?"); js(b, pt("Saved. You can close this page.")); b_s(b, ":"); js(b, pt("MDBList didn\xe2\x80\x99t accept this key.")); b_s(b, ";};"
     "x.onerror=function(){s.textContent="); js(b, pt("Can\xe2\x80\x99t reach the TV")); b_s(b, ";};x.send();};</script></body></html>");
 }
+static void deb_page(Buf *b) { /* debrid: the service and its key */
+  head(b, "Debrid"); b_s(b, "<h1>TorBox, Real-Debrid, Premiumize</h1><p>Escolha o servi\xc3\xa7o e cole a sua chave de API. "
+    "TorBox: <a href=\"https://torbox.app/settings\" target=\"_blank\" rel=\"noopener\">torbox.app/settings</a> \xc2\xb7 Real-Debrid: <a href=\"https://real-debrid.com/apitoken\" target=\"_blank\" rel=\"noopener\">real-debrid.com/apitoken</a> \xc2\xb7 "
+    "Premiumize: <a href=\"https://www.premiumize.me/account\" target=\"_blank\" rel=\"noopener\">premiumize.me/account</a>. Ela fica s\xc3\xb3 na sua TV.</p>"
+    "<select id=\"v\" style=\"font-size:18px;padding:12px;border-radius:12px;margin-bottom:12px;width:100%\"><option value=\"torbox\">TorBox</option><option value=\"realdebrid\">Real-Debrid</option><option value=\"premiumize\">Premiumize</option></select>"
+    "<input id=\"k\" dir=\"ltr\" autocomplete=\"off\" autocapitalize=\"off\" spellcheck=\"false\" placeholder=\"Chave de API\"><button id=\"b\">Salvar</button><small id=\"s\"></small><script>"
+    "var k=document.getElementById(\"k\"),v=document.getElementById(\"v\"),s=document.getElementById(\"s\");document.getElementById(\"b\").onclick=function(){s.textContent=\"Verificando\u2026\";var x=new XMLHttpRequest();"
+    "x.open(\"GET\",location.pathname+\"/set?svc=\"+v.value+\"&key=\"+encodeURIComponent(k.value.trim()));x.onload=function(){s.textContent=x.status===204?\"Salvo. Pode fechar esta p\u00e1gina.\":\"O servi\u00e7o n\u00e3o aceitou esta chave.\";};"
+    "x.onerror=function(){s.textContent=\"N\u00e3o foi poss\u00edvel acessar a TV\";};x.send();};</script></body></html>");
+}
 static void trakt_page(Buf *b) {
   head(b, pt("Ratings and reviews")); b_s(b, "<h1>"); hx(b, pt("Ratings and reviews from Trakt")); b_s(b, "</h1><p>"); hx(b, pt("Paste your Trakt Client ID. To get one:")); b_s(b, " "); hx(b, pt("open"));
   b_s(b, " <a href=\"https://trakt.tv/oauth/applications/new\" target=\"_blank\" rel=\"noopener\" dir=\"ltr\">trakt.tv/oauth/applications</a>, "); hx(b, pt("sign in, then Settings \xe2\x80\xba Your API Apps \xe2\x80\xba New Application. Any name; as the redirect URI paste"));
@@ -187,13 +197,17 @@ static void handle(int fd) {
   const char *rest = NULL;
   if (!strncmp(target, "/t/", 3) && strlen(target) >= 19 && !strncmp(target + 3, tok, 16)) {
     rest = target + 19;
-    if (*rest && strcmp(rest, "/q") && strcmp(rest, "/tmdb") && strcmp(rest, "/tmdb/set") && strcmp(rest, "/trakt") && strcmp(rest, "/trakt/set") && strcmp(rest, "/mdb") && strcmp(rest, "/mdb/set") && strcmp(rest, "/iptv") && strcmp(rest, "/iptv/set")) rest = NULL; }
+    if (*rest && strcmp(rest, "/q") && strcmp(rest, "/tmdb") && strcmp(rest, "/tmdb/set") && strcmp(rest, "/trakt") && strcmp(rest, "/trakt/set") && strcmp(rest, "/mdb") && strcmp(rest, "/mdb/set") && strcmp(rest, "/deb") && strcmp(rest, "/deb/set") && strcmp(rest, "/iptv") && strcmp(rest, "/iptv/set")) rest = NULL; }
   if (!rest) { if (!strncmp(target, "/t/", 3) || !strcmp(target, "/")) { Buf b = { 0 }; pthread_mutex_lock(&mu); stale_page(&b); pthread_mutex_unlock(&mu); reply(fd, 404, "Content-Type: text/html; charset=utf-8\r\n", b.p, b.n); free(b.p); } else reply(fd, 404, NULL, NULL, 0); return; }
-  if (strcmp(rest, "/q") && strcmp(rest, "/tmdb/set") && strcmp(rest, "/trakt/set") && strcmp(rest, "/mdb/set") && strcmp(rest, "/iptv/set")) { pthread_mutex_lock(&mu); hits++; pthread_mutex_unlock(&mu); } /* a code was opened */
+  if (strcmp(rest, "/q") && strcmp(rest, "/tmdb/set") && strcmp(rest, "/trakt/set") && strcmp(rest, "/mdb/set") && strcmp(rest, "/deb/set") && strcmp(rest, "/iptv/set")) { pthread_mutex_lock(&mu); hits++; pthread_mutex_unlock(&mu); } /* a code was opened */
   if (!strcmp(rest, "/iptv/set")) {
     char m[2048], e[2048]; qparam(q, "m3u", m, sizeof m); qparam(q, "epg", e, sizeof e);
     pthread_mutex_lock(&mu); int (*fn)(const char *, const char *) = iptvFn; pthread_mutex_unlock(&mu);
     reply(fd, fn && fn(m, e) ? 204 : 400, NULL, NULL, 0); return; }
+  if (!strcmp(rest, "/deb/set")) {
+    char sv[32], key[1024]; qparam(q, "svc", sv, sizeof sv); qparam(q, "key", key, sizeof key);
+    pthread_mutex_lock(&mu); int (*fn)(const char *, const char *) = debFn; pthread_mutex_unlock(&mu);
+    reply(fd, fn && fn(sv, key) ? 204 : 400, NULL, NULL, 0); return; }
   if (!strcmp(rest, "/mdb/set")) {
     char key[1024]; qparam(q, "key", key, sizeof key);
     pthread_mutex_lock(&mu); int (*fn)(const char *) = mdbFn; pthread_mutex_unlock(&mu);
@@ -207,7 +221,7 @@ static void handle(int fd) {
     pthread_mutex_lock(&mu); typed.seq++; snprintf(typed.text, sizeof typed.text, "%s", t); pthread_mutex_unlock(&mu);
     reply(fd, 204, NULL, NULL, 0); return; }
   Buf b = { 0 };
-  pthread_mutex_lock(&mu); if (!strcmp(rest, "/tmdb")) tmdb_page(&b); else if (!strcmp(rest, "/trakt")) trakt_page(&b); else if (!strcmp(rest, "/mdb")) mdb_page(&b); else if (!strcmp(rest, "/iptv")) iptv_page(&b); else search_page(&b); pthread_mutex_unlock(&mu);
+  pthread_mutex_lock(&mu); if (!strcmp(rest, "/tmdb")) tmdb_page(&b); else if (!strcmp(rest, "/trakt")) trakt_page(&b); else if (!strcmp(rest, "/mdb")) mdb_page(&b); else if (!strcmp(rest, "/deb")) deb_page(&b); else if (!strcmp(rest, "/iptv")) iptv_page(&b); else search_page(&b); pthread_mutex_unlock(&mu);
   reply(fd, 200, "Content-Type: text/html; charset=utf-8\r\n", b.p, b.n); free(b.p);
 }
 static void *conn_main(void *arg) {
@@ -300,5 +314,6 @@ int httpd_typed(int since, char *out, size_t cap) {
 unsigned httpd_hits(void) { pthread_mutex_lock(&mu); unsigned h = hits; pthread_mutex_unlock(&mu); return h; }
 void httpd_set_key_handler(int (*fn)(const char *key)) { pthread_mutex_lock(&mu); keyFn = fn; pthread_mutex_unlock(&mu); }
 void httpd_set_iptv_handler(int (*fn)(const char *m3u, const char *epg)) { pthread_mutex_lock(&mu); iptvFn = fn; pthread_mutex_unlock(&mu); }
+void httpd_set_deb_handler(int (*fn)(const char *, const char *)) { pthread_mutex_lock(&mu); debFn = fn; pthread_mutex_unlock(&mu); }
 void httpd_set_mdb_handler(int (*fn)(const char *key)) { pthread_mutex_lock(&mu); mdbFn = fn; pthread_mutex_unlock(&mu); }
 void httpd_set_trakt_handler(int (*fn)(const char *key)) { pthread_mutex_lock(&mu); traktFn = fn; pthread_mutex_unlock(&mu); }

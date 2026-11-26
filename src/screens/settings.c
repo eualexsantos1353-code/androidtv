@@ -14,6 +14,7 @@
 #include "ui/subfonts.h"
 #include "core/trakt.h"
 #include "core/mdblist.h"
+#include "core/debrid.h"
 #include "core/keys.h"
 #include "core/i18n.h"
 #include "core/store.h"
@@ -84,7 +85,7 @@ static const Opt SS_OPTS[] = { { "0", "Off" }, { "1", "1 min" }, { "2", "2 min" 
 static const Opt ACCENT_OPTS[] = { { "logo", "From the logo" }, { "adaptive", "From the artwork" }, { "purple", "Purple" }, { "violet", "Violet" }, { "fuchsia", "Fuchsia" }, { "pink", "Pink" }, { "rose", "Rose" }, { "red", "Red" }, { "orange", "Orange" }, { "amber", "Amber" }, { "gold", "Gold" }, { "lime", "Lime" }, { "green", "Green" }, { "emerald", "Emerald" }, { "teal", "Teal" }, { "cyan", "Cyan" }, { "sky", "Sky" }, { "blue", "Blue" }, { "indigo", "Indigo" }, { "graphite", "Graphite" } };
 #define NCAT 11
 #define MAXROWS 48
-static Setting playBase[14], playS[10], seekS[6], subsS[11], audS[4], lookS[8], langS[44], langOpt, keyS[8], traktS[6], addonS[40], acctS[1], supS[10];
+static Setting playBase[14], playS[10], seekS[6], subsS[11], audS[4], lookS[8], langS[44], langOpt, keyS[12], traktS[6], addonS[40], acctS[1], supS[10];
 static Cat cats[NCAT]; static int ncat; /* (Keys leaves when this build carries every key) */
 
 /* the layout, in the web's pixels: the grid is centred, 1600 wide, 150 from the top */
@@ -157,6 +158,10 @@ static int keys_opts(void) {
     if (mh) set_act(&keyS[n++], "__mdbOff", pt ? "Remover a chave do MDBList" : "Remove the MDBList key", pt ? "As notas de outros sites somem" : "The scores from other sites go away"); }
   { int pt = !strncmp(i18n_lang(), "pt", 2), has = iptv_has();
     set_act(&keyS[n++], "__iptv", pt ? "Lista IPTV" : "IPTV list", has ? (pt ? "Canais e guia da sua lista, em TV ao vivo. OK para trocar os links" : "Your list's channels and guide, in live TV. OK to change the links") : (pt ? "OK para colar o link da lista (M3U) e do guia (EPG) pelo celular" : "OK to add your list (M3U) and guide (EPG) links from your phone"));
+    { int dh = deb_has_key(); /* debrid: its key, then its cloud */
+      set_act(&keyS[n++], "__deb", "Debrid", dh ? (pt ? "Conectado ao servi\xc3\xa7o. OK para trocar a chave" : "Connected. OK to change the key") : (pt ? "TorBox, Real-Debrid ou Premiumize: OK para adicionar a chave pelo celular" : "TorBox, Real-Debrid or Premiumize: OK to add your key from the phone"));
+      if (dh) { set_act(&keyS[n++], "__cloud", pt ? "Minha nuvem" : "My cloud", pt ? "Os v\xc3\xaddeos que est\xc3\xa3o na sua conta do debrid" : "The videos in your debrid account");
+        set_act(&keyS[n++], "__debOff", pt ? "Remover a chave do debrid" : "Remove the debrid key", pt ? "A nuvem some deste app (os addons continuam como est\xc3\xa3o)" : "The cloud leaves this app (addons stay as they are)"); } }
     if (has) set_act(&keyS[n++], "__iptvOff", pt ? "Remover a lista IPTV" : "Remove the IPTV list", pt ? "Apaga os links e os canais dela desta TV" : "Deletes the links and its channels from this TV"); }
   return n;
 }
@@ -533,6 +538,9 @@ static int key(int k) {
       if (!strcmp(op->k, "__iptv")) { qrcard_show_iptv(on_iptv_card, NULL); return 1; }
       if (!strcmp(op->k, "__iptvOff")) { iptv_clear(); toast(!strncmp(i18n_lang(), "pt", 2) ? "Lista IPTV removida" : "IPTV list removed", 2000, NULL); return 1; }
       if (!strcmp(op->k, "__mdb")) { qrcard_show_mdb(NULL, NULL); return 1; }
+      if (!strcmp(op->k, "__deb")) { qrcard_show_deb(NULL, NULL); return 1; }
+      if (!strcmp(op->k, "__debOff")) { deb_key_clear(); relang(); return 1; }
+      if (!strcmp(op->k, "__cloud")) { DetailParams cp; memset(&cp, 0, sizeof cp); snprintf(cp.it.type, sizeof cp.it.type, "cloud"); snprintf(cp.it.id, sizeof cp.it.id, "cloud"); snprintf(cp.it.name, sizeof cp.it.name, "%s", deb_service_name()); app_go(SCR_SIM, &cp, 0); return 1; }
       if (!strcmp(op->k, "__mdbOff")) { mdb_key_clear(); relang(); return 1; }
       if (!strcmp(op->k, "__traktOff")) { trakt_key_clear(); relang(); toast(T("The Trakt id is gone"), 2000, NULL); return 1; }
       if (!strcmp(op->k, "__keys")) { settings_open_keys(); return 1; }

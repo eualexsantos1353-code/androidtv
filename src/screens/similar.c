@@ -16,6 +16,7 @@
 #include "core/net.h"
 #include "core/coll.h"
 #include "core/tmdb.h"
+#include "core/debrid.h"
 #include "ui/icon.h"
 #include "core/app.h"
 #include <stdlib.h>
@@ -25,7 +26,7 @@
 #define GX (G.person ? 708.0f : 62.0f)
 #define GTOP (G.person ? 214.0f : 224.0f)
 #define COLS (G.person ? 4 : 6) /* a person: the films on the right, their face and story on the left */
-static struct { DetailParams p; ItemList items; int idx; char title[300], sub[200]; int loading, empty, person, coll, pendTmdb; double pendAt; unsigned collVer; char from[16], ckey[24]; double loadT0; struct { float x, y; int shown; Timer1 pop; } ring; Tween gridY; Timer1 fade; Nudge nudge; unsigned gen; } G;
+static struct { DetailParams p; ItemList items; int idx; char title[300], sub[200]; int loading, empty, person, coll, cloud, bioF, bioOpen, pendTmdb; float bioScroll; unsigned cloudGen; double pendAt; unsigned collVer; char from[16], ckey[24]; double loadT0; struct { float x, y; int shown; Timer1 pop; } ring; Tween gridY; Timer1 fade; Nudge nudge; unsigned gen; } G;
 #define MAXPT 48
 typedef struct { char id[16], type[8], name[128]; int yr; } PT;
 typedef struct { char who[16]; int n; PT t[MAXPT]; } PersonMem;
@@ -126,9 +127,25 @@ static void coll_show(void) {
   G.loading = 0; G.empty = G.items.n == 0; timer_start(&G.fade, 0.3f); G.idx = first >= 0 ? first : 0; G.ring.shown = 0;
   if (c->backdrop[0]) bg_set(c->backdrop, 0, c->poster);
 }
+/* ---- the debrid cloud (Settings > Keys > My cloud): its video files, each played straight from it ---- */
+static void cloud_name(const char *fn, char *out, size_t cap) { /* "The.Movie.2019.1080p.mkv" -> "The Movie 2019 1080p" */
+  snprintf(out, cap, "%s", fn); char *d = strrchr(out, '.'); if (d && strlen(d) <= 5) *d = 0; for (char *q = out; *q; q++) if (*q == '.' || *q == '_') *q = ' '; }
+static void cloud_poll(void) {
+  if (!G.cloud) return; const DebFile *f; int n = deb_list(&f); if (n < 0) return; if (!G.loading && G.cloudGen == deb_generation()) return;
+  G.cloudGen = deb_generation(); itemlist_clear(&G.items); G.items.items = calloc((size_t)(n ? n : 1), sizeof(Item)); G.items.n = 0;
+  for (int i = 0; i < n; i++) { Item *it = &G.items.items[G.items.n++]; snprintf(it->id, sizeof it->id, "deb:%d", i); snprintf(it->type, sizeof it->type, "other"); cloud_name(f[i].name, it->name, sizeof it->name);
+    if (f[i].size > 0) { double gb = f[i].size / 1073741824.0; if (gb >= 1) snprintf(it->metaLine, sizeof it->metaLine, "%.1f GB", gb); else snprintf(it->metaLine, sizeof it->metaLine, "%.0f MB", f[i].size / 1048576.0); } }
+  { char nb[16]; snprintf(nb, sizeof nb, "%d", n); snprintf(G.sub, sizeof G.sub, "%s", T1("{n} videos", "n", nb)); }
+  G.loading = 0; G.empty = n == 0; timer_start(&G.fade, 0.3f); G.idx = 0; G.ring.shown = 0; }
+static void cloud_tile(const Item *it, float x, float y, int f) {
+  float w = CARD_W, h = CARD_H; gfx_rrect_v(x, y, w, h, CARD_R, RGB(34, 32, 44), RGB(18, 17, 24)); gfx_ring(x, y, w, h, CARD_R, f ? 3 : 1.2f, f ? (ACC2 | 0xff000000u) : WHITE_A(26));
+  icon_draw("p_film", x + w / 2 - 34, y + 70, 68, WHITE_A(120));
+  text_draw_wrapped(it->name, x + 18, y + 180, w - 36, 5, 22, 700, WHITE_A(235), 0, ALIGN_LEFT, 28);
+  if (it->metaLine[0]) text_draw(it->metaLine, x + 18, y + h - 44, 20, 600, WHITE_A(150), 0, w - 36, ALIGN_LEFT); }
 static void enter(const void *pp) {
   if (pp) G.p = *(const DetailParams *)pp; G.gen++; itemlist_clear(&G.items); G.idx = 0; G.loading = 1; G.loadT0 = app_now(); G.empty = 0; G.ring.shown = 0; tween_set(&G.gridY, 0);
-  G.person = !strcmp(G.p.it.type, "person"); G.coll = !strcmp(G.p.it.type, "collection"); G.sub[0] = 0;
+  G.person = !strcmp(G.p.it.type, "person"); G.coll = !strcmp(G.p.it.type, "collection"); G.cloud = !strcmp(G.p.it.type, "cloud"); G.bioF = G.bioOpen = 0; G.sub[0] = 0;
+  if (G.cloud) { snprintf(G.title, sizeof G.title, "%s \xc2\xb7 %s", T("My cloud"), deb_service_name()); deb_refresh(); G.cloudGen = 0; cloud_poll(); return; }
   if (G.coll) { snprintf(G.ckey, sizeof G.ckey, "%s", G.p.it.id + 5); G.loadT0 = app_now(); G.collVer = 0; snprintf(G.from, sizeof G.from, "%s", G.p.it.videoId); snprintf(G.title, sizeof G.title, "%s", G.p.it.name[0] ? G.p.it.name : T("Collection")); coll_show(); return; }
 
   if (G.person) { snprintf(G.title, sizeof G.title, "%s", G.p.it.name); person_load(); pi_load(G.p.it.id); return; }
@@ -136,9 +153,12 @@ static void enter(const void *pp) {
   sb_meta(G.p.it.type, G.p.it.id, on_meta, (void *)(uintptr_t)G.gen);
 }
 static const Item *focused(void) { return G.idx < G.items.n ? &G.items.items[G.idx] : NULL; }
-static void open_it(const Item *it) { if (!strncmp(it->id, "tmdb:", 5)) { G.pendTmdb = atoi(it->id + 5); G.pendAt = app_now(); return; } /* (its IMDb id on its way: opened when it comes, see tick) */
+static void open_it(const Item *it) { if (!strncmp(it->id, "deb:", 4)) { deb_play(atoi(it->id + 4)); return; } if (!strncmp(it->id, "tmdb:", 5)) { G.pendTmdb = atoi(it->id + 5); G.pendAt = app_now(); return; } /* (its IMDb id on its way: opened when it comes, see tick) */
   DetailParams p; memset(&p, 0, sizeof p); p.it = *it; app_go(SCR_DETAIL, &p, 0); }
 static int key(int k) {
+  if (G.bioOpen) { if (k == K_DOWN) G.bioScroll += 120; else if (k == K_UP) { G.bioScroll -= 120; if (G.bioScroll < 0) G.bioScroll = 0; } else if (k == K_BACK || k == K_OK) G.bioOpen = 0; return 1; } /* the whole story, read */
+  if (G.bioF) { if (k == K_RIGHT) G.bioF = 0; else if (k == K_OK) { G.bioOpen = 1; G.bioScroll = 0; } else if (k == K_UP) { G.bioF = 0; topnav_focus(); } else if (k == K_BACK) return 0; return 1; }
+  if (G.person && PI.bio[0] && k == K_LEFT && G.idx % COLS == 0) { G.bioF = 1; return 1; } /* the first column: left onto the biography */
   if (!G.items.n) { if (k == K_UP) topnav_focus(); return k != K_BACK; } int i0 = G.idx;
   if (k == K_RIGHT) G.idx = G.idx + 1 < G.items.n ? G.idx + 1 : G.idx;
   else if (k == K_LEFT) { if (G.idx > 0) G.idx--; }
@@ -154,7 +174,7 @@ static int key(int k) {
 static void logos_ahead(void) { static double at0; double now = app_now(); if (now - at0 < 0.5) return; at0 = now;
   for (int i = G.idx - COLS; i <= G.idx + COLS; i++) { if (i < 0 || i >= G.items.n) continue; char lu[512]; sb_logo_of(&G.items.items[i], lu, sizeof lu); if (lu[0]) img_prefetch_pri(lu, 520, 175); } }
 static void tick(float dt) {
-  coll_show(); logos_ahead();
+  coll_show(); cloud_poll(); logos_ahead();
   if (G.pendTmdb) { if (app_now() - G.pendAt > 15) G.pendTmdb = 0; else for (int i = 0; i < G.items.n; i++) { const Coll *c = coll_get(G.ckey); if (!c) break; for (int k = 0; k < c->n; k++) if (c->part[k].tmdb == G.pendTmdb && c->part[k].id[0]) { Item it = G.items.items[i]; for (int q = 0; q < G.items.n; q++) if (!strcmp(G.items.items[q].id, c->part[k].id)) it = G.items.items[q]; G.pendTmdb = 0; open_it(&it); return; } break; } } /* (a film picked before its id came) */
   timer_tick(&G.ring.pop, dt); tween_tick(&G.gridY, dt); timer_tick(&G.fade, dt); nudge_tick(&G.nudge, dt);
   int row = G.idx / COLS; float y = G.person ? row * ROWH : row > 1 ? (row - 1) * ROWH : 0; /* (a person: the focused row at the top, its year line in view) */ tween_to(&G.gridY, -y, 0.3f, EASE_OUT);
@@ -165,7 +185,7 @@ static void tick(float dt) {
 static int origin(float *x, float *y) { if (topNav.active || G.idx >= G.items.n) return 0; int row = G.idx / COLS; float cx = GX + (G.idx % COLS) * (CARD_W + CARD_GAP); if (app_rtl()) cx = SB_W - cx - CARD_W; *x = cx + CARD_W / 2; *y = GTOP + G.gridY.v + 16 + row * ROWH + CARD_H / 2; return 1; }
 static void sim_focus(int i, int b) { (void)b; int was = topNav.active; topNav.active = 0; if (was || G.idx != i) G.idx = i; }
 static void person_panel(void) {
-  float x = 62, y = 128, ph = 200;
+  float x = 62, y = 124, ph = 236;
   /* the face, rounded */
   if (PI.photo[0]) { GLuint t = img_get_shaped(PI.photo, (int)ph, (int)ph, 34, 2); gfx_shadow(x, y + 10, ph, ph, 34, 30, BLACK_A(120)); if (t) gfx_image(t, x, y, ph, ph, 0, WHITE_A((int)(255 * gfx_tex_fade(t))), 0, 0, 1, 1); else gfx_rrect(x, y, ph, ph, 34, WHITE_A(14)); gfx_ring(x, y, ph, ph, 34, 1.5f, WHITE_A(36)); }
   else { gfx_rrect(x, y, ph, ph, 34, WHITE_A(14)); char ini[8] = { G.title[0], 0 }; text_draw(ini, x + ph / 2, y + ph / 2 - text_line_height(80) / 2, 80, 800, WHITE_A(120), 0, 0, ALIGN_CENTER); }
@@ -187,7 +207,9 @@ static void person_panel(void) {
     cy += ch + 26; }
   /* the story */
   if (PI.bio[0] || PI.state == 1) { float bh = SB_H - 40 - cy; if (bh > 160) { gfx_rrect(x, cy, cw, bh, 26, BLACK_A(110)); gfx_ring(x, cy, cw, bh, 26, 1.2f, WHITE_A(26));
+      if (G.bioF) gfx_ring(x, cy, cw, bh, 26, 3, ACC2 | 0xff000000u);
       text_draw(T("Biography"), x + 30, cy + 24, 30, 700, WHITE_A(255), 0, 0, ALIGN_LEFT);
+      if (PI.bio[0]) key_hint(x + cw - 30 - key_hint(-9999, 0, G.bioF ? K_OK : K_LEFT, T("Read more"), 0, 1), cy + 28, G.bioF ? K_OK : K_LEFT, T("Read more"), WHITE_A(G.bioF ? 230 : 130), 1);
       int lines = (int)((bh - 24 - 50 - 28) / 38); if (lines > 0 && PI.bio[0]) text_draw_wrapped(PI.bio, x + 30, cy + 24 + 54, cw - 60, lines, 25, 400, WHITE_A(214), 0, ALIGN_LEFT, 38);
       else if (lines > 0) text_draw("\xe2\x80\xa6", x + 30, cy + 24 + 54, 25, 400, WHITE_A(150), 0, 0, ALIGN_LEFT); } }
 }
@@ -212,6 +234,7 @@ static void draw(void) {
     int row = i / COLS; float y = 16 + row * ROWH; if (y + G.gridY.v > SB_H - top || y + CARD_H + G.gridY.v < 0) continue;
     float x = GX + (i % COLS) * (CARD_W + CARD_GAP); if (rtl) x = SB_W - x - CARD_W; unsigned long long lk = lift_key(&G, i);
     lift_begin(lk, pass, pass ? hp : 0, x, y, CARD_W, CARD_H, CARD_R);
+    if (G.cloud) cloud_tile(&G.items.items[i], x, y, i == fi); else
     card_draw(&G.items.items[i], x, y, 0, 1, abs(row - G.idx / COLS) <= 2);
     if (G.person) { const Item *ci = &G.items.items[i]; char ln[64]; const char *kd = T(strcmp(ci->type, "series") ? "Movie" : "A series");
       if (ci->metaLine[0]) snprintf(ln, sizeof ln, "%s  \xc2\xb7  %s", ci->metaLine, kd); else snprintf(ln, sizeof ln, "%s", kd);
@@ -223,5 +246,13 @@ static void draw(void) {
     if (pass && hp > 0) hold_trace_draw(x, y, CARD_W, CARD_H, CARD_R, ease_apply(EASE_IN_OUT, hp));
     lift_end(lk, x, y, CARD_W, CARD_H, CARD_R); hit_add(x, y, CARD_W, CARD_H, sim_focus, NULL, i, 0); }
   gfx_offset_pop(); gfx_opacity_pop(); gfx_clip_pop();
+  if (G.bioOpen && PI.bio[0]) { /* the whole biography over the page */
+    gfx_rect(0, 0, SB_W, SB_H, BLACK_A(200)); float bw = 1240, bh = 880, bx = (SB_W - bw) / 2, by = (SB_H - bh) / 2;
+    gfx_rrect_v(bx, by, bw, bh, 30, RGB(30, 28, 38), RGB(16, 15, 21)); gfx_ring(bx, by, bw, bh, 30, 1.2f, WHITE_A(30));
+    text_draw(PI.name[0] ? PI.name : G.title, bx + 50, by + 40, 44, 800, WHITE_A(255), -0.5f, bw - 100, ALIGN_LEFT);
+    float ty = by + 120, th = bh - 120 - 80; gfx_clip_push(bx + 40, ty, bw - 80, th);
+    int nl = text_draw_wrapped(PI.bio, bx + 50, ty - G.bioScroll, bw - 100, 200, 28, 400, WHITE_A(225), 0, ALIGN_LEFT, 42); gfx_clip_pop();
+    float maxS = nl * 42 - th; if (maxS < 0) maxS = 0; if (G.bioScroll > maxS) G.bioScroll = maxS;
+    key_hint(bx + 50, by + bh - 60, K_DOWN, T("Scroll"), WHITE_A(170), 1); key_hint(bx + bw - 50 - key_hint(-9999, 0, K_BACK, T("Close"), 0, 1), by + bh - 60, K_BACK, T("Close"), WHITE_A(170), 1); }
 }
 Screen simScreen = { enter, NULL, key, tick, draw, focused, open_it, NULL, origin };
