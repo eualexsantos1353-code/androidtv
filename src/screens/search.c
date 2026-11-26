@@ -3,6 +3,7 @@
    (its first answer is nearly always the one meant), then every installed catalog that searches (Cinemeta's films and
    series when none does), each answering on its own time. */
 #include <SDL2/SDL.h>
+#include "core/organize.h"
 #include "screens/search.h"
 #include "core/keys.h"
 #include "core/i18n.h"
@@ -151,7 +152,7 @@ static void live(void) {
 }
 static void cat_go(void) {
   char q[48]; snprintf(q, sizeof q, "%s", S.q); char *e = q + strlen(q); while (e > q && e[-1] == ' ') *--e = 0; const char *p = q; while (*p == ' ') p++;
-  CatalogDef defs[NCAT]; int n = sb_search_defs(p, defs, NCAT);
+  CatalogDef defs[NCAT]; int n = sb_search_defs(p, defs, NCAT); n = catorg_apply(defs, n, 's'); /* (Settings › Organize Search) */
   if (!n) { char enc[200]; urlenc(p, enc, sizeof enc); const char *ty[2] = { "movie", "series" }; /* no installed catalog searches: Cinemeta's */
     for (int i = 0; i < 2; i++) { memset(&defs[n], 0, sizeof defs[n]); snprintf(defs[n].type, sizeof defs[n].type, "%s", ty[i]); snprintf(defs[n].url, sizeof defs[n].url, CINEMETA "/catalog/%s/top/search=%s.json", ty[i], enc); n++; } }
   for (int c = 0; c < S.ncat; c++) itemlist_clear(&S.cat[c]); S.ncat = n; for (int c = 0; c < n; c++) S.catDone[c] = S.catFail[c] = 0;

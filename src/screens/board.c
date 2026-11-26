@@ -1,3 +1,4 @@
+#include "core/organize.h"
 #include "ui/xline.h"
 #include "screens/board.h"
 #include "ui/strip.h"
@@ -295,7 +296,7 @@ static void load_catalog_rows(Board *b, int disc, int keep) {
   for (int i = 0; i < b->n; i++) row_clear(&b->rows[i]); b->n = 0; b->gen++;
   if (!disc) board_cw_row(b, kp, nk);
   if (disc) { Row *f = row_add(b, "", 0, 0); if (f) { f->filt = 1; f->hidden = 0; } } /* Discover: the filter strip under the spotlight's dots */
-  static CatalogDef defs[MAXROWS]; int nd = disc ? 0 : sb_home_defs(defs, MAXROWS - 1); /* (Discover: its listing, below) */
+  static CatalogDef defs[MAXROWS]; int nd = disc ? 0 : sb_home_defs(defs, MAXROWS - 1); nd = catorg_apply(defs, nd, 'h'); /* (Settings › Organize Home: on top, hidden) */ /* (Discover: its listing, below) */
   if (disc) { DS.gen++; itemlist_clear(&DS.all); for (int i = 0; i < DMEM; i++) { itemlist_clear(&DS.part[i]); DS.used[i] = DS.has[i] = DS.mMore[i] = DS.mSkip[i] = DS.mWait[i] = 0; } DS.more = DS.paging = 0; DS.skipAt = 0; DS.pageAt = 0; DS.askAt = 0;
     disc_catalog(); /* (settles the strip's type first) */
     disc_presets(b); /* (ready lists under the strip: Cinemeta's popular and top rated, of the strip's type and genre) */

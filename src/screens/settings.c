@@ -16,6 +16,7 @@
 #include "core/mdblist.h"
 #include "core/debrid.h"
 #include "core/simkl.h"
+#include "core/organize.h"
 #include "core/keys.h"
 #include "core/i18n.h"
 #include "core/store.h"
@@ -85,10 +86,14 @@ static const Opt BGS[] = { { "0", "None" }, { "1", "Solid" }, { ".6", "Transpare
 static const Opt ASSO[] = { { "styled", "Styled" }, { "plain", "Plain" } };
 static const Opt SS_OPTS[] = { { "0", "Off" }, { "1", "1 min" }, { "2", "2 min" }, { "5", "5 min" }, { "10", "10 min" } };
 static const Opt ACCENT_OPTS[] = { { "logo", "From the logo" }, { "adaptive", "From the artwork" }, { "purple", "Purple" }, { "violet", "Violet" }, { "fuchsia", "Fuchsia" }, { "pink", "Pink" }, { "rose", "Rose" }, { "red", "Red" }, { "orange", "Orange" }, { "amber", "Amber" }, { "gold", "Gold" }, { "lime", "Lime" }, { "green", "Green" }, { "emerald", "Emerald" }, { "teal", "Teal" }, { "cyan", "Cyan" }, { "sky", "Sky" }, { "blue", "Blue" }, { "indigo", "Indigo" }, { "graphite", "Graphite" } };
-#define NCAT 11
+#define NCAT 15
 #define MAXROWS 48
+static Setting profS[2], orgHS[MAXROWS], orgSS[MAXROWS], sfS[6];
 static Setting playBase[14], playS[10], seekS[6], subsS[12], audS[4], lookS[8], langS[44], langOpt, keyS[16], traktS[6], addonS[40], acctS[1], supS[10];
 static Cat cats[NCAT]; static int ncat; /* (Keys leaves when this build carries every key) */
+static int cat_ix(const Setting *opts) { for (int i = 0; i < ncat; i++) if (cats[i].opts == opts) return i; return -1; }
+static int prof_opts(void); static int org_opts(char area); static int addon_opts(void); static void org_dirty(void);
+static void org_refresh(void) { int ci; if ((ci = cat_ix(orgHS)) >= 0) cats[ci].n = org_opts('h'); if ((ci = cat_ix(orgSS)) >= 0) cats[ci].n = org_opts('s'); if ((ci = cat_ix(addonS)) >= 0) cats[ci].n = addon_opts(); org_dirty(); }
 
 /* the layout, in the web's pixels: the grid is centred, 1600 wide, 150 from the top */
 #define WX 160.0f            /* the grid's left edge */
@@ -118,8 +123,28 @@ static struct {
   int dirty; float catY[NCAT], grpY[NCAT], catsH; int catK[NCAT], grpK[NCAT], gap[NCAT];
   float optY[MAXROWS], optH[MAXROWS], optTot, prevH; int optN, optN0; RowA ra[MAXROWS]; int raShown;
 } S;
+static void org_dirty(void) { S.dirty = 1; }
 static void set_s(Setting *s, const char *k, const char *lb, const char *ds, const Opt *o, int n, const char *d) { memset(s, 0, sizeof *s); snprintf(s->k, sizeof s->k, "%s", k); snprintf(s->lb, sizeof s->lb, "%s", lb); snprintf(s->ds, sizeof s->ds, "%s", ds ? ds : ""); s->opts = o; s->nopts = n; s->d = d; }
 static void set_act(Setting *s, const char *k, const char *lb, const char *ds) { set_s(s, k, lb, ds, NULL, 0, ""); s->action = 1; }
+/* ---- profiles, the catalogs' order, the streams' filter (as the official Stremio's) ---- */
+static const Opt PROFO[] = { { "0", "Main" }, { "1", "Family" }, { "2", "Kids" } };
+static const Opt CATO[] = { { "show", "Show" }, { "top", "On top" }, { "hide", "Hide" } };
+static int prof_opts(void) { set_s(&profS[0], "profCur", "Profile in use", "Each profile has its own addons, the order of its rows and its stream filter. The Library and Continue Watching are the account's", PROFO, PROF_N, "0"); return 1; }
+static int org_opts(char area) { /* every catalog the addons give Home (or Search), as they come; the profile's choice on each */
+  static CatalogDef d[MAXROWS]; int n = area == 'h' ? sb_home_defs(d, MAXROWS - 2) : sb_search_defs("a", d, MAXROWS - 2); Setting *S2 = area == 'h' ? orgHS : orgSS; int m = 0;
+  for (int i = 0; i < n && m < MAXROWS - 2; i++) { char k[32]; catorg_key(&d[i], area, k, sizeof k); int dup = 0; for (int q = 0; q < m; q++) if (!strcmp(S2[q].k, k)) dup = 1; if (dup) continue;
+    Setting *s = &S2[m++]; set_s(s, k, d[i].title, "", CATO, 3, "show"); s->raw = 1; snprintf(s->ds, sizeof s->ds, "%s", !strcmp(d[i].type, "movie") ? T("Movies") : !strcmp(d[i].type, "series") ? T("Series") : d[i].type); }
+  return m; }
+static const Opt SFRES[] = { { "any", "Any" }, { "4k", "4K only" }, { "1080up", "1080p and up" }, { "1080", "Up to 1080p" }, { "720", "Up to 720p" } };
+static const Opt SFLANG[] = { { "any", "Any" }, { "pt", "Portuguese / dubbed only" } };
+static const Opt SFSIZE[] = { { "any", "Any" }, { "5", "Up to 5 GB" }, { "15", "Up to 15 GB" }, { "30", "Up to 30 GB" }, { "60", "Up to 60 GB" } };
+static int sf_opts(void) {
+  set_s(&sfS[0], "sf_res", "Quality", "Only the streams of this quality show (and play by themselves)", SFRES, 5, "any");
+  set_s(&sfS[1], "sf_lang", "Language", "Only the streams that say they are in Portuguese, dubbed or dual audio", SFLANG, 2, "any");
+  set_s(&sfS[2], "sf_cam", "Hide cinema recordings", "Leaves out CAM, TS and screener copies", OO, 2, "false");
+  set_s(&sfS[3], "sf_nohdr", "Hide HDR and Dolby Vision", "For a TV that shows them too dark", OO, 2, "false");
+  set_s(&sfS[4], "sf_size", "Largest file", "Leaves out files bigger than this", SFSIZE, 5, "any");
+  return 5; }
 /* a switch per addon: on or off on this TV only */
 static int addon_opts(void) {
   int n = 0; cJSON *l = sb_addons(); const cJSON *a;
@@ -303,7 +328,7 @@ static void build(void) {
     s->opts = s->dyn; s->nopts = n; }
   int nl = lang_opts(), nk = keys_opts(), na = addon_opts();
   set_act(&acctS[0], "__logout", "Log out", ""); /* (who it is: the card above it) */
-  int nab = about_opts();
+  int nab = about_opts(); int np = prof_opts(), noh = org_opts('h'), nos = org_opts('s'), nsf = sf_opts();
   /* grouped by task: what you watch, what the screens look like, account and system; Log out on its own, last */
   Cat c[NCAT] = {
     { "Watch", "Playback", "set_play", "Best stream, next episode, picture size", NULL, playS, 6, 0 }, /* (the counts: play_layout) */
@@ -316,6 +341,10 @@ static void build(void) {
     { "Account and system", "Trakt", "set_trakt", "Track what you watch", "trakt", traktS, 1, 0 },
     { "Account and system", "Keys", "set_keys", "Titles in your language, ratings and reviews", "keys", keyS, nk, 0 },
     { "Account and system", "About", "info", "Version, updates, logs and support", "about", supS, nab, 0 },
+    { "Account and system", "Profiles", "set_prof", "Each profile with its own addons and filters", NULL, profS, np, 0 },
+    { "Account and system", "Organize Home", "set_orgh", "Put rows on top or hide them", NULL, orgHS, noh, 0 },
+    { "Account and system", "Organize Search", "set_orgs", "Put catalogs on top or hide them", NULL, orgSS, nos, 0 },
+    { "Account and system", "Filter streams", "set_sf", "Only 4K, only dubbed, no cinema copies", NULL, sfS, nsf, 0 },
     { "", "Log out", "set_out", "", "acct", acctS, 0, 1 } }; /* (no row of its own: the category itself is the button, the page shows who is signed in) */
   ncat = 0; for (int i = 0; i < NCAT; i++) if (c[i].opts != keyS || nk) cats[ncat++] = c[i];
   play_layout(); S.dirty = 1;
@@ -353,7 +382,7 @@ static void on_sync_addons(int changed, void *ud) { (void)ud; /* what happened, 
   else if (ad) toast(T1("Addons updated: {a} added", "a", na), 2600, NULL);
   else if (rm) toast(T1("Addons updated: {r} removed", "r", nr), 2600, NULL);
   else toast(T("Addons updated"), 2200, NULL); /* the same addons, their order or settings changed */
-  if (changed > 0) board_invalidate(); cats[5].n = addon_opts(); if (S.cat == 5 && S.idx >= cats[5].n) S.idx = cats[5].n - 1; S.dirty = 1; }
+  if (changed > 0) board_invalidate(); { int ci = cat_ix(addonS); if (ci >= 0) { cats[ci].n = addon_opts(); if (S.cat == ci && S.idx >= cats[ci].n) S.idx = cats[ci].n - 1; } } S.dirty = 1; }
 static void on_sync_lib(int changed, void *ud) { (void)ud; if (changed) board_invalidate(); }
 static void sync_now(void) { toast(T("Syncing…"), 1500, NULL); sb_pull_library(on_sync_lib, NULL); sb_sync_addons(on_sync_addons, NULL); }
 /* the best stream: switched on only once the line is measured (once, kept); the row says why meanwhile */
@@ -393,7 +422,9 @@ static void set_val(Setting *o, const char *v, int dir) {
   if (!strcmp(o->k, "defaultAudioTrack")) store_set("enableDefaultAudioTrack", strcmp(v, "orig") ? "true" : "false"); /* (a language: picked by itself; Original: the film's own. Kept for the phone's remote and older builds) */
   if (!strcmp(o->k, "bgTrailer") || !strcmp(o->k, "seekPreviews")) play_layout(); /* its volume row comes and goes with it, right under it */
   if (!strcmp(o->k, "traktRows") || !strcmp(o->k, "traktMarks") || !strcmp(o->k, "traktCw")) board_invalidate(); /* Trakt's rows come and go on Home */
-  if (!strncmp(o->k, "adOn_", 5)) { board_invalidate(); cats[5].n = addon_opts(); return; } /* an addon on/off here: rows, metadata and streams follow */
+  if (!strncmp(o->k, "adOn_", 5)) { board_invalidate(); { int ci = cat_ix(addonS); if (ci >= 0) cats[ci].n = addon_opts(); } return; }
+  if (!strncmp(o->k, "coh_", 4) || !strncmp(o->k, "cos_", 4) || !strncmp(o->k, "sf_", 3)) { board_invalidate(); return; } /* (the rows' order, the streams' filter: Home follows) */
+  if (!strcmp(o->k, "profCur")) { board_invalidate(); org_refresh(); char m[160]; snprintf(m, sizeof m, "%s", T1("Profile: {p}", "p", prof_name(prof_cur()))); toast(m, 1800, NULL); return; } /* another profile: its addons, rows and filter */ /* an addon on/off here: rows, metadata and streams follow */
   if (!strcmp(o->k, "bingeWatch")) store_set("enableNextVideo", v);
   if (!strcmp(o->k, "p2pTcpOnly")) p2p_connections_changed();
   if (!strcmp(o->k, "accent")) accent_apply();

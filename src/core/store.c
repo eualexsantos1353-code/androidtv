@@ -49,13 +49,17 @@ static cJSON *find(const char *k) {
 static unsigned serial = 1;
 unsigned store_serial(void) { return serial; }
 static void touch(void) { dirty = 1; dirtyAt = SDL_GetTicks(); ixStale = 1; serial++; }
-const char *store_get(const char *k, const char *def) { cJSON *v = find(k); return cJSON_IsString(v) && v->valuestring ? v->valuestring : def; }
-void store_set(const char *k, const char *val) {
+/* the profile's own: its addons on or off, its catalogs' order, its stream filter (Settings › Profiles) */
+static const char *pmap(const char *k, char *b, size_t cap) {
+  if (!k || (strncmp(k, "adOn_", 5) && strncmp(k, "coh_", 4) && strncmp(k, "cos_", 4) && strncmp(k, "sf_", 3))) return k;
+  cJSON *v = find("profCur"); int p = cJSON_IsString(v) && v->valuestring ? atoi(v->valuestring) : 0; if (p <= 0) return k; snprintf(b, cap, "p%d:%s", p, k); return b; }
+const char *store_get(const char *k, const char *def) { char pb[400]; k = pmap(k, pb, sizeof pb); cJSON *v = find(k); return cJSON_IsString(v) && v->valuestring ? v->valuestring : def; }
+void store_set(const char *k, const char *val) { char pb[400]; k = pmap(k, pb, sizeof pb);
   const char *cur = store_get(k, NULL); if (cur && val && !strcmp(cur, val)) return;
   cJSON_DeleteItemFromObjectCaseSensitive(root, k); if (val) cJSON_AddStringToObject(root, k, val); touch(); }
 cJSON *store_node(const char *k) { return find(k); }
 void store_set_node(const char *k, cJSON *n) { if (n && find(k) == n) { touch(); return; } /* the store's own node, changed in place */ cJSON_DeleteItemFromObjectCaseSensitive(root, k); if (n) cJSON_AddItemToObject(root, k, n); touch(); }
-void store_remove(const char *k) { if (find(k)) { cJSON_DeleteItemFromObjectCaseSensitive(root, k); touch(); } }
+void store_remove(const char *k) { char pb[400]; k = pmap(k, pb, sizeof pb); if (find(k)) { cJSON_DeleteItemFromObjectCaseSensitive(root, k); touch(); } }
 /* cache files are written on a thread of their own: a disk write in the middle of a frame was a long frame on the TV
    (its flash can take tens of ms) */
 #include <pthread.h>
