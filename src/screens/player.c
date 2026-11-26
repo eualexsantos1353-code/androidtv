@@ -1932,7 +1932,8 @@ static int xr_age(const char *born, const char *died) { int y, m, d, y2, m2, d2;
   return y2 - y - ((m2 < m || (m2 == m && d2 < d)) ? 1 : 0); }
 static void xr_draw(void) {
   { static double lt; double nw = now_(); float fdt = lt ? (float)(nw - lt) : 0; lt = nw; if (fdt > 0.05f) fdt = 0.05f; mo_tick(&XR.a, fdt); mo_tick(&XR.card_a, fdt); }
-  float a = XR.a.v; if (a < 0.003f) return; uint32_t ac = ACC2 | 0xff000000u; int ep = episodic();
+  float a = XR.a.v * (1 - XR.card_a.v); uint32_t ac = ACC2 | 0xff000000u; int ep = episodic(); /* (the card covers the panel: the panel fades as it comes) */
+  if (a < 0.003f) goto card;
   float PW = 700, ox = -PW * (1 - a) * 0.25f; gfx_opacity_push(a);
   gfx_rrect_h(0, 0, PW + 260, SB_H, 0, RGBA(8, 8, 12, 236), RGBA(8, 8, 12, 0)); gfx_rect(0, 0, PW, SB_H, RGBA(8, 8, 12, 120));
   gfx_offset_push(ox, 0);
@@ -1966,9 +1967,10 @@ static void xr_draw(void) {
     gfx_clip_pop(); }
   { float hx = x, hy = SB_H - 52; if (XR.tab == 0) hx += key_hint(hx, hy, K_OK, T("Details"), WHITE_A(170), 0) + 28; key_hint(hx, hy, K_BACK, T("Close"), WHITE_A(170), 0); }
   gfx_offset_pop(); gfx_opacity_pop();
+  card:;
   /* the person, as Apple TV's card: the film paused or not behind, the panel under it */
-  float ca = XR.card_a.v; if (ca < 0.003f) return; const InsightPerson *pp = insight_person(XR.cardPid);
-  gfx_opacity_push(ca); gfx_rrect_h(0, 0, SB_W * 0.85f, SB_H, 0, RGBA(6, 6, 10, 245), RGBA(6, 6, 10, 0)); gfx_rect(0, 0, SB_W * 0.55f, SB_H, RGBA(6, 6, 10, 120));
+  float ca = XR.card_a.v * XR.a.v; if (ca < 0.003f) return; const InsightPerson *pp = insight_person(XR.cardPid);
+  gfx_opacity_push(ca); gfx_rrect_h(0, 0, SB_W, SB_H, 0, RGBA(6, 6, 10, 250), RGBA(6, 6, 10, 120)); gfx_rect(0, 0, SB_W * 0.6f, SB_H, RGBA(6, 6, 10, 160));
   float cx = 120, cy = 110; { float hw = key_hint(cx, cy + 10, K_BACK, T("Back"), WHITE_A(220), 0); (void)hw; }
   float phW = 300, phH = 450, py = cy + 70; float asp; GLuint t = img_get(XR.cardPhoto, 300, 450, &asp);
   gfx_shadow(cx, py + 14, phW, phH, 28, 40, BLACK_A(160)); if (t) gfx_image(t, cx, py, phW, phH, 28, WHITE_A(255), 0, 0, 1, 1); else gfx_rrect(cx, py, phW, phH, 28, WHITE_A(30));
@@ -1983,10 +1985,10 @@ static void xr_draw(void) {
   if (pp && pp->bio[0]) { fy += 12; text_draw_wrapped(pp->bio, tx3, fy, tw, 6, 25, 400, WHITE_A(205), 0, ALIGN_LEFT, 36); }
   else if (!pp || pp->state == 1) text_draw("\xe2\x80\xa6", tx3, fy + 12, 28, 600, WHITE_A(150), 0, 0, ALIGN_LEFT);
   if (pp && pp->nknown) { float ky = py + phH + 50; text_draw(T("Known for"), cx, ky, 30, 800, WHITE_A(240), -0.2f, 0, ALIGN_LEFT); ky += 52;
-    for (int i = 0; i < pp->nknown && i < 7; i++) { float kx = cx + i * 172; float a3; GLuint pt = img_get(pp->known[i].poster, 185, 278, &a3);
-      if (pt) gfx_image(pt, kx, ky, 150, 225, 14, WHITE_A(255), 0, 0, 1, 1); else gfx_rrect(kx, ky, 150, 225, 14, WHITE_A(24));
+    for (int i = 0; i < pp->nknown && i < 8; i++) { float kx = cx + i * 204; float a3; GLuint pt = img_get(pp->known[i].poster, 185, 278, &a3);
+      if (pt) gfx_image(pt, kx, ky, 176, 264, 16, WHITE_A(255), 0, 0, 1, 1); else gfx_rrect(kx, ky, 176, 264, 16, WHITE_A(24));
       char lb[140]; if (pp->known[i].year[0]) snprintf(lb, sizeof lb, "%s", pp->known[i].year); else lb[0] = 0;
-      text_draw(pp->known[i].title, kx, ky + 236, 20, 700, WHITE_A(220), 0, 150, ALIGN_LEFT); if (lb[0]) text_draw(lb, kx, ky + 262, 18, 500, WHITE_A(150), 0, 150, ALIGN_LEFT); } }
+      text_draw(pp->known[i].title, kx, ky + 276, 21, 700, WHITE_A(225), 0, 176, ALIGN_LEFT); if (lb[0]) text_draw(lb, kx, ky + 304, 19, 500, WHITE_A(150), 0, 176, ALIGN_LEFT); } }
   gfx_opacity_pop();
 }
 void player_key(int k, int down) {

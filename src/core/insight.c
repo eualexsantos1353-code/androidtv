@@ -53,7 +53,10 @@ static void on_person(int st, const unsigned char *b, size_t len, void *ud) {
   snprintf(PP.born, sizeof PP.born, "%s", js_str(j, "birthday", "")); snprintf(PP.died, sizeof PP.died, "%s", js_str(j, "deathday", "")); snprintf(PP.place, sizeof PP.place, "%s", js_str(j, "place_of_birth", ""));
   if (!PP.bio[0]) snprintf(PP.bio, sizeof PP.bio, "%s", js_str(j, "biography", ""));
   const cJSON *cast = js_arr(js_obj(j, "combined_credits"), "cast"); int n = cJSON_GetArraySize(cast);
-  if (n > 0) { const cJSON **v = calloc((size_t)n, sizeof *v); int m = 0; const cJSON *c; if (v) { cJSON_ArrayForEach(c, cast) if (*js_str(c, "poster_path", "") && strcmp(js_str(c, "character", ""), "Himself") && strcmp(js_str(c, "character", ""), "Herself")) v[m++] = c;
+  if (n > 0) { const cJSON **v = calloc((size_t)n, sizeof *v); int m = 0; const cJSON *c; if (v) { cJSON_ArrayForEach(c, cast) { if (!*js_str(c, "poster_path", "")) continue; const char *ch = js_str(c, "character", ""); if (strstr(ch, "Himself") || strstr(ch, "Herself") || strstr(ch, "Self") || strstr(ch, "self")) continue;
+          int skip = 0; const cJSON *g; cJSON_ArrayForEach(g, js_arr(c, "genre_ids")) { int gi = g->valueint; if (gi == 10767 || gi == 10763 || gi == 10764 || gi == 99) skip = 1; } /* talk shows, news, reality, documentaries: not their work */
+          if (!skip && !strcmp(js_str(c, "media_type", ""), "tv") && js_num(c, "episode_count", 2) < 2) skip = 1; /* (one episode of a show: a guest spot) */
+          if (!skip) v[m++] = c; }
       qsort(v, (size_t)m, sizeof *v, cmp_pop);
       for (int i = 0; i < m && PP.nknown < 8; i++) { const char *t = js_str(v[i], "title", js_str(v[i], "name", "")); int dup = 0; for (int k = 0; k < PP.nknown; k++) if (!strcmp(PP.known[k].title, t)) dup = 1; if (dup) continue;
         InsightWork *w = &PP.known[PP.nknown++]; snprintf(w->title, sizeof w->title, "%s", t); snprintf(w->poster, sizeof w->poster, "https://image.tmdb.org/t/p/w185%s", js_str(v[i], "poster_path", ""));

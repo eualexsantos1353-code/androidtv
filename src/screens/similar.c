@@ -157,7 +157,7 @@ static int wday_of(long d) { time_t t = time_of(d); struct tm tm; localtime_r(&t
 static int day_eps(long d, int *first) { int n = 0; *first = -1; for (int i = 0; i < G.items.n; i++) if (day_of((time_t)G.items.items[i].airAt) == d) { if (*first < 0) *first = i; n++; } return n; }
 /* besides what the addons' calendar catalogs said: each followed series' own episode list (its metadata, asked once
    as the Calendar opens), so a library the catalogs don't cover still fills the month */
-static Item *CX; static int nCX, capCX, cxPend; static unsigned cxGen;
+static Item *CX; static int nCX, capCX, cxPend, cxAsked; static unsigned cxGen;
 static int cmp_cal(const void *a, const void *b) { double x = ((const Item *)a)->airAt, y = ((const Item *)b)->airAt; if (x != y) return x < y ? -1 : 1; return strcmp(((const Item *)a)->name, ((const Item *)b)->name); }
 static void cal_load(void) {
   itemlist_clear(&G.items); int r = notify_calendar(&G.items); if (r < 0) r = 0;
@@ -177,9 +177,13 @@ static void on_cal_meta(cJSON *m, void *ud) {
   cal_load(); }
 static void cal_more(void) {
   nCX = 0; cxGen++; cxPend = 0; cJSON *lib = store_node("lib"); const cJSON *it; int k = 0; if (!cJSON_IsObject(lib)) return;
-  cJSON_ArrayForEach(it, lib) { if (k >= 60) break; if (strcmp(js_str(it, "type", ""), "series") || js_bool(it, "removed", 0) || js_bool(it, "temp", 0)) continue; const char *id = js_str(it, "_id", ""); if (!*id) continue;
+  time_t now = time(NULL);
+  cJSON_ArrayForEach(it, lib) { if (k >= 80) break; if (strcmp(js_str(it, "type", ""), "series")) continue; const char *id = js_str(it, "_id", ""); if (!*id) continue;
+    if (js_bool(it, "removed", 0) || js_bool(it, "temp", 0)) { /* not in the Library: a series watched lately (Continue Watching) still counts */
+      const char *lw = js_str(js_obj(it, "state"), "lastWatched", ""); struct tm tm; memset(&tm, 0, sizeof tm); if (sscanf(lw, "%d-%d-%d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday) != 3) continue;
+      tm.tm_year -= 1900; tm.tm_mon--; if (now - timegm(&tm) > 200 * 86400) continue; }
     k++; cxPend++; sb_meta("series", id, on_cal_meta, (void *)(uintptr_t)cxGen); }
-  fprintf(stderr, "[calendar] asking the episode lists of %d series\n", k); }
+  cxAsked = k; fprintf(stderr, "[calendar] asking the episode lists of %d series\n", k); }
 static void cal_enter(void) { memset(&C, 0, sizeof C); G.loadT0 = app_now(); C.day = day_of(time(NULL)); snprintf(G.title, sizeof G.title, "%s", T("Calendar")); cal_more(); cal_load(); }
 static void cal_tick(float dt) { tween_tick(&C.listY, dt); if ((!C.got || G.loading || notify_busy()) && app_now() > C.pollAt) cal_load(); }
 static const Item *cal_focused(void) { if (C.zone != 1) return NULL; int f; int n = day_eps(C.day, &f); return n && C.idx < n ? &G.items.items[f + C.idx] : NULL; }
@@ -228,7 +232,7 @@ static void cal_draw(void) {
     text_draw(hd, rx, ry, 40, 800, WHITE_A(255), -0.4f, rw, ALIGN_LEFT); }
   int f, n = day_eps(C.day, &f); float ly = ry + 80, lh = SB_H - 60 - ly;
   if (G.loading && !G.items.n) text_draw(T("Getting the calendar…"), rx, ly + 20, 30, 600, WHITE_A(160), 0, rw, ALIGN_LEFT);
-  else if (!G.items.n) text_draw_wrapped(T("Add series to your Library to see their episodes here"), rx, ly + 20, rw, 3, 30, 600, WHITE_A(160), 0, ALIGN_LEFT, 40);
+  else if (!G.items.n) { char cn[16]; snprintf(cn, sizeof cn, "%d", cxAsked); text_draw_wrapped(cxAsked ? T1("None of your {n} series has an episode from a month ago to three months ahead", "n", cn) : T("Add series to your Library to see their episodes here"), rx, ly + 20, rw, 3, 30, 600, WHITE_A(160), 0, ALIGN_LEFT, 40); }
   else if (!n) text_draw(T("No episodes on this day"), rx, ly + 20, 30, 600, WHITE_A(150), 0, rw, ALIGN_LEFT);
   gfx_clip_push(rx - 24, ly - 6, rw + 48, lh + 12);
   for (int i = 0; i < n; i++) { const Item *it = &G.items.items[f + i]; float yy = ly + i * 150 + C.listY.v; if (yy + 150 < ly || yy > ly + lh) continue; int fo = C.zone == 1 && i == C.idx;
