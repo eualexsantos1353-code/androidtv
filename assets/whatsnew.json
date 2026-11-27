@@ -1,40 +1,35 @@
 {
- "version": "86",
+ "version": "87",
  "items": [
   {
    "icon": "play",
-   "title": "Player repaginado",
-   "text": "Nome da série menor, barra e botão em foco em vermelho e sombra de cinema embaixo e em cima."
+   "title": "Player novo",
+   "text": "Título pequeno no topo, sinopse ao pausar, -10s/+10s ao lado do play e o nome de cada botão."
   },
   {
    "icon": "lib_sort",
-   "title": "Biblioteca repaginada",
-   "text": "Fundo de cinema, destaque no topo com Assistir, Minha lista e Mais informações, e fileiras em todas as abas. ▶ assiste direto, Voltar sobe ao topo."
+   "title": "Detalhes estilo cinema",
+   "text": "Arte grande, botão Continuar S1:E3 e tudo em vermelho e preto."
+  },
+  {
+   "icon": "lib_wall",
+   "title": "Para ver hoje",
+   "text": "Na Biblioteca: 5 títulos seus escolhidos para o dia. E a fileira Novos episódios."
+  },
+  {
+   "icon": "play",
+   "title": "Porque você assistiu",
+   "text": "No Início, recomendações do último título que você terminou."
+  },
+  {
+   "icon": "play",
+   "title": "Assistir pelo celular",
+   "text": "Na busca pelo celular: toque em Assistir na TV."
   },
   {
    "icon": "lib_sort",
-   "title": "Qualidade para animes",
-   "text": "Em Filtrar fontes: deixe filmes e séries em 4K e escolha outra qualidade só para animes."
-  },
-  {
-   "icon": "av_heart",
-   "title": "Sessão a dois",
-   "text": "No Início, ao lado da Roleta: os dois votam pelo celular e a TV mostra os matches."
-  },
-  {
-   "icon": "av_star",
-   "title": "Diário com séries",
-   "text": "Terminou a última de uma temporada? Dê estrelas para a temporada."
-  },
-  {
-   "icon": "later",
-   "title": "Notas no Trakt",
-   "text": "As estrelas do diário vão para o Trakt (cada estrela vale 2 pontos)."
-  },
-  {
-   "icon": "wn_new",
-   "title": "Episódios novos com o Trakt",
-   "text": "Séries que você viu em qualquer lugar e que soltaram episódio aparecem no Início."
+   "title": "Atualização pela TV",
+   "text": "Cada etapa nova aparece em Configurações > Sobre e se instala pela própria TV."
   }
  ],
  "support": {

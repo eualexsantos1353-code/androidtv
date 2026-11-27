@@ -1000,20 +1000,30 @@ static int stream_parse(Stream *o, const cJSON *s, const char *addon) {
   const cJSON *subs = js_arr(s, "subtitles"); o->nsubs = subs ? cJSON_GetArraySize(subs) : 0; if (o->nsubs) stream_subs_keep(o->url[0] ? o->url : o->ext, subs, addon);
   return 1;
 }
-typedef struct { unsigned tok; int anime; int pending, total, cancelled, count; StreamPartCb part; StreamDoneCb done; StreamAnsCb ans; void *ud; cJSON *own; } StreamReq;
+#define NRES 24
+void toast(const char *msg, int ms, const char *key);
+typedef struct { unsigned tok; int anime; StreamGroup res[NRES]; int resIdx[NRES], nres; int pending, total, cancelled, count; StreamPartCb part; StreamDoneCb done; StreamAnsCb ans; void *ud; cJSON *own; } StreamReq;
 typedef struct { StreamReq *req; int idx; char name[96]; } StreamPart;
 static unsigned streamTok;
 static void streams_answer(StreamPart *p, const cJSON *arr) {
   StreamReq *r = p->req; const cJSON *s;
   StreamGroup g; copy_str(g.name, sizeof g.name, p->name); int na = arr ? cJSON_GetArraySize(arr) : 0; if (!r->ans && na > 40) na = 40; /* the best-stream pick reads all of them, as the web does: a 4K-first addon lists its 1080p files late */
   g.items = calloc(na ? na : 1, sizeof(Stream)); g.n = 0;
-  if (arr) cJSON_ArrayForEach(s, arr) { if (g.n >= na) break; if (stream_parse(&g.items[g.n], s, p->name) && sfilter_pass_k(&g.items[g.n], r->anime)) g.n++; } /* (Settings › Filter streams) */
+  int parsed = 0; Stream *all = NULL; if (sfilter_on() || r->anime) all = calloc(na ? na : 1, sizeof(Stream)); /* etapa-87: what the filter left out, kept in reserve */
+  if (arr) cJSON_ArrayForEach(s, arr) { if (g.n >= na || parsed >= na) break; Stream tmp; if (!stream_parse(&tmp, s, p->name)) continue; if (all) all[parsed] = tmp; parsed++; if (sfilter_pass_k(&tmp, r->anime)) g.items[g.n++] = tmp; } /* (Settings › Filter streams) */
+  if (all && !g.n && parsed && r->nres < NRES) { StreamGroup *rg = &r->res[r->nres]; *rg = g; free(g.items); rg->items = all; rg->n = parsed; r->resIdx[r->nres++] = p->idx; all = NULL; g.items = NULL; }
+  free(all);
   r->total += g.n; if (g.n) r->part(&g, p->idx, r->ud); else free(g.items);
 }
 static void stream_part_done(StreamPart *p) {
   StreamReq *r = p->req;
   --r->pending; if (!r->cancelled && r->ans) r->ans(r->pending, r->count, r->ud);
-  if (r->pending <= 0) { if (!r->cancelled) r->done(r->total, r->ud); cJSON_Delete(r->own); free(r); }
+  if (r->pending <= 0) {
+    if (!r->cancelled && !r->total && r->nres) { /* etapa-87: nothing passed the filter: the others, rather than an empty list */
+      for (int i = 0; i < r->nres; i++) { r->total += r->res[i].n; r->part(&r->res[i], r->resIdx[i], r->ud); r->res[i].items = NULL; }
+      toast(T("No streams in the chosen quality: showing the others"), 3500, NULL); }
+    for (int i = 0; i < r->nres; i++) free(r->res[i].items);
+    if (!r->cancelled) r->done(r->total, r->ud); cJSON_Delete(r->own); free(r); }
   free(p);
 }
 static void on_streams(int st, const unsigned char *b, size_t n, void *ud) {

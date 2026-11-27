@@ -589,7 +589,7 @@ static const char *lang_variant(const char *c) {
 static int variant_ok(const char *have, const char *want) { return !strcmp(lang_variant(have), lang_variant(want)); }
 /* ---- a show's own subtitles and audio: picked by hand in one of its episodes (other than what the settings would give),
    kept for the whole show and used in its other episodes; picked again, kept again. TV shows only ---- */
-static int show_prefs_on(void) { return !strcmp(P.type, "series") && !P.isTrailer && P.id[0]; }
+static int show_prefs_on(void) { return (!strcmp(P.type, "series") || !strcmp(P.type, "movie")) && !P.isTrailer && P.id[0]; } /* etapa-87: films keep theirs too */
 static const cJSON *show_pref(void) { if (!show_prefs_on()) return NULL; cJSON *a = store_node("showPrefs"); return cJSON_IsObject(a) ? cJSON_GetObjectItemCaseSensitive(a, P.id) : NULL; }
 static void show_pref_put(const char *k, const char *v) { /* v NULL: that one forgotten (back to the settings') */
   cJSON *a = store_node("showPrefs"); cJSON *n = cJSON_IsObject(a) ? cJSON_Duplicate(a, 1) : cJSON_CreateObject(); cJSON *o = cJSON_GetObjectItemCaseSensitive(n, P.id); if (!o) { o = cJSON_CreateObject(); cJSON_AddItemToObject(n, P.id, o); }
@@ -1161,6 +1161,7 @@ static void build_btns(void) {
   P.nbtn = 0; int i = 0;
   #define B(ID, IC, LB, BIG) do { P.btns[i].id = ID; P.btns[i].icon = IC; snprintf(P.btns[i].lb, 48, "%s", LB); P.btns[i].big = BIG; P.btns[i].nx = 0; i++; } while (0)
   if (live_title() && live_catalogs() > 0) B("chn", "wn_live", T("Channels"), 1); else B("pp", "p_pause", "", 1); /* a channel: its big button is the channels (play / pause on the remote's key) */
+  if (!live_title() && !live_bcast()) { B("rw", "p_rw", T("Back 10 s"), 0); B("ff", "p_ff", T("Forward 10 s"), 0); } /* etapa-87 */
   if (!P.isTrailer && P.next.has) { B("nxt", "p_next", T("Next episode"), 0); P.btns[i - 1].nx = 1; }
   if (!P.isTrailer && !live_title()) { B("beg", "restart", T("Play from the beginning"), 0); P.btns[i - 1].nx = 1; } /* films and episodes alike (a broadcast has no beginning) */
   P.nL = i;
@@ -1176,7 +1177,7 @@ static void build_btns(void) {
   for (int k = 0; k < i; k++) { P.btns[k].lw = P.btns[k].lb[0] ? text_width(P.btns[k].lb, 24, 700, 0) + 22 : 0; P.btns[k].w = P.btns[k].big ? 94 : 78; }
   /* where they sit before any slides aside (76 / 92 plus a 1 px edge): the left group from the left, the right group from the right */
   float x = 72; for (int k = 0; k < P.nL; k++) { if (P.btns[k].nx) x += 8; P.btns[k].x0 = x; P.btns[k].y = SB_H - 54 - 94 + (94 - P.btns[k].w) / 2; x += P.btns[k].w + (P.btns[k].big ? 20 : 0); }
-  x = SB_W - 72; for (int k = i - 1; k >= P.nL; k--) { x -= P.btns[k].w; P.btns[k].x0 = x; P.btns[k].y = SB_H - 54 - 94 + 8; x -= 18; }
+  x = SB_W - 92; for (int k = i - 1; k >= P.nL; k--) { x -= P.btns[k].w; P.btns[k].x0 = x; P.btns[k].y = SB_H - 54 - 94 - 4; x -= 50; } /* etapa-87: room for each name under it */
   for (int k = 0; k < i; k++) { P.btns[k].x = P.btns[k].x0 + P.btns[k].dx.v; }
 }
 static int btn_index(const char *id) { for (int i = 0; i < P.nbtn; i++) if (!strcmp(P.btns[i].id, id)) return i; return -1; }
@@ -1898,7 +1899,7 @@ static void pos_key(int k) {
 static struct { float y, h, ux, uw, dx, dw, ox, ow; } PZ; /* the card's parts, for the pointer */
 static void hub_from_player(void) { close_tray(); P.osd = 0; P.mode = 6; hub_open(1, P.id); } /* the live hub over the channel playing (mode 6) */
 static void act(const char *id) {
-  if (!strcmp(id, "pp")) toggle(); else if (!strcmp(id, "beg")) from_start(); else if (!strcmp(id, "asp")) next_aspect(); else if (!strcmp(id, "nxt")) next_auto(); else if (!strcmp(id, "cc")) cc_toggle();
+  if (!strcmp(id, "pp")) toggle(); else if (!strcmp(id, "rw")) seek_by(-1); else if (!strcmp(id, "ff")) seek_by(1); else if (!strcmp(id, "beg")) from_start(); else if (!strcmp(id, "asp")) next_aspect(); else if (!strcmp(id, "nxt")) next_auto(); else if (!strcmp(id, "cc")) cc_toggle();
   else if (!strcmp(id, "chn")) { hub_from_player(); return; }
   else if (!strcmp(id, "mv")) { multi_button(); if (multi_armed()) hub_from_player(); else build_btns(); return; }
   else open_tray(!strcmp(id, "eps") ? 1 : !strcmp(id, "src") ? 2 : !strcmp(id, "aud") ? 3 : 4);
@@ -2496,6 +2497,7 @@ static int closeNext, closeSim, closeArt; static double closeAt, closeT0; /* clo
 static void close_player(int goNext, int goSim) {
   if (!P.open || P.closing) return; multi_stop(); if (bestTok) { best_choose_cancel(bestTok); bestTok = 0; } P.closing = 1; ps_hold(0); sp_verify_reset(); np_stop(); NP.vid[0] = 0; /* (the next episode's pictures made so far: kept) */ /* (a lighter copy not taken yet: it reads on freely, nothing plays) */ closeArt = !P.live && P.artA.v > 0.999f; closeT0 = now_(); sx_begin_quick(0); /* the player's logo moves back to the page */ closeNext = goNext; closeSim = goSim; P.ssOn = 0; P.nx.tok = 0; P.sk.tok = 0;
   { double d = dur(), t = video_time(); int fin = d > 600 && (P.ended || t / d >= 0.85);
+    if (!P.live && !P.isTrailer && fin && !live_title() && !strncmp(P.id, "tt", 2)) { cJSON *o = cJSON_CreateObject(); cJSON_AddStringToObject(o, "type", P.type); cJSON_AddStringToObject(o, "id", P.id); cJSON_AddStringToObject(o, "name", P.name); store_set_node("becauseOf", o); extern void because_changed(void); because_changed(); } /* etapa-87: Home's "Because you watched" */
     if (!P.live && !P.isTrailer && fin && !strcmp(P.type, "movie") && d > 1200) { Item it = lib_item(); diaryWant = 1; diaryIt = it; }
     else if (!P.live && !P.isTrailer && fin && !strcmp(P.type, "series") && P.season > 0) { /* etapa-83: a season's last episode: the season's stars */
       int last = 0; const cJSON *v; cJSON_ArrayForEach(v, js_arr(P.meta, "videos")) if ((int)js_num(v, "season", -1) == P.season) { int e = (int)js_num(v, "episode", js_num(v, "number", 0)); if (e > last) last = e; }
@@ -2526,6 +2528,7 @@ static void chip_bg(const char *t, float x, float y, float w) {
   else if (strstr(t, "HDR")) { c0 = RGB(0xf9, 0x73, 0x16); c1 = RGB(0xf5, 0x9e, 0x0b); }
   else if (strstr(t, "Atmos")) { c0 = RGB(0x25, 0x63, 0xeb); c1 = RGB(0x06, 0xb6, 0xd4); }
   if (!c0) { gfx_rrect(x, y, w, 46, 23, RGBA(10, 12, 22, 140)); gfx_ring(x, y, w, 46, 23, 2, WHITE_A(56)); return; }
+  if (1) { gfx_rrect(x, y, w, 46, 23, RGBA(12, 10, 14, 190)); gfx_ring(x, y, w, 46, 23, 2, c0); return; } /* etapa-87: the colour on its edge (the full colour washed out on the TV) */
   gfx_shadow(x, y + 6, w, 46, 23, 18, col_alpha(c0, 0.45f)); gfx_rrect_h(x, y, w, 46, 23, c0, c1);
   gfx_rrect_v(x, y, w, 23, 23, WHITE_A(70), WHITE_A(0)); gfx_ring(x, y, w, 46, 23, 2, WHITE_A(110)); }
 static float chip_delay(int i) { return i >= 1 ? 0.05f * (i < 6 ? i : 6) : 0; }
@@ -3088,7 +3091,7 @@ static void draw_osd(void) {
     xline_draw(&stX[1], status, cx, cy + 40 + 22, 24, WHITE_A(204), 0, ALIGN_CENTER); gfx_opacity_pop(); }
   /* top left, as the film starts, for 6 s (under the peers chip while the controls show it): one glass pill like the peers chip, the age in a small
      accent badge, then what for, each with three small dots for how much; the reasons come in one after the other */
-  if (P.pgA.v > 0.001f) { float x = 72 + P.pgY.v, y = 52 + (46 + 14) * P.p2pA.v, h = 52, t = (float)(now_() - P.pg.at); char ag[40]; if (P.pg.age > 0) snprintf(ag, sizeof ag, "%d+", P.pg.age); else snprintf(ag, sizeof ag, "%s", T("All ages"));
+  if (P.pgA.v > 0.001f) { float x = 72 + P.pgY.v, y = 52 + 150 * P.ttlA.v, h = 52, /* etapa-87: under the title, now up top */ t = (float)(now_() - P.pg.at); char ag[40]; if (P.pg.age > 0) snprintf(ag, sizeof ag, "%d+", P.pg.age); else snprintf(ag, sizeof ag, "%s", T("All ages"));
     static float nw[PG_CATS]; static unsigned lg; if (lg != i18n_gen() || !nw[0]) { lg = i18n_gen(); for (int c = 0; c < PG_CATS; c++) nw[c] = text_width(parental_cat_name(c), 22, 600, 0); }
     float bw = text_width(ag, 25, 800, 0) + 22, /* (the age a step above the rest) */ w = 9 + bw + 16; for (int i = 0; i < P.pg.g.n; i++) w += nw[P.pg.g.cat[i]] + 9 + 2 * 10 + 7 + (i + 1 < P.pg.g.n ? 20 : 18); if (!P.pg.g.n) w = 9 + bw + 9; /* (the age alone) */
     gfx_opacity_push(P.pgA.v);
@@ -3109,8 +3112,9 @@ static void draw_osd(void) {
     gfx_opacity_pop(); } }
   /* top left, with the controls: a torrent's peers and speed */
   if (P.p2pA.v > 0.001f) { gfx_opacity_push(P.p2pA.v); static TMemo p2W; float tw = tm_width(&p2W, P.p2pLine, 24, 600, 0), w = 16 + 10 + 12 + tw + 20 + 4;
-    lglass_shell(72, 52, w, 46, 23, RGBA(10, 12, 22, 150), 1); gfx_circle(72 + 2 + 16 + 5, 52 + 23, 5, RGB(0x4a, 0xde, 0x80));
-    xline_draw(&stX[2], P.p2pLine, 72 + 2 + 16 + 10 + 12, 52 + (46 - text_line_height(24)) / 2, 24, WHITE_A(255), 0, ALIGN_LEFT); gfx_opacity_pop(); }
+    float px = SB_W / 2 - w / 2; /* etapa-87: top centre (the title has the top left) */
+    lglass_shell(px, 52, w, 46, 23, RGBA(10, 12, 22, 150), 1); gfx_circle(px + 2 + 16 + 5, 52 + 23, 5, RGB(0x4a, 0xde, 0x80));
+    xline_draw(&stX[2], P.p2pLine, px + 2 + 16 + 10 + 12, 52 + (46 - text_line_height(24)) / 2, 24, WHITE_A(255), 0, ALIGN_LEFT); gfx_opacity_pop(); }
   /* top right: the clock, the pages' own (a new minute: only its changed digits crossfade), and when it ends */
   if (P.topR.v > 0.001f) { gfx_opacity_push(P.topR.v); gfx_offset_push(0, P.topY.v);
     app_clock_draw(W - 64, 46, 1);
@@ -3128,16 +3132,22 @@ static void draw_osd(void) {
     float y = ttlBot, mtTop = 0, infTop = 0, seTop = 0;
     if (hasMt) { mtTop = y - L25; y = mtTop - 14; }
     if (P.nchip) { infTop = y - 46; y = infTop - 18; }
-    if (hasSe) { seTop = y - 36; y = seTop - 18; }
-    float lw, lh; GLuint t = logo_fit(400, 112, &lw, &lh); int nm = name_shown(t), nl = 0; static TMemo nmW; if (nm) { nl = tm_wrap(&nmW, P.name, 900, 2, 42, 800, -1); lh = nl * 42 * 1.05f; } /* etapa-86: the title smaller */
-    float lgTop = y - lh;
-    if (P.pzA.v > 0.001f) { static UMemo pzU; const char *pz = um_upper(&pzU, T("Paused")); text_draw(pz, bx, lgTop - 40, 24, 700, WHITE_A((int)(199 * P.pzA.v)), 6, 0, ALIGN_LEFT); }
+    (void)y; /* etapa-87: the title moves up top, small (the logo 340 x 88, the name in words 36) */
+    float lw, lh; GLuint t = logo_fit(340, 88, &lw, &lh); int nm = name_shown(t), nl = 0; static TMemo nmW; if (nm) { nl = tm_wrap(&nmW, P.name, 900, 2, 36, 800, -1); lh = nl * 36 * 1.05f; }
+    float lgTop = 48; gfx_offset_push(-P.ttlX.v, -P.ttlY.v * 0.5f); /* (it comes in from above, not from below) */
+    if (hasSe) seTop = lgTop + lh + 12;
+    { float py = (hasSe ? seTop + 36 : lgTop + lh) + 18; /* paused: PAUSED, then the episode's (or film's) story */
+      if (P.pzA.v > 0.001f) { static UMemo pzU; const char *pz = um_upper(&pzU, T("Paused")); text_draw(pz, bx, py, 22, 700, WHITE_A((int)(199 * P.pzA.v)), 6, 0, ALIGN_LEFT);
+        const char *ov = NULL; if (P.videos) { const cJSON *e; cJSON_ArrayForEach(e, P.videos) if (!strcmp(js_str(e, "id", ""), P.vid)) { ov = js_str(e, "overview", js_str(e, "description", NULL)); break; } }
+        if ((!ov || !*ov) && !episodic() && P.meta) ov = js_str(P.meta, "description", NULL);
+        if (ov && *ov && !P.isTrailer) text_draw_wrapped(ov, bx, py + 40, 900, 4, 25, 400, WHITE_A((int)(220 * P.pzA.v)), 0, ALIGN_LEFT, 36); } }
 
     if (t) { char sk[80]; snprintf(sk, sizeof sk, "logo:%s", P.id); sx_image(sk, t, bx, lgTop, lw, lh, 0, WHITE_A(255), 0, 0, 1, 1); } else if (nm) text_draw_wrapped(P.name, bx, lgTop, 900, 2, 42, 800, WHITE_A((int)(255 * kf(P.nameAt, .45f, C_LGIN, 0))), -1, ALIGN_LEFT, 42 * 1.05f);
     if (hasSe) { float ty = seTop + (36 - L30) / 2;
       if (P.isTrailer) { static UMemo tgU; const char *tg = um_upper(&tgU, trailer_name()); text_draw(tg, bx, seTop + (36 - text_line_height(22)) / 2, 22, 700, ACC2, 6, 0, ALIGN_LEFT); }
       else { char se[16]; if (P.season >= 0) snprintf(se, sizeof se, "S%d:E%d", P.season, P.episode); else snprintf(se, sizeof se, "E%d", P.episode); float w = txt_sh(se, bx, ty, 27, 800, WHITE_A(255), 0.5f, 0, ALIGN_LEFT, 153);
-        if (P.epTitle[0]) { gfx_circle(bx + w + 16 + 3.5f, seTop + 18, 3.5f, ACC2); txt_sh(P.epTitle, bx + w + 16 + 7 + 16, ty, 27, 600, WHITE_A(230), 0, 1000, ALIGN_LEFT, 153); } } }
+        if (P.epTitle[0]) { gfx_circle(bx + w + 16 + 3.5f, seTop + 18, 3.5f, RGB(0xe5, 0x1a, 0x2e)); txt_sh(P.epTitle, bx + w + 16 + 7 + 16, ty, 27, 600, WHITE_A(230), 0, 1000, ALIGN_LEFT, 153); } } }
+    gfx_offset_pop(); /* (the top's own) */
     if (P.nchip) { float cx = bx, L24 = text_line_height(24);
       for (int i = 0; i < P.nchip; i++) { float k = kf(P.chip[i].at, .42f, C_OUT, P.chip[i].delay); if (P.chip[i].at && now_() - P.chip[i].at < P.chip[i].delay) k = 0; /* the entrance keeps its first frame through the delay */
         if (P.chip[i].sep) { cx += 4; gfx_rect(cx, infTop + 6 + 8 * (1 - k), 2, 34, WHITE_A((int)(115 * k))); cx += 2 + 16; continue; }
@@ -3213,7 +3223,8 @@ static void draw_osd(void) {
       if (!f) lglass_shell(x, y, sz, sz, sz / 2, RGBA(16, 16, 24, 90), 0.85f); /* glass at rest */
       float isz = P.btns[i].big ? 48 : 34, ix = x + sz / 2 - isz / 2, iy = y + sz / 2 - isz / 2; uint32_t ic = WHITE_A(255);
       if (!strcmp(P.btns[i].id, "cc")) { cc_icon(ix, iy, isz, ic, f ? RGB(0xe5, 0x1a, 0x2e) : RGBA(30, 30, 34, 235)); continue; }
-      icon_draw(!strcmp(P.btns[i].id, "pp") ? (paused() ? "p_play" : "p_pause") : P.btns[i].icon, ix, iy, isz, ic); }
+      icon_draw(!strcmp(P.btns[i].id, "pp") ? (paused() ? "p_play" : "p_pause") : P.btns[i].icon, ix, iy, isz, ic);
+      if (i >= P.nL && !f && P.btns[i].lb[0]) text_draw(P.btns[i].lb, x + sz / 2, y + sz + 6, 17, 600, WHITE_A(170), 0, sz + 40, ALIGN_CENTER); } /* etapa-87: each one's name under it */
     gfx_offset_pop(); gfx_opacity_pop(); }
   /* the prompts: the skip pill, the credits buttons, the next-up card */
   PG.prompt = 0; const PPrompt *pr = P.prompt.k ? &P.prompt : &P.shown;

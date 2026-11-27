@@ -36,7 +36,11 @@
 #ifndef SB_PKG_PREFIX
 #define SB_PKG_PREFIX SB_APP_ID "_" /* a release file's name before its version (tools/build.sh may set another per target) */
 #endif
+#ifdef SB_ANDROIDTV
+#define UPD_GH "https://api.github.com/repos/eualexsantos1353-code/androidtv/releases?per_page=8" /* etapa-87: Lumen's own builds (each one published by the workflow) */
+#else
 #define UPD_GH "https://api.github.com/repos/stremio-origin/" SB_REPO "/releases?per_page=8"
+#endif
 #define UPD_MAN "https://stremio-origin.github.io/" SB_REPO "/api/apps/" SB_APP_ID "/manifest.json"
 typedef struct { char ver[24], url[512], sha[72]; char notes[5][256]; int nnotes; } Rel;
 static struct {

@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write   # etapa-87: each build published as a release, so the TV finds it (Settings > About, and the notice)
 
 jobs:
   build:
@@ -15,6 +15,13 @@ jobs:
       NDK_VER: 27.2.12479018
     steps:
       - uses: actions/checkout@v4
+
+      - name: Version of this build (etapa-87: always above the last, so the TV sees it as new)
+        run: |
+          V="2.${{ github.run_number }}.0"
+          jq --arg v "$V" '.version=$v' pkg/appinfo.json > /tmp/ai.json && mv /tmp/ai.json pkg/appinfo.json
+          echo "SB_VERSION=$V" >> "$GITHUB_ENV"
+          echo "version $V"
 
       - uses: actions/setup-java@v4
         with:
@@ -82,3 +89,12 @@ jobs:
           path: androidtv/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 7
+
+      - name: Publish for the TV's update (etapa-87)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          F="stremio-origin-androidtv-${SB_VERSION}.apk"
+          cp androidtv/app/build/outputs/apk/debug/app-debug.apk "/tmp/$F"
+          NOTE="$(jq -r '[.items[]?.title] | map("- " + .) | join("\n")' assets/whatsnew.json 2>/dev/null || true)"
+          gh release create "lumen-${SB_VERSION}" "/tmp/$F" -R "${{ github.repository }}" --title "Lumen ${SB_VERSION}" --notes "${NOTE:-Etapa nova}" || echo "release not made"

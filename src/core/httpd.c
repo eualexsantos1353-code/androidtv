@@ -29,6 +29,7 @@ static pthread_mutex_t mu = PTHREAD_MUTEX_INITIALIZER;
 static int alive, stopReq, nconn; static double deadline;
 static char tok[17];
 static struct { int seq; char text[400]; } typed;
+static struct { int seq; char type[16], id[64], name[200], poster[512]; } playQ; /* etapa-87: "Watch on TV" from the phone */
 static unsigned hits;
 static int (*simklFn)(const char *key);
 static char *(*duoFn)(const char *path, const char *query, const char **ctype); /* etapa-83: the Duo session */
@@ -37,7 +38,7 @@ static int (*iptvFn)(const char *m3u, const char *epg);
 
 /* the pages speak the app's language: its translations of these, taken when a screen asks for the server
    (the server thread never reads the dictionaries, which a language change rebuilds) */
-static const char *PK[] = { "Search on TV", "Search on your TV", "What you type shows up on the TV as you type.", "Film or series", "Sent", "Can\xe2\x80\x99t reach the TV",
+static const char *PK[] = { "Watch on TV", "Playing on TV", "Search on TV", "Search on your TV", "What you type shows up on the TV as you type.", "Film or series", "Sent", "Can\xe2\x80\x99t reach the TV",
   "Titles and descriptions", "Titles and descriptions in your language", "Paste your TMDB API key (or API Read Access Token). Get one at", "It stays on your TV.",
   "API key", "Save", "Checking\xe2\x80\xa6", "Saved. You can close this page.", "TMDB didn\xe2\x80\x99t accept this key.",
   "Ratings and reviews", "Ratings and reviews from Trakt", "Paste your Trakt Client ID. To get one:", "open", "sign in, then Settings \xe2\x80\xba Your API Apps \xe2\x80\xba New Application. Any name; as the redirect URI paste",
@@ -106,7 +107,15 @@ static void search_page(Buf *b) {
     "var d=document.body;d.classList.remove(\"go\");void d.offsetWidth;d.classList.add(\"go\");" /* the glows sweep up towards the TV */
     "x.onload=function(){s.textContent="); js(b, pt("Sent")); b_s(b, ";};x.onerror=function(){s.textContent="); js(b, pt("Can\xe2\x80\x99t reach the TV")); b_s(b, ";};x.send();}"
     "setTimeout(function(){document.body.classList.add(\"go\");},250);" /* opened: the glows sweep up once, towards the TV */
-    "q.addEventListener(\"input\",function(){clearTimeout(t);t=setTimeout(send,250);});q.addEventListener(\"keydown\",function(e){if(e.keyCode===13){clearTimeout(t);send();q.blur();}});</script></body></html>");
+    "q.addEventListener(\"input\",function(){clearTimeout(t);t=setTimeout(send,250);clearTimeout(u);u=setTimeout(look,600);});q.addEventListener(\"keydown\",function(e){if(e.keyCode===13){clearTimeout(t);send();look();q.blur();}});"
+    /* etapa-87: the results here too (Cinemeta, from the phone), each with Watch on TV */
+    "var u=null,R=document.getElementById(\"r\");function look(){var v=q.value.trim();if(v.length<2){RR().innerHTML=\"\";return;}var out=[],n=0;[\"movie\",\"series\"].forEach(function(tp){var x=new XMLHttpRequest();x.open(\"GET\",\"https://v3-cinemeta.strem.io/catalog/\"+tp+\"/top/search=\"+encodeURIComponent(v)+\".json\");"
+    "x.onload=function(){try{(JSON.parse(x.responseText).metas||[]).slice(0,8).forEach(function(m){m.t=tp;out.push(m);});}catch(e){}if(++n==2)show(out);};x.onerror=function(){if(++n==2)show(out);};x.send();});}"
+    "function show(a){var R=RR();R.innerHTML=\"\";a.forEach(function(m){var d=document.createElement(\"div\");d.className=\"it\";var im=document.createElement(\"img\");im.src=m.poster||\"\";d.appendChild(im);var w=document.createElement(\"div\");var h=document.createElement(\"b\");h.textContent=m.name+(m.releaseInfo?\" (\"+m.releaseInfo+\")\":\"\");w.appendChild(h);"
+    "var bt=document.createElement(\"button\");bt.textContent=");
+  js(b, pt("Watch on TV")); b_s(b, ";bt.onclick=function(){var x=new XMLHttpRequest();x.open(\"GET\",location.pathname+\"/play?type=\"+m.t+\"&id=\"+encodeURIComponent(m.id)+\"&name=\"+encodeURIComponent(m.name||\"\")+\"&poster=\"+encodeURIComponent(m.poster||\"\"));x.onload=function(){bt.textContent=");
+  js(b, pt("Playing on TV")); b_s(b, ";};x.send();};w.appendChild(bt);d.appendChild(w);R.appendChild(d);});}"
+    "</script><style>.it{display:flex;gap:12px;align-items:center;margin:12px 0;text-align:left}.it img{width:64px;height:96px;object-fit:cover;border-radius:8px;background:#222}.it b{display:block;margin-bottom:8px}.it button{background:#e51a2e;color:#fff;border:0;border-radius:20px;padding:10px 16px;font-size:15px}</style><div id=\"r\"></div></body></html>");
 }
 static void tmdb_page(Buf *b) {
   head(b, pt("Titles and descriptions")); b_s(b, "<h1>"); hx(b, pt("Titles and descriptions in your language")); b_s(b, "</h1><p>"); hx(b, pt("Paste your TMDB API key (or API Read Access Token). Get one at"));
@@ -206,13 +215,13 @@ static void handle(int fd) {
   const char *rest = NULL;
   if (!strncmp(target, "/t/", 3) && strlen(target) >= 19 && !strncmp(target + 3, tok, 16)) {
     rest = target + 19;
-    if (*rest && strcmp(rest, "/q") && strcmp(rest, "/tmdb") && strcmp(rest, "/tmdb/set") && strcmp(rest, "/trakt") && strcmp(rest, "/trakt/set") && strcmp(rest, "/mdb") && strcmp(rest, "/mdb/set") && strcmp(rest, "/deb") && strcmp(rest, "/deb/set") && strcmp(rest, "/simkl") && strcmp(rest, "/simkl/set") && strcmp(rest, "/iptv") && strcmp(rest, "/iptv/set")) rest = NULL; }
+    if (*rest && strcmp(rest, "/q") && strcmp(rest, "/play") && strcmp(rest, "/tmdb") && strcmp(rest, "/tmdb/set") && strcmp(rest, "/trakt") && strcmp(rest, "/trakt/set") && strcmp(rest, "/mdb") && strcmp(rest, "/mdb/set") && strcmp(rest, "/deb") && strcmp(rest, "/deb/set") && strcmp(rest, "/simkl") && strcmp(rest, "/simkl/set") && strcmp(rest, "/iptv") && strcmp(rest, "/iptv/set")) rest = NULL; }
   if (!rest && !strncmp(target, "/t/", 3) && strlen(target) >= 23 && !strncmp(target + 3, tok, 16) && !strncmp(target + 19, "/duo", 4)) { /* etapa-83: the Duo session's page and its calls */
     pthread_mutex_lock(&mu); char *(*fn)(const char *, const char *, const char **) = duoFn; if (!strcmp(target + 19, "/duo")) hits++; pthread_mutex_unlock(&mu);
     const char *ct = "application/json"; char *body = fn ? fn(target + 19, q ? q : "", &ct) : NULL;
     if (!body) { reply(fd, 204, NULL, NULL, 0); return; } char hd[96]; snprintf(hd, sizeof hd, "Content-Type: %s; charset=utf-8\r\nCache-Control: no-store\r\n", ct); reply(fd, 200, hd, body, strlen(body)); free(body); return; }
   if (!rest) { if (!strncmp(target, "/t/", 3) || !strcmp(target, "/")) { Buf b = { 0 }; pthread_mutex_lock(&mu); stale_page(&b); pthread_mutex_unlock(&mu); reply(fd, 404, "Content-Type: text/html; charset=utf-8\r\n", b.p, b.n); free(b.p); } else reply(fd, 404, NULL, NULL, 0); return; }
-  if (strcmp(rest, "/q") && strcmp(rest, "/tmdb/set") && strcmp(rest, "/trakt/set") && strcmp(rest, "/mdb/set") && strcmp(rest, "/deb/set") && strcmp(rest, "/simkl/set") && strcmp(rest, "/iptv/set")) { pthread_mutex_lock(&mu); hits++; pthread_mutex_unlock(&mu); } /* a code was opened */
+  if (strcmp(rest, "/q") && strcmp(rest, "/play") && strcmp(rest, "/tmdb/set") && strcmp(rest, "/trakt/set") && strcmp(rest, "/mdb/set") && strcmp(rest, "/deb/set") && strcmp(rest, "/simkl/set") && strcmp(rest, "/iptv/set")) { pthread_mutex_lock(&mu); hits++; pthread_mutex_unlock(&mu); } /* a code was opened */
   if (!strcmp(rest, "/iptv/set")) {
     char m[2048], e[2048]; qparam(q, "m3u", m, sizeof m); qparam(q, "epg", e, sizeof e);
     pthread_mutex_lock(&mu); int (*fn)(const char *, const char *) = iptvFn; pthread_mutex_unlock(&mu);
@@ -233,6 +242,9 @@ static void handle(int fd) {
     char key[1024]; qparam(q, "key", key, sizeof key);
     pthread_mutex_lock(&mu); int (*fn)(const char *) = rest[1] == 't' && rest[2] == 'm' ? keyFn : traktFn; pthread_mutex_unlock(&mu);
     reply(fd, fn && fn(key) ? 204 : 400, NULL, NULL, 0); return; }
+  if (!strcmp(rest, "/play")) { /* etapa-87: Watch on TV */
+    pthread_mutex_lock(&mu); playQ.seq++; qparam(q, "type", playQ.type, sizeof playQ.type); qparam(q, "id", playQ.id, sizeof playQ.id); qparam(q, "name", playQ.name, sizeof playQ.name); qparam(q, "poster", playQ.poster, sizeof playQ.poster); pthread_mutex_unlock(&mu);
+    reply(fd, 204, NULL, NULL, 0); return; }
   if (!strcmp(rest, "/q")) {
     char raw[1024], t[400]; qparam(q, "text", raw, sizeof raw); clean_text(raw, t, sizeof t);
     pthread_mutex_lock(&mu); typed.seq++; snprintf(typed.text, sizeof typed.text, "%s", t); pthread_mutex_unlock(&mu);
@@ -325,6 +337,8 @@ void httpd_url_shown(const char *url, char *out, size_t cap) {
   const char *e = t + 3; while ((*e >= '0' && *e <= '9') || (*e >= 'a' && *e <= 'f')) e++;
   snprintf(out, cap, "%.*s/t/\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2%s", (int)(t - url), url, e);
 }
+int httpd_play_take(int since, char *type, char *id, char *name, char *poster) { /* etapa-87 */
+  pthread_mutex_lock(&mu); int s = playQ.seq; if (s > since) { snprintf(type, 16, "%s", playQ.type); snprintf(id, 64, "%s", playQ.id); snprintf(name, 200, "%s", playQ.name); snprintf(poster, 512, "%s", playQ.poster); } pthread_mutex_unlock(&mu); return s; }
 int httpd_typed(int since, char *out, size_t cap) {
   pthread_mutex_lock(&mu); int s = typed.seq; if (s > since && out && cap) snprintf(out, cap, "%s", typed.text); pthread_mutex_unlock(&mu); return s;
 }

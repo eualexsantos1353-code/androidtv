@@ -6,6 +6,7 @@
 #include "screens/stories.h"
 #include "ui/xline.h"
 #include "screens/board.h"
+#include "core/because.h"
 #include "ui/strip.h"
 #include "screens/btrailer.h"
 #include "screens/roleta.h"
@@ -174,6 +175,7 @@ static void board_cw_row(Board *b, const KeptRow *kp, int nk) {
   ItemList up; if (notify_upcoming(&up) > 0) { Row *r = row_add(b, "Upcoming episodes", 1, 0); if (r) { r->items = up; r->hidden = 0; } else itemlist_clear(&up); } else closing_row(b, kp, nk, "Upcoming episodes", 1, 0); /* the library's series airing in the next two weeks */
   if (b->kind == 0) { ItemList wl; if (later_items(&wl) > 0) { Row *r = row_add(b, "Watch later", 0, 0); if (r) { r->items = wl; r->hidden = 0; } else itemlist_clear(&wl); } else closing_row(b, kp, nk, "Watch later", 0, 0); } /* etapa-72 */
   if (b->kind == 0) board_roleta_row(b);
+  if (b->kind == 0) { ItemList bc; char bt[260]; if (because_items(&bc, bt, sizeof bt) > 0) { Row *r = row_add(b, bt, 0, 0); if (r) { r->items = bc; r->hidden = 0; } else itemlist_clear(&bc); } } /* etapa-87: Because you watched */
   if (b->kind == 0) { ItemList rl; if (releases_items(&rl) > 0) { Row *r = row_add(b, "New releases", 0, 0); if (r) { r->items = rl; r->hidden = 0; } else itemlist_clear(&rl); } } /* etapa-72: TMDB's new films and series */ /* (under Continue Watching and Upcoming, over the live band and the catalogs) */
   ItemList lv; memset(&lv, 0, sizeof lv); if (b->kind == 0 && !strcmp(store_get("homeLiveRow", "false"), "true") && live_band(&lv) > 0) { Row *r = row_add(b, "Live TV", 0, 0); if (r) { r->items = lv; r->hidden = 0; r->round = 1; } else itemlist_clear(&lv); } else { itemlist_clear(&lv); if (b->kind == 0) closing_row(b, kp, nk, "Live TV", 0, 1); } /* a live addon installed: All channels, the pinned, a few more */
 }

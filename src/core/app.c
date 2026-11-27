@@ -141,7 +141,7 @@ float nudge_y(const Nudge *n) { return n->dy * nudge_k(n); }
 /* ---- etapa-73: themes: the page's colour and an accent that goes with it ---- */
 uint32_t PAGE_C = RGB(12, 11, 17);
 const char *THEME_KEYS[6] = { "lumen", "night", "cinema", "forest", "gold", "graphite" };
-static const uint32_t THEME_PAGE[6] = { 0x0c0b11, 0x080c1a, 0x140809, 0x07110d, 0x14100a, 0x0e0e10 };
+static const uint32_t THEME_PAGE[6] = { 0x0c0b11, 0x080c1a, 0x0a0808, 0x07110d, 0x14100a, 0x0e0e10 }; /* etapa-87: Cinema nearly black */
 static const char *THEME_ACC[6] = { "purple", "blue", "red", "emerald", "gold", "graphite" };
 /* ---- accent ---- */
 uint32_t ACC, ACC2, ACC3, ACC_D, ACC_FG;
@@ -152,7 +152,7 @@ static const uint32_t ACCENTS[18][4] = {
   { 0xd946ef, 0xf0abfc, 0xf5d0fe, 0xa21caf },
   { 0xec4899, 0xf9a8d4, 0xfbcfe8, 0xbe185d },
   { 0xf43f5e, 0xfda4af, 0xfecdd3, 0xbe123c },
-  { 0xef4444, 0xfca5a5, 0xfecaca, 0xb91c1c },
+  { 0xe51a2e, 0xff6b76, 0xffc2c7, 0xb3121f }, /* etapa-87: the Library's red */
   { 0xf97316, 0xfdba74, 0xfed7aa, 0xc2410c },
   { 0xf59e0b, 0xfcd34d, 0xfde68a, 0xb45309 },
   { 0xeab308, 0xfde047, 0xfef08a, 0xa16207 },
@@ -248,7 +248,22 @@ static void tint_tick(void) {
 /* a title's own accent (Settings' preview of the dynamic modes): 1 with it in out, 0 while it is worked out */
 int accent_tint_of(const char *id, const char *poster, const char *logo, uint32_t out[4]) { if (tint_for(id, out)) return 1; accent_tint_fetch(id, poster, logo); return 0; }
 static int tint_busy(const char *id) { for (int i = 0; i < 8; i++) if (!strcmp(tintJobs[i].id, id)) return 1; return 0; }
+/* etapa-87: "Watch on TV" from the phone's search page: a film plays (the best stream on: at once; off: its streams);
+   a series goes on where it was, else its first episode */
+#include "core/httpd.h"
+#include "core/json.h"
+static void phone_play_tick(void) {
+  static int seq = -1; char ty[16], id[64], nm[200], po[512]; int s = httpd_play_take(seq < 0 ? 1 << 30 : seq, ty, id, nm, po);
+  if (seq < 0) { seq = s; return; } if (s <= seq) return; seq = s; if (!id[0]) return;
+  Item it; memset(&it, 0, sizeof it); snprintf(it.type, sizeof it.type, "%s", ty); snprintf(it.id, sizeof it.id, "%s", id); snprintf(it.name, sizeof it.name, "%s", nm); snprintf(it.poster, sizeof it.poster, "%s", po);
+  if (player_open()) player_close();
+  char vid[SB_VID]; snprintf(vid, sizeof vid, "%s", id);
+  if (!strcmp(ty, "series")) { const cJSON *st = js_obj(lib_get(id), "state"); const char *v = js_str(st, "video_id", ""); if (*v) snprintf(vid, sizeof vid, "%s", v); else snprintf(vid, sizeof vid, "%s:1:1", id); }
+  DetailParams p; memset(&p, 0, sizeof p); p.it = it; snprintf(p.it.videoId, sizeof p.it.videoId, "%s", vid);
+  if (best_on()) { app_go(SCR_DETAIL, &p, 0); player_choose_best(ty, id, vid); } else { p.openStreams = 1; app_go(SCR_DETAIL, &p, 0); }
+  toast(T1("From the phone: {t}", "t", nm), 2500, NULL); }
 void theme_apply(void) {
+  if (strcmp(store_get("e87cinema", ""), "1")) { store_set("e87cinema", "1"); store_set("theme", "cinema"); store_set("accent", "red"); } /* etapa-87: red and black, once (any theme can still be chosen) */
   const char *t = store_get("theme", "lumen"); int k = 0; for (int i = 0; i < 6; i++) if (!strcmp(t, THEME_KEYS[i])) k = i;
   uint32_t c = THEME_PAGE[k]; PAGE_C = RGB((c >> 16) & 255, (c >> 8) & 255, c & 255);
   static int started; if (!started) { started = 1; return; } /* (at start only the page: the accent is whatever was chosen last, a theme or by hand) */
@@ -1066,6 +1081,7 @@ void app_back_in_front(void) { lastIn = SDL_GetTicks() / 1000.0; app_pace_again(
    phone, Trakt, the library, the film's own state (paused for it) */
 void app_tick_behind(float dt) {
   DT = dt; NOW = SDL_GetTicks() / 1000.0; FRAME++;
+  phone_play_tick();
   away_tick(); sync_tick(); scrobble_tick(); simkl_tick(); tw_tick(); live_tick(); best_tick(); trailer_tick(); plat_luna_pump(); castlink_tick(dt); player_tick(dt); /* (a phone's best stream, channel or trailer still starts) */
 }
 void app_tick(float dt) {

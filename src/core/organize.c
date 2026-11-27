@@ -36,7 +36,7 @@ void prof_set_kid(int i, int on) { if (i > 0) pset(i, "kid", cJSON_CreateBool(on
 int prof_add(void) { int n = prof_count(); if (n >= PROF_N) return -1; cJSON *l = cJSON_Duplicate(plist(), 1), *o = cJSON_CreateObject(); char nm[32]; snprintf(nm, sizeof nm, "%s %d", T("Profile"), n + 1);
   cJSON_AddStringToObject(o, "name", nm); cJSON_AddNumberToObject(o, "av", n % PROF_AV); cJSON_AddItemToArray(l, o); store_set_node("profiles", l); store_flush(); return n; }
 /* the account's own keys: they go aside as "acct_p<N>" while another profile is in */
-static const char *AK[] = { "authKey", "user", "addons", "lib", "streams", "notifs", "cwHide", "upHide", "watchLater", "storiesSeen", "watchLog", "roletaHist", "diary", "traktShows", "traktYear", "traktLibSeen", "traktFresh" };
+static const char *AK[] = { "authKey", "user", "addons", "lib", "streams", "notifs", "cwHide", "upHide", "watchLater", "storiesSeen", "watchLog", "roletaHist", "diary", "traktShows", "traktYear", "traktLibSeen", "traktFresh", "becauseOf" };
 #define NAK (int)(sizeof AK / sizeof *AK)
 static void stash(int p) { cJSON *o = cJSON_CreateObject(); for (int i = 0; i < NAK; i++) { cJSON *v = store_node(AK[i]); if (v) cJSON_AddItemToObject(o, AK[i], cJSON_Duplicate(v, 1)); store_remove(AK[i]); }
   char k[24]; snprintf(k, sizeof k, "acct_p%d", p); store_set_node(k, o); }

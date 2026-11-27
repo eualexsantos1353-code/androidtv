@@ -173,7 +173,10 @@ static void play_best(void) {
 enum { B_PLAY, B_TRAILER, B_SIMILAR, B_LIB, B_EYE, B_REVIEWS, B_COLL, B_SHUFFLE, B_KINDS };
 static void btn_label_now(int kind, char *out, size_t cap, const char **icon) {
   switch (kind) {
-    case B_PLAY: { cJSON *lb = lib_get(ID()); int rs = js_num(js_obj(lb, "state"), "timeOffset", 0) > 60000; *icon = "play"; snprintf(out, cap, "%s", T(rs ? "Resume" : "Play")); break; }
+    case B_PLAY: { cJSON *lb = lib_get(ID()); int rs = js_num(js_obj(lb, "state"), "timeOffset", 0) > 60000; *icon = "play"; snprintf(out, cap, "%s", T(rs ? "Resume" : "Play"));
+      if (is_series() && D.resVid[0]) { const char *c = strrchr(D.resVid, ':'); int se = -1, ep = -1; if (c && c > D.resVid) { const char *b = c - 1; while (b > D.resVid && *b != ':') b--; if (*b == ':') { se = atoi(b + 1); ep = atoi(c + 1); } }
+        if (se >= 0 && ep > 0) snprintf(out, cap, "%s S%d:E%d", T("Continue"), se, ep); } /* etapa-87: which one it goes on with */
+      break; }
     case B_TRAILER: *icon = "trailer"; snprintf(out, cap, "%s", T("Trailer")); break;
     case B_SIMILAR: *icon = "similar"; snprintf(out, cap, "%s", T("Similar")); break;
     case B_REVIEWS: *icon = "reviews"; snprintf(out, cap, "%s", T("Reviews")); break;
@@ -614,7 +617,7 @@ static void draw_btns(float lx, int rtl) {
     if (b->kind == B_EYE) { float w_; if (eye_ep(&lbl, &icon, &w_)) lw = w_; } /* (an episode's reviews: its own Watched) */
     if (D.col < 2) { float hw = b->f ? BD + lw + 26 : BD; hit_add(rtl ? x + BD - hw : x, 0, hw, BD, btn_focus, NULL, i, 0); }
     int eyeOn = DC.wNow; { Item ep; if (b->kind == B_EYE && revpanel_page_episode(&ep)) eyeOn = lib_is_marked_watched(&ep); }
-    uint32_t base = b->kind == B_PLAY ? acc_a(0.55f) : (b->kind == B_EYE && eyeOn) ? acc_a(0.4f) : WHITE_A(46);
+    uint32_t base = b->kind == B_PLAY ? RGBA(0xe5, 0x1a, 0x2e, 230) : (b->kind == B_EYE && eyeOn) ? acc_a(0.4f) : WHITE_A(46);
     if (b->fb.v < 0.999f) gfx_circle(x + BD / 2 + fo, BD / 2 + fy, BD / 2, col_alpha(base, 1 - b->fb.v)); /* its own glass; the pill shows through once focused */
     uint32_t fg = b->f ? ACC_FG : WHITE_A(255);
     icon_draw(icon, rtl ? x + BD - 21 - 34 + fo : x + 21 + fo, 21 + fy, 34, fg);
@@ -725,7 +728,9 @@ static void draw(void) {
   float PK = revpanel_page_k(), pbY = 0; if (PK > 0.001f) { gfx_opacity_push(1 - PK); gfx_offset_push(0, -220 * PK); } /* the reviews rising: the page goes up and away, its buttons stay */
   /* the cover: nothing in its place while it loads, then it fades in (one already in memory is simply there) */
   dc_check();
-  if (D.posterA.v > 0.001f) { const char *src = DC.cover;
+  { float sk = 1 - PK; (void)sk; /* etapa-87: a cinema page: the art on the right, black from the left and from below */
+    gfx_rrect_h(0, 0, SB_W * 0.72f, SB_H, 0, RGBA(8, 8, 8, 235), RGBA(8, 8, 8, 0)); gfx_rrect_v(0, SB_H * 0.55f, SB_W, SB_H * 0.45f, 0, RGBA(8, 8, 8, 0), RGBA(8, 8, 8, 245)); gfx_rrect_v(0, 0, SB_W, 160, 0, RGBA(8, 8, 8, 150), RGBA(8, 8, 8, 0)); }
+  if (D.posterA.v > 0.001f && !strcmp(store_get("detailCover", "false"), "true")) { const char *src = DC.cover;
     GLuint t = src && *src ? img_get_shaped(src, 330, 495, 16, 0) : 0; if (ph_hold()) t = 0;
     if (t && !D.posterSeen) { D.posterSeen = 1; D.posterLate = 1; timer_start(&D.posterIn, 0.35f); } /* the cover always fades in (it is not the card's poster, so it does not move across) */
     float px = rtl ? X0 : X1 - 330, py = 130, pin = !t ? 0 : OUTK > 0 ? 1 - OUTK : D.posterIn.on ? timer_x(&D.posterIn) : 1; pin = pin < 0.5f ? 2 * pin * pin : 1 - powf(-2 * pin + 2, 2) / 2;

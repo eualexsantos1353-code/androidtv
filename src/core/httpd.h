@@ -18,6 +18,7 @@ void httpd_url_shown(const char *url, char *out, size_t cap);
 /* text typed on the phone: the latest sequence number; when it is past `since`, the text (at most 80
    characters) is copied out */
 int  httpd_typed(int since, char *out, size_t cap);
+int  httpd_play_take(int since, char *type, char *id, char *name, char *poster); /* etapa-87: the phone's "Watch on TV": its sequence; past since, the title (type 16, id 64, name 200, poster 512) */
 /* how many times a code has been opened on a phone (the pages, not what they send): a
    screen keeps the count from when it showed its code, a higher one = scanned */
 unsigned httpd_hits(void);

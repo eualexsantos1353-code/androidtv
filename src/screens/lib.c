@@ -21,6 +21,7 @@
 #include "ui/sound.h"
 #include "core/hit.h"
 #include "core/coll.h"
+#include "core/notify.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -170,6 +171,9 @@ static void rows_build(void) {
   RW.nr = 0; memset(RW.col, 0, sizeof RW.col);
   #define PICK(cond) do { n = 0; for (int j = 0; j < L.nreal; j++) { const LibIt *o = &L.all[j]; if (pass(o, L.tab) && (cond)) ix[n++] = j; } } while (0)
   PICK(o->cw); g_how = 1; qsort(ix, (size_t)n, sizeof *ix, cmp_how); rows_add(flat, &nf, T("Continue Watching"), ix, n, 40);
+  { ItemList fr; memset(&fr, 0, sizeof fr); if (notify_fresh(&fr) > 0) { n = 0; /* etapa-87: your series with an episode out lately, not seen yet (Trakt's too) */
+      for (int i = 0; i < fr.n; i++) for (int j = 0; j < L.nreal; j++) if (pass(&L.all[j], L.tab) && !strcmp(L.all[j].it.id, fr.items[i].id)) { int dup = 0; for (int q = 0; q < n; q++) dup |= ix[q] == j; if (!dup) ix[n++] = j; break; }
+      rows_add(flat, &nf, T("New episodes"), ix, n, 30); } itemlist_clear(&fr); }
   { double cut = ((double)time(NULL) - 45 * 86400.0) * 1000; PICK(o->added >= cut); g_how = 0; qsort(ix, (size_t)n, sizeof *ix, cmp_how); if (n >= 2) rows_add(flat, &nf, T("Recently added"), ix, n, 30); }
   PICK(1); g_sk = sort_key(); qsort(ix, (size_t)n, sizeof *ix, cmp); { char t[80]; snprintf(t, sizeof t, "%s \xc2\xb7 %s", L.tab == 0 ? T("My list") : T(F_LB[L.tab]), T(S_LB[sort_key()])); rows_add(flat, &nf, t, ix, n, 60); }
   PICK(!o->done && !o->cw); g_how = 0; qsort(ix, (size_t)n, sizeof *ix, cmp_how); rows_add(flat, &nf, T("Not watched yet"), ix, n, 40);
@@ -199,7 +203,7 @@ static void rail_labels(void) {
   for (int i = 0; i < NB; i++) {
     if (i < NF) { snprintf(L.lbl[i], sizeof L.lbl[i], "%s", T(F_LB[i])); L.lw[i] = text_width(L.lbl[i], 26, 600, 0) + 12 + text_width(L.cnt[i], 26, 600, 0) + 26; }
     else if (i == B_CAL) { snprintf(L.lbl[i], sizeof L.lbl[i], "%s", T("Your year")); L.lw[i] = text_width(L.lbl[i], 26, 600, 0) + 26; }
-    else if (i == B_WALL) { snprintf(L.lbl[i], sizeof L.lbl[i], "%s", T("Wall")); L.lw[i] = text_width(L.lbl[i], 26, 600, 0) + 26; }
+    else if (i == B_WALL) { snprintf(L.lbl[i], sizeof L.lbl[i], "%s", T("For today")); L.lw[i] = text_width(L.lbl[i], 26, 600, 0) + 26; }
     else if (i == B_DIARY) { snprintf(L.lbl[i], sizeof L.lbl[i], "%s", T("Diary")); L.lw[i] = text_width(L.lbl[i], 26, 600, 0) + 26; }
     else { snprintf(L.lbl[i], sizeof L.lbl[i], "%s", T(S_LB[sort_key()])); L.lw[i] = text_width(L.lbl[i], 26, 600, 0) + 16 + 3 * 13 + 22 + 26; } } /* (and its four dots, the current one a short pill) */
 }
@@ -316,6 +320,21 @@ int lib_warm(void) {
 }
 void lib_from_bar(void) { L.zone = 0; L.ri = L.tab; paint(); }
 static const Item *focused(void) { const LibIt *o = L.zone >= 1 ? at(L.idx) : NULL; return o ? &o->it : NULL; }
+/* etapa-87: "For today": five of your titles, other ones each day: one under way, a film not seen, one of the genre you
+   hold most, the one waiting longest, and one by chance */
+static int today_picks(Item *out) {
+  int n = 0, *use = calloc((size_t)(L.nreal + 1), sizeof(int)); if (!use) return 0; unsigned seed = (unsigned)(time(NULL) / 86400) * 2654435761u;
+  #define TAKE(j) do { if ((j) >= 0 && !use[j] && n < 5) { use[j] = 1; out[n++] = L.all[j].it; } } while (0)
+  #define RND(cond) do { int c = 0; for (int j = 0; j < L.nreal; j++) { const LibIt *o = &L.all[j]; if (!use[j] && (cond)) c++; } if (c) { int k = (int)((seed = seed * 1103515245u + 12345u) >> 8) % c; for (int j = 0; j < L.nreal; j++) { const LibIt *o = &L.all[j]; if (!use[j] && (cond) && !k--) { TAKE(j); break; } } } } while (0)
+  RND(o->cw);
+  RND(!o->done && !o->cw && !strcmp(o->it.type, "movie"));
+  { char top[48] = ""; int best = 0; for (int r = 0; r < RW.nr; r++) if (RW.start[r] >= 0 && strcmp(RW.title[r], T("Continue Watching")) && strcmp(RW.title[r], T("New episodes")) && strcmp(RW.title[r], T("Recently added")) && strncmp(RW.title[r], T("My list"), strlen(T("My list"))) && strcmp(RW.title[r], T("Not watched yet")) && strcmp(RW.title[r], T("Watched films")) && strcmp(RW.title[r], T("Watched series")) && strcmp(RW.title[r], T("Collections")) && RW.len[r] > best) { best = RW.len[r]; snprintf(top, sizeof top, "%s", RW.title[r]); }
+    if (top[0]) for (int r = 0; r < RW.nr; r++) if (!strcmp(RW.title[r], top)) { int c = 0; for (int q = 0; q < RW.len[r]; q++) { int j = L.items[RW.start[r] + q]; if (j < L.nreal && !use[j] && !L.all[j].done) c++; } if (c) { int k = (int)((seed = seed * 1103515245u + 12345u) >> 8) % c; for (int q = 0; q < RW.len[r]; q++) { int j = L.items[RW.start[r] + q]; if (j < L.nreal && !use[j] && !L.all[j].done && !k--) { TAKE(j); break; } } } break; } }
+  { int old = -1; for (int j = 0; j < L.nreal; j++) if (!use[j] && !L.all[j].done && !L.all[j].cw && (old < 0 || L.all[j].added < L.all[old].added)) old = j; TAKE(old); }
+  while (n < 5) { int before = n; RND(!o->done); if (n == before) break; }
+  #undef TAKE
+  #undef RND
+  free(use); return n; }
 static void lib_open(const Item *it);
 static int key(int k) {
   if (L.zone == 0) {
@@ -326,7 +345,7 @@ static int key(int k) {
     if ((k == K_RIGHT || k == K_LEFT) && L.ri < NF && L.ri != L.tab) { L.tab = L.ri; L.idx = 0; render(); } /* a filter applies as the focus lands on it */
     else if (k == K_UP) { topnav_focus(); rail_paint(0); return 1; }
     else if (k == K_OK && L.ri == B_DIARY) { timer_start(&L.press, 0.25f); static Item dv[300]; int n = diary_items(dv, 300); if (n) mural_open(dv, n, 0); else toast(T("Your diary is empty: finish a film and give it stars"), 3000, NULL); return 1; }
-    else if (k == K_OK && L.ri == B_WALL) { timer_start(&L.press, 0.25f); Item *v = malloc((size_t)(L.n ? L.n : 1) * sizeof(Item)); if (v) { for (int i = 0; i < L.n; i++) v[i] = at(i)->it; mural_open(v, L.n, L.zone >= 1 ? L.idx : 0); free(v); } return 1; }
+    else if (k == K_OK && L.ri == B_WALL) { timer_start(&L.press, 0.25f); Item v[5]; int n = today_picks(v); if (n) mural_open(v, n, 0); else toast(T("Add a few titles to your library first"), 3000, NULL); return 1; } /* etapa-87: For today: five of yours */
     else if (k == K_OK && L.ri == B_CAL) { timer_start(&L.press, 0.25f); retro_open(); return 1; } /* etapa-73: the Calendar is up by the clock now: here, your year */
     else if (k == K_OK && L.ri == NB - 1) { int si = (sort_key() + 1) % 4; store_set("libSort", S_KEY[si]); sound_play(SND_FILTER); L.idx = 0; timer_start(&L.press, 0.25f); render(); paint(); return 1; } /* OK on the sort: the next order */
     else if (k == K_DOWN || (k == K_OK && L.ri < NF)) { L.ri = L.tab; if (L.n) { L.zone = 1; if (rows_mode()) { L.idx = RW.start[RW.cur] + RW.col[RW.cur]; L.zone = 2; HB = 0; } } else nudge_start(&L.nudge, k); } /* down (or OK) into the titles */
