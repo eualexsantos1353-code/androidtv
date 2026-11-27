@@ -1,35 +1,35 @@
 {
- "version": "72",
+ "version": "73",
  "items": [
   {
    "icon": "wn_new",
-   "title": "Abertura do Lumen",
-   "text": "A marca do Lumen por 2 segundos quando o filme abre."
+   "title": "Stories",
+   "text": "Bolinhas no topo do Início: episódios novos e lançamentos em tela cheia."
   },
   {
-   "icon": "wn_people",
-   "title": "Ainda está assistindo?",
-   "text": "Depois de 2 episódios sem mexer no controle, ele pausa e pergunta."
+   "icon": "lib_retro",
+   "title": "Retrospectiva",
+   "text": "Biblioteca › Retrospectiva: seu ano no Lumen em slides."
   },
   {
-   "icon": "wn_subs",
-   "title": "Onde você parou",
-   "text": "Ao voltar para uma série, um resumo do episódio anterior."
-  },
-  {
-   "icon": "later",
-   "title": "Ver depois",
-   "text": "Segure OK em qualquer pôster. A lista aparece no Início."
+   "icon": "lib_wall",
+   "title": "Mural",
+   "text": "Biblioteca › Mural: sua coleção como uma parede de pôsteres."
   },
   {
    "icon": "lib_cal",
-   "title": "Episódios novos e Lançamentos",
-   "text": "Duas fileiras novas no Início. A TV ao vivo saiu de lá (fica na aba TV)."
+   "title": "Contagem regressiva",
+   "text": "Os pôsteres de episódios que estão chegando mostram um anel com o tempo que falta."
   },
   {
-   "icon": "wn_remote",
-   "title": "Microfone e protetor de tela",
-   "text": "Microfone do controle abre a Pesquisa falando. OK no protetor abre o título da tela."
+   "icon": "wn_people",
+   "title": "Trailer em tela cheia",
+   "text": "As fileiras descem e o trailer ocupa a tela inteira. O pôster cresce ao abrir um título."
+  },
+  {
+   "icon": "later",
+   "title": "Temas",
+   "text": "Aparência › Tema: Azul noite, Vermelho cinema e mais. Em dezembro, neve!"
   }
  ],
  "support": {
@@ -38,5 +38,5 @@
   "url": "https://ko-fi.com/simussu",
   "github": "https://github.com/stremio-origin/androidtv"
  },
- "note": "Ajustes em Configurações › Reprodução e › Aparência."
+ "note": "Ajustes em Configurações › Aparência."
 }

@@ -2,6 +2,7 @@
 #include "core/store.h"
 #include "core/releases.h"
 #include "core/later.h"
+#include "screens/stories.h"
 #include "ui/xline.h"
 #include "screens/board.h"
 #include "ui/strip.h"
@@ -160,6 +161,11 @@ static void board_roleta_row(Board *b) {
   Row *r = row_add(b, "Roulette", 1, 0); if (r) { r->items = l; r->hidden = 0; } else itemlist_clear(&l);
 }
 static void board_cw_row(Board *b, const KeptRow *kp, int nk) {
+  if (b->kind == 0 && strcmp(store_get("homeStories", "true"), "false")) { /* etapa-73: Stories: new episodes of yours, then the week's releases */
+    ItemList fr, rl, st; memset(&st, 0, sizeof st); notify_fresh(&fr); releases_items(&rl); st.items = calloc((size_t)(fr.n + rl.n + 1), sizeof(Item));
+    if (st.items) { for (int i = 0; i < fr.n && st.n < 10; i++) st.items[st.n++] = fr.items[i]; for (int i = 0; i < rl.n && st.n < 16; i++) st.items[st.n++] = rl.items[i]; }
+    itemlist_clear(&fr); itemlist_clear(&rl);
+    if (st.n > 0) { Row *r = row_add(b, "Stories", 0, 0); if (r) { r->items = st; r->hidden = 0; r->round = 1; } else itemlist_clear(&st); } else itemlist_clear(&st); }
   ItemList cw; if (lib_cw_items(&cw) > 0) { Row *r = row_add(b, "Continue Watching", 1, 0); if (r) { r->items = cw; r->hidden = 0; } else itemlist_clear(&cw); } else { itemlist_clear(&cw); closing_row(b, kp, nk, "Continue Watching", 1, 0); }
   if (b->kind == 0) { ItemList fr; if (notify_fresh(&fr) > 0) { Row *r = row_add(b, "New episodes", 1, 0); if (r) { r->items = fr; r->hidden = 0; } else itemlist_clear(&fr); } else closing_row(b, kp, nk, "New episodes", 1, 0); } /* etapa-72: a series you were watching has a new one out */
   ItemList up; if (notify_upcoming(&up) > 0) { Row *r = row_add(b, "Upcoming episodes", 1, 0); if (r) { r->items = up; r->hidden = 0; } else itemlist_clear(&up); } else closing_row(b, kp, nk, "Upcoming episodes", 1, 0); /* the library's series airing in the next two weeks */
@@ -672,13 +678,14 @@ static void move_h(Board *b, int dir) {
   slide_row(r); hero_soon(b, 150); row_more(b, b->rowIdx);
 }
 static void spot_leave(Board *b) { b->featOn = 0; b->featAt = 0; if (b->scoped[0]) { b->scoped[0] = 0; accent_scope(NULL, NULL, NULL); } }
+static int story_ok(Board *b) { if (b->rowIdx >= b->n) return 0; Row *r = &b->rows[b->rowIdx]; if (strcmp(r->title, "Stories") || r->col >= r->items.n) return 0; stories_open(r->items.items, r->items.n, r->col); return 1; }
 static int board_key(Board *b, int k) {
   if (b->ptrHold) { b->ptrHold = 0; Row *hr = b->rowIdx >= 0 && b->rowIdx < b->n ? &b->rows[b->rowIdx] : NULL; if (hr) slide_row(hr); } /* a key: the rows follow the focus again */
   if (spotOn(b)) { feat_fill(b);
     if (k == K_LEFT || k == K_RIGHT) { feat_go(b, k == K_RIGHT ? 1 : -1); sound_focus(); return 1; } /* a move by hand taps; the dots stepping by themselves do not */
     if (k == K_DOWN) { if (b->n) { int n = first_visible_row(b, 0, 1); spot_leave(b); b->rowIdx = n >= 0 ? n : 0; hero_soon(b, 150); } return 1; }
     if (k == K_UP) { topnav_focus(); return 1; }
-    if (k == K_OK) { const Item *it = focused_of(b); if (it) app_open_item(it); return 1; }
+    if (k == K_OK) { const Item *it = focused_of(b); if (it && story_ok(b)) return 1; if (it) app_open_item(it); return 1; }
     return k != K_BACK; }
   if (!b->n || b->rowIdx >= b->n) { if (k == K_UP) topnav_focus(); return 1; }
   if (b->rows[b->rowIdx].filt && filt_key(b, k)) return 1;
@@ -688,7 +695,7 @@ static int board_key(Board *b, int k) {
   else if (k == K_LEFT) move_h(b, -1);
   else if (k == K_DOWN) { int n = first_visible_row(b, b->rowIdx + 1, 1); if (n >= 0) { grid_carry(b, b->rowIdx, n); b->rowIdx = n; hero_soon(b, 150); disc_more(b); } else nudge_start(&r->nudge, K_DOWN); }
   else if (k == K_UP) { int n = first_visible_row(b, b->rowIdx - 1, -1); if (n >= 0) { grid_carry(b, b->rowIdx, n); b->rowIdx = n; hero_soon(b, 150); } else topnav_focus(); }
-  else if (k == K_OK) { const Item *it = focused_of(b); if (it) app_open_item(it); }
+  else if (k == K_OK) { const Item *it = focused_of(b); if (it && story_ok(b)) return 1; if (it) app_open_item(it); }
   else if (k == K_BACK && b->kind == 1 && r->grid) { int f = 0; while (f < b->n && !b->rows[f].filt) f++; if (f >= b->n) return 0; /* Discover's grid: Back goes to its top, the first pill (Back there: the bar) */
     b->rowIdx = f; b->rows[f].col = 0; hero_soon(b, 150); }
   else if (k == K_BACK && b->kind == 0) { int n = first_visible_row(b, 0, 1); if (n < 0 || n >= b->rowIdx) return 0; /* Home scrolled down: Back goes to its top row first (Back there: the bar), as Discover's grid does */
@@ -938,6 +945,30 @@ static float move_x(Row *r, int i, float x, float step, float *fa) {
   if (fa) *fa = 1; if (r->moveAt <= 0) return x; float t = (float)((app_now() - r->moveAt) / 0.5); if (t >= 1) { r->moveAt = 0; return x; }
   float k = t < 0.5f ? 4 * t * t * t : 1 - (-2 * t + 2) * (-2 * t + 2) * (-2 * t + 2) / 2; int o = i < 48 ? r->oldIdx[i] : -1;
   if (o < 0) { if (fa) *fa = k; return x; } float ox = row_x0(r) + o * step - r->moveOff; if (app_rtl()) ox = SB_W - ox - card_w(r); return ox + (x - ox) * k; }
+/* etapa-73: a title on its way: a ring on the card's corner that closes as the day comes (a week: an open ring), the time left inside */
+/* etapa-73: a story's ring, as on Instagram: the accent turning into pink while unseen, grey once seen */
+/* etapa-73: depth on the focused poster: a soft light that sweeps across it the way the focus came, and a glass sheen on top */
+static void poster_light(const Row *r, float x, float y, float w, float h) {
+  if (r->round || !strcmp(store_get("posterDepth", "true"), "false")) return;
+  static const Row *lr; static int lc = -1; static double t0; static int dir = 1;
+  if (lr != r || lc != r->col) { dir = lr == r && r->col < lc ? -1 : 1; lr = r; lc = r->col; t0 = app_now(); }
+  float t = (float)(app_now() - t0) / 0.7f; gfx_clip_push(x, y, w, h);
+  gfx_rrect_v(x, y, w, h * 0.42f, CARD_R, WHITE_A(34), WHITE_A(0));
+  if (t < 1) { float e = ease_apply(EASE_CSS_EASEOUT, t), gx = dir > 0 ? x - w * 0.3f + w * 1.6f * e : x + w * 1.3f - w * 1.6f * e, a = sinf(3.1416f * t);
+    for (int q = 5; q >= 1; q--) gfx_circle(gx, y + h * 0.35f, w * 0.12f * q, WHITE_A((int)(16 * a))); }
+  gfx_clip_pop(); }
+static void story_ring(const Row *r, const Item *it, float x, float y, float d) {
+  if (strcmp(r->title, "Stories")) return; float R = d / 2 + 7, cx = x + d / 2, cy = y + d / 2; int seen = stories_seen(it->id);
+  if (seen) { gfx_ring(cx - R, cy - R, 2 * R, 2 * R, R, 4, WHITE_A(90)); return; }
+  for (int i = 0; i < 96; i++) { float a = 6.2832f * i / 96.f + (float)app_now() * 0.6f, f = 0.5f + 0.5f * sinf(a); gfx_circle(cx + cosf(a) * (R - 2.5f), cy + sinf(a) * (R - 2.5f), 3.4f, col_mix(ACC | 0xff000000u, RGB(0xf4, 0x3f, 0x5e), f)); } }
+static void countdown_ring(const Item *it, float x, float y, float cw) {
+  if (it->airAt <= 0) return; double left = it->airAt - (double)time(NULL); if (left <= 0 || left > 30 * 86400.0) return;
+  float R = 30, cx = x + cw - R - 12, cy = y + R + 12, f = (float)(1 - left / (7 * 86400.0)); if (f < 0.04f) f = 0.04f; if (f > 1) f = 1;
+  gfx_circle(cx, cy, R + 3, RGBA(10, 9, 16, 200)); gfx_ring(cx - R, cy - R, 2 * R, 2 * R, R, 4, WHITE_A(46));
+  int n = (int)(64 * f); for (int i = 0; i <= n; i++) { float a = -1.5708f + 6.2832f * i / 64.f; gfx_circle(cx + cosf(a) * (R - 2), cy + sinf(a) * (R - 2), 2.4f, ACC2 | 0xff000000u); }
+  char t[16]; if (left < 3600) snprintf(t, sizeof t, "%dm", (int)(left / 60) + 1); else if (left < 86400) snprintf(t, sizeof t, "%dh", (int)(left / 3600)); else snprintf(t, sizeof t, "%dd", (int)(left / 86400 + 0.5));
+  text_draw(t, cx, cy - text_line_height(22) / 2, 22, 800, WHITE_A(250), 0, 0, ALIGN_CENTER);
+}
 static void row_draw(Board *b, Row *r, int ri, float y, int near, float rowA) {
   if (r->filt) { filt_draw(b, r, ri, y, rowA, focusOn(b) && ri == b->rowIdx); return; }
   int rtl = app_rtl(); float lh = text_line_height(31), melt = btr_melt();
@@ -968,8 +999,8 @@ static void row_draw(Board *b, Row *r, int ri, float y, int near, float rowA) {
     if (mfa < 1) gfx_opacity_push(mfa); /* (a card new to the row fades in as the rest glide) */
     int hold; const CardPrep *cp = row_prep(r, i, load, &hold, NULL); unsigned long long lk = lift_key(r, i);
     float cr = r->round ? cw / 2 : CARD_R; lift_begin(lk, 0, 0, x, cy, cw, ch, cr); /* (the one the focus just left settles back) */
-    if (r->round) { card_draw_round(&r->items.items[i], x, cy, cw); text_draw(r->items.items[i].name, x + cw / 2, cy + ch + 14, 22, 600, WHITE_A(200), 0, cw + 8, ALIGN_CENTER); }
-    else card_draw_prep(&r->items.items[i], cp, x, cy, cw, ch, r->wide, r->label, !hold && (load || near));
+    if (r->round) { story_ring(r, &r->items.items[i], x, cy, cw); card_draw_round(&r->items.items[i], x, cy, cw); text_draw(r->items.items[i].name, x + cw / 2, cy + ch + 14, 22, 600, WHITE_A(200), 0, cw + 8, ALIGN_CENTER); }
+    else { card_draw_prep(&r->items.items[i], cp, x, cy, cw, ch, r->wide, r->label, !hold && (load || near)); countdown_ring(&r->items.items[i], x, cy, cw); }
     if (melt > 0.01f && mkRow == r && mkCol == i) playing_mark(x, cy, ch, melt); /* (the focus has moved on: it fades where it was) */
     lift_end(lk, x, cy, cw, ch, cr); if (mfa < 1) gfx_opacity_pop();
   }
@@ -980,8 +1011,8 @@ static void row_draw(Board *b, Row *r, int ri, float y, int near, float rowA) {
     float fa = ra * (1 - 0.15f * melt); if (fa < 1) gfx_opacity_push(fa); /* the card whose trailer plays stays clear (.85) while the rest melts */
     float hp = app_hold_progress(); unsigned long long lk = lift_key(r, r->col);
     float cr = r->round ? cw / 2 : CARD_R; lift_begin(lk, 1, hp, x, cy, cw, ch, cr);
-    if (r->round) { card_draw_round(&r->items.items[r->col], x, cy, cw); text_draw(r->items.items[r->col].name, x + cw / 2, cy + ch + 14, 22, 700, WHITE_A(255), 0, cw + 8, ALIGN_CENTER); }
-    else card_draw_prep(&r->items.items[r->col], cp, x, cy, cw, ch, r->wide, r->label, 1);
+    if (r->round) { story_ring(r, &r->items.items[r->col], x, cy, cw); card_draw_round(&r->items.items[r->col], x, cy, cw); text_draw(r->items.items[r->col].name, x + cw / 2, cy + ch + 14, 22, 700, WHITE_A(255), 0, cw + 8, ALIGN_CENTER); }
+    else { card_draw_prep(&r->items.items[r->col], cp, x, cy, cw, ch, r->wide, r->label, 1); poster_light(r, x, cy, cw, ch); countdown_ring(&r->items.items[r->col], x, cy, cw); }
     if (hp > 0) hold_trace_draw(x, cy, cw, ch, cr, ease_apply(EASE_IN_OUT, hp));
     if (btr_playing() && melt > 0.9f) { mkRow = r; mkCol = r->col; } /* the card whose trailer plays: the mark stays on it, and goes with it */
     if (melt > 0.01f && mkRow == r && mkCol == r->col) playing_mark(x, cy, ch, melt);
@@ -995,7 +1026,10 @@ static void board_draw(void) {
   hero_draw(b);
   int disc = b->kind == 1; float sy = disc ? b->spotY.v : 0, ra0 = disc ? b->rowsA.v : 1, clipTop = disc ? ROWS_TOP + sy + FILT_H - 8 : ROWS_TOP; /* (Discover: the grid scrolls under its strip, which stays put) */
   gfx_clip_push(0, clipTop, SB_W, SB_H - clipTop);
-  gfx_offset_push(0, b->hostY.v + sy);
+  /* etapa-73: a trailer on Home: the rows sink out of sight and fade (the film the whole screen, its title alone); a key brings them back */
+  float fullM = !disc && strcmp(store_get("trailerFull", "true"), "false") ? btr_melt() : 0, fullE = ease_apply(EASE_IN_OUT, fullM);
+  if (fullM > 0.001f) gfx_opacity_push(1 - fullE);
+  gfx_offset_push(0, b->hostY.v + sy + 260 * fullE);
   float y = ROWS_TOP;
   int vis = 0, filtI = -1; float filtY = 0;
   for (int i = 0; i < b->n; i++) { Row *r = &b->rows[i]; if (r->hidden) continue; float h = row_h(r);
@@ -1007,6 +1041,7 @@ static void board_draw(void) {
     else if (abs(i - b->rowIdx) <= 2) { int c0 = (int)(r->off.v / step_of(r)); row_prefetch(r, 2, c0 - 1, c0 + 7); } /* off screen but one or two presses away */
     y += h; }
   gfx_offset_pop();
+  if (fullM > 0.001f) gfx_opacity_pop();
   gfx_clip_pop();
   if (filtI >= 0) { Row *r = &b->rows[filtI]; float rk = 1; /* (the strip never replays: a choice applied keeps it as it is) */
     float sm = 1 - 0.81f * btr_melt(); /* a background trailer: the strip melts with the rows */
@@ -1072,6 +1107,13 @@ int board_saver_items(Item *out, int max) {
   return n;
 }
 /* where the focused card is (a title page grows out of it) */
+/* etapa-73: the focused card's box on screen and its title (the poster that flies into the title page) */
+int board_card_rect(float *x, float *y, float *w, float *h, Item *it) {
+  Board *b = cur(); if (!b || spotOn(b) || b->rowIdx >= b->n || topNav.active) return 0; Row *r = &b->rows[b->rowIdx]; if (r->col >= r->items.n || r->round || r->wide) return 0;
+  float cy = ROWS_TOP + b->hostY.v; for (int i = 0; i < b->rowIdx; i++) if (!b->rows[i].hidden) cy += row_h(&b->rows[i]);
+  float cw = card_w(r), ch = card_h(r), cx = row_x0(r) + r->col * step_of(r) - r->off.v; if (app_rtl()) cx = SB_W - cx - cw;
+  *x = cx; *y = cy + 18 + (r->grid ? 0 : text_line_height(31) + 26) + (b->kind == 1 ? b->spotY.v : 0); *w = cw; *h = ch; *it = r->items.items[r->col]; return 1;
+}
 static int board_origin(float *x, float *y) {
   Board *b = cur(); if (!b || spotOn(b) || b->rowIdx >= b->n || topNav.active) return 0; Row *r = &b->rows[b->rowIdx]; if (r->col >= r->items.n) return 0;
   float cy = ROWS_TOP + b->hostY.v; for (int i = 0; i < b->rowIdx; i++) if (!b->rows[i].hidden) cy += row_h(&b->rows[i]);

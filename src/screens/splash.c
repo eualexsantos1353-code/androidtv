@@ -4,6 +4,7 @@
 #include "ui/gfx.h"
 #include "ui/img.h"
 #include "ui/icon.h"
+#include "ui/season.h"
 #include "ui/text.h"
 #include "ui/orbs.h"
 #include "platform/plat.h"
@@ -50,7 +51,7 @@ void splash_draw(void) {
   gfx_rect(0, 0, SB_W, SB_H, PAGE);
   if (signedAt > 0) { login_backdrop_draw(); login_loading_draw(signedAt, 1); gfx_opacity_pop(); return; } /* right after signing in: the same loading carries on, no mark */
   { float g = ease_apply(EASE_IN_OUT, t / 1.1f), sp = 1 + 0.9f * (1 - ease_apply(EASE_OUT, t / 1.6f)); /* the glows: from the middle out round their corners as the screen comes, then drifting round them */
-    orbs_step(&orbs, app_dt() * 1.4f, 0, sp, 2.2f); orbs_draw_col(&orbs, g, 0xb08cff, 0x7a4cf0); } /* (always the mark's purple, whatever the accent; their drift twice as quick here, the screen is short) */
+    orbs_step(&orbs, app_dt() * 1.4f, 0, sp, 2.2f); orbs_draw_col(&orbs, g, 0xb08cff, 0x7a4cf0); } season_draw(app_dt(), 1); /* (always the mark's purple, whatever the accent; their drift twice as quick here, the screen is short) */
   float k = ease_apply(EASE_OUT, (t - 0.05f) / 0.7f), kp = ease_apply(EASE_OUT, (t - 0.3f) / 0.5f), kt = ease_apply(EASE_OUT, (t - 0.45f) / 0.7f);
   float s = 0.96f + 0.04f * k;
   if (gone) { s = outS + (1.05f - outS) * lv; } else outS = s;
@@ -59,6 +60,7 @@ void splash_draw(void) {
   gfx_opacity_push(k); { float rw = R * 0.23f; for (int q = 0; q < 6; q++) { float rr = R - q * rw / 6; gfx_ring(cx - rr, cy - rr, 2 * rr, 2 * rr, rr, rw / 6 + 1, q < 3 ? RGB(0x9b, 0x7b, 0xff) : RGB(0x6a, 0x45, 0xe0)); } } gfx_opacity_pop();
   { float S = 2 * R * 512 / 264.0f * 0.62f; gfx_opacity_push(kp); icon_draw("o_play", cx - S * 256 / 512 + 6 * (1 - kp), cy - S * 226 / 512, S, WHITE_A(255)); gfx_opacity_pop(); }
   { float dx = cx + R * 0.71f, dy = cy - R * 0.71f, pulse = 0.85f + 0.15f * sinf((float)t * 3); gfx_opacity_push(kp); for (int q = 6; q >= 1; q--) gfx_circle(dx, dy, R * 0.07f * (1 + q * 0.45f) * pulse, RGBA(0xc9, 0xb8, 0xff, 26)); gfx_circle(dx, dy, R * 0.105f, WHITE_A(255)); gfx_opacity_pop(); }
+  season_hat(cx, cy, R, kp); /* etapa-73: at Christmas, its hat */
   gfx_scale_pop();
   gfx_opacity_push(kt); text_draw("LUMEN", cx + 10, cy + R + 56 + 8 * (1 - kt), 40, 700, WHITE_A(240), 20 - 6 * kt, 0, ALIGN_CENTER); gfx_opacity_pop();
   { float ks = ease_apply(EASE_OUT, (t - 0.9f) / 0.8f); gfx_opacity_push(ks); text_draw(T("The cinema lives here."), cx, cy + R + 124 + 6 * (1 - ks), 28, 500, RGBA(0xc9, 0xb8, 0xff, 230), 0, 0, ALIGN_CENTER); gfx_opacity_pop(); } /* the slogan, last */
@@ -71,6 +73,7 @@ void lumen_mark_draw(float cx, float cy, float R, float t, int withName) {
   gfx_opacity_push(k); { float rw = R * 0.23f; for (int q = 0; q < 6; q++) { float rr = R - q * rw / 6; gfx_ring(cx - rr, cy - rr, 2 * rr, 2 * rr, rr, rw / 6 + 1, q < 3 ? RGB(0x9b, 0x7b, 0xff) : RGB(0x6a, 0x45, 0xe0)); } } gfx_opacity_pop();
   { float S = 2 * R * 512 / 264.0f * 0.62f; gfx_opacity_push(kp); icon_draw("o_play", cx - S * 256 / 512 + 6 * (1 - kp), cy - S * 226 / 512, S, WHITE_A(255)); gfx_opacity_pop(); }
   { float dx = cx + R * 0.71f, dy = cy - R * 0.71f, pulse = 0.85f + 0.15f * sinf(t * 3); gfx_opacity_push(kp); for (int q = 6; q >= 1; q--) gfx_circle(dx, dy, R * 0.07f * (1 + q * 0.45f) * pulse, RGBA(0xc9, 0xb8, 0xff, 26)); gfx_circle(dx, dy, R * 0.105f, WHITE_A(255)); gfx_opacity_pop(); }
+  season_hat(cx, cy, R, kp);
   gfx_scale_pop();
   if (withName) { float px = R * 0.34f; gfx_opacity_push(kt); text_draw("LUMEN", cx + px * 0.25f, cy + R + px * 0.9f + 8 * (1 - kt), (int)px, 700, WHITE_A(240), px * 0.5f - 6 * kt, 0, ALIGN_CENTER); gfx_opacity_pop(); }
 }

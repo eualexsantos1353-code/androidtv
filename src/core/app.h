@@ -145,5 +145,8 @@ void app_quit(void);
 int  app_quitting(void);
 
 /* the page colour */
-#define PAGE RGB(12, 11, 17)
+extern uint32_t PAGE_C;  /* etapa-73: the theme's (Lumen: 12, 11, 17) */
+#define PAGE PAGE_C
+void theme_apply(void);   /* the theme in Settings > Appearance: the page colour (and the accent, unless "Lumen") */
+extern const char *THEME_KEYS[6];
 #endif

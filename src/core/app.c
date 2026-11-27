@@ -22,6 +22,7 @@
 #include "ui/gfx.h"
 #include "ui/text.h"
 #include "ui/img.h"
+#include "ui/season.h"
 #include "core/tmdb.h"
 #include "ui/icon.h"
 #include "ui/palette.h"
@@ -133,6 +134,11 @@ static float nudge_k(const Nudge *n) {
 float nudge_x(const Nudge *n) { return n->dx * nudge_k(n); }
 float nudge_y(const Nudge *n) { return n->dy * nudge_k(n); }
 
+/* ---- etapa-73: themes: the page's colour and an accent that goes with it ---- */
+uint32_t PAGE_C = RGB(12, 11, 17);
+const char *THEME_KEYS[6] = { "lumen", "night", "cinema", "forest", "gold", "graphite" };
+static const uint32_t THEME_PAGE[6] = { 0x0c0b11, 0x080c1a, 0x140809, 0x07110d, 0x14100a, 0x0e0e10 };
+static const char *THEME_ACC[6] = { NULL, "blue", "red", "emerald", "gold", "graphite" };
 /* ---- accent ---- */
 uint32_t ACC, ACC2, ACC3, ACC_D, ACC_FG;
 const char *ACCENT_KEYS[18] = { "purple", "violet", "fuchsia", "pink", "rose", "red", "orange", "amber", "gold", "lime", "green", "emerald", "teal", "cyan", "sky", "blue", "indigo", "graphite" };
@@ -238,6 +244,11 @@ static void tint_tick(void) {
 /* a title's own accent (Settings' preview of the dynamic modes): 1 with it in out, 0 while it is worked out */
 int accent_tint_of(const char *id, const char *poster, const char *logo, uint32_t out[4]) { if (tint_for(id, out)) return 1; accent_tint_fetch(id, poster, logo); return 0; }
 static int tint_busy(const char *id) { for (int i = 0; i < 8; i++) if (!strcmp(tintJobs[i].id, id)) return 1; return 0; }
+void theme_apply(void) {
+  const char *t = store_get("theme", "lumen"); int k = 0; for (int i = 0; i < 6; i++) if (!strcmp(t, THEME_KEYS[i])) k = i;
+  uint32_t c = THEME_PAGE[k]; PAGE_C = RGB((c >> 16) & 255, (c >> 8) & 255, c & 255);
+  if (THEME_ACC[k] && strcmp(store_get("accent", "logo"), THEME_ACC[k])) { store_set("accent", THEME_ACC[k]); accent_apply(); }
+}
 void accent_apply(void) { if (accent_dynamic()) accent_scope(scopeId[0] ? scopeId : NULL, scopePoster, scopeLogo); else set_accent(fixed_accent()); }
 /* Dynamic accents ("From the logo", "From the artwork") belong to ONE title: they show on that title's
    page and in its player; everywhere else the app keeps the default (purple). */
@@ -783,6 +794,18 @@ void bg_draw(void) {
 /* the window is cleared transparent while the background trailer shows through it */
 int app_bg_video(void) { return btr_under() && (!player_open() || btr_handing()); } /* (and while the player's art comes over it) */
 
+/* ---- etapa-73: the poster that flies: a title opened from a card, its poster grows from the card to the whole screen and dissolves into the page ---- */
+static struct { int on; double at; float x, y, w, h; char url[512]; } FLY;
+static void fly_start(void) {
+  FLY.on = 0; if (!strcmp(store_get("posterFly", "true"), "false") || !app_is_board(SCR)) return;
+  Item it; if (!board_card_rect(&FLY.x, &FLY.y, &FLY.w, &FLY.h, &it)) return;
+  sb_poster_of(&it, FLY.url, sizeof FLY.url); if (!FLY.url[0]) return; FLY.on = 1; FLY.at = NOW; }
+static void fly_draw(void) {
+  if (!FLY.on) return; float t = (float)(NOW - FLY.at) / 0.55f; if (t >= 1) { FLY.on = 0; return; }
+  float aspect = 0; GLuint tex = img_get(FLY.url, (int)FLY.w, (int)FLY.h, &aspect); if (!tex) return;
+  float k = ease_apply(EASE_CSS_EASEOUT, t), tw = SB_H * 0.9f * (FLY.w / FLY.h), th = SB_H * 0.9f, tx = SB_W / 2 - tw / 2, ty = SB_H * 0.05f;
+  float x = FLY.x + (tx - FLY.x) * k, y = FLY.y + (ty - FLY.y) * k, w = FLY.w + (tw - FLY.w) * k, h = FLY.h + (th - FLY.h) * k, a = t < 0.45f ? 1 : 1 - (t - 0.45f) / 0.55f;
+  gfx_opacity_push(a); gfx_shadow(x, y + 24, w, h, 22, 70, BLACK_A(150)); gfx_image(tex, x, y, w, h, 22 * (1 - 0.3f * k), WHITE_A(255), 0, 0, 1, 1); gfx_opacity_pop(); }
 /* ---- screens, keys ---- */
 static double lastNav; static int curKey; /* the trailer's own idleness: OK (a tap, a hold) neither counts nor stops it */
 static void idle_touch(void) { lastIn = NOW; if (curKey == K_OK) return; lastNav = NOW; btr_key(curKey >= K_LEFT && curKey <= K_DOWN); } /* any other key stops the background trailer at once */
@@ -798,6 +821,7 @@ void app_go(Scr s, const void *params, int noStack) {
     if (nback == 8) { memmove(backStack, backStack + 1, 7 * sizeof *backStack); memmove(backX, backX + 1, 7 * sizeof *backX); memmove(backY, backY + 1, 7 * sizeof *backY); nback = 7; }
     backX[nback] = ox; backY[nback] = oy; backStack[nback++] = SCR;
     if (navf.kind == NAV_NONE && has && (s == SCR_DETAIL || s == SCR_SIM)) { navf.kind = NAV_ZOOM; navf.x = ox; navf.y = oy; } }
+  if (!noStack && s == SCR_DETAIL && SCR != s) fly_start();
   topNav.active = 0;
   Scr old = SCR;
   if ((s == SCR_SET || s == SCR_SEARCH) && old != SCR_SET && old != SCR_SEARCH && old != SCR_LOGIN) { colorFrom = old; colorFromSet = 1; } /* where Settings / Search were opened from */
@@ -1020,7 +1044,7 @@ void app_refresh_boards(void) { extern void board_invalidate(void); extern void 
 void app_init(void) {
   vig_tex(0); vig_tex(1); /* both shadings made at start: the first title page would make its own mid-zoom */
   topNav.want = -1; NOW = SDL_GetTicks() / 1000.0; lastIn = NOW; lastNav = NOW; bgMode = 0; tween_set(&toastA, 0);
-  accent_apply(); accent_tick(0); sync_init(); btr_init(); castlink_start();
+  theme_apply(); accent_apply(); accent_tick(0); sync_init(); btr_init(); castlink_start();
   if (app_launch_cast) btr_cast_hold(20); /* opened by a phone to play something: no trailer before its play */ appUp = 1;
 }
 static void amb_bake(void);
@@ -1146,6 +1170,7 @@ static void page_draw(void) {
     return; }
   static const char *skip = (const char *)1; if (skip == (const char *)1) skip = getenv("SB_SKIP"); /* development: SB_SKIP=bg,bar,screen,amb leaves parts out, to time what each costs */
   if (!skip || !strstr(skip, "bg")) bg_draw(); glass_draw(); if (!ambGuide && (!skip || !strstr(skip, "amb"))) ambient_draw();
+  { static double st; float sdt = st ? (float)(NOW - st) : 0; st = NOW; if (app_is_board(SCR) && !player_open()) season_draw(sdt, (1 - btr_melt()) * app_screen_alpha()); } /* etapa-73: snow, fireworks, confetti, leaves */
   if (screens[SCR] && screens[SCR]->draw && (!skip || !strstr(skip, "screen"))) { float a = app_screen_alpha(); if (xoutT.on) a *= ease_apply(EASE_CSS_EASEIN, timer_x(&xoutT)); /* under a page leaving by Back: it comes up as that one goes, never both at once */ if (a < 1) gfx_opacity_push(a);
     int mv = xmvT.on && xmv.kind && !sx_flying(); /* the hand-over's move: the incoming screen as a whole, one transform (not while a logo flies across: its landing spot must hold still, or it dips and comes back) */
     if (mv) { float k = ease_apply(EASE_CSS_EASEOUT, timer_x(&xmvT));
@@ -1157,6 +1182,7 @@ static void page_draw(void) {
   if (xoutT.on && screens[xoutScr] && screens[xoutScr]->out) { int hn = hit_count(); sx_ghost(1); screens[xoutScr]->out(timer_x(&xoutT)); sx_ghost(0); hit_trim(hn); } /* seen leaving, never pointed at */
   if (!skip || !strstr(skip, "bar")) topnav_draw();
   for (int k = 0; k < nseenOv; k++) if (seenOv[k] != app_overlay && seenOv[k]->draw && !(app_overlay && ovOpener[k] == app_overlay)) seenOv[k]->draw(); /* closing ones (they draw nothing once gone) */
+  fly_draw();
   if (app_overlay && app_overlay->draw) app_overlay->draw();
   if (app_overlay) for (int k = 0; k < nseenOv; k++) if (seenOv[k] != app_overlay && seenOv[k]->draw && ovOpener[k] == app_overlay) seenOv[k]->draw(); /* closing back onto the one it was opened over: above it, its motion seen to the end */
 }

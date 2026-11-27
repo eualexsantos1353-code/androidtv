@@ -526,6 +526,7 @@ void sb_meta(const char *type, const char *id, void (*cb)(cJSON *, void *), void
 }
 
 /* ---- library ------------------------------------------------------------------------------- */
+cJSON *lib_all(void);
 static cJSON *lib_arr(void) { cJSON *l = store_node("lib"); if (!cJSON_IsObject(l)) { l = cJSON_CreateObject(); store_set_node("lib", l); } return l; }
 cJSON *lib_get(const char *id) { return cJSON_GetObjectItemCaseSensitive(lib_arr(), id); }
 int lib_has(const char *id) { cJSON *it = lib_get(id); return it && !js_bool(it, "removed", 1); }
@@ -1119,3 +1120,5 @@ void sb_suggest(const char *q, void (*cb)(ItemList *, char[6][128], int, void *)
   char url[600]; snprintf(url, sizeof url, "https://v3.sg.media-imdb.com/suggestion/%c/%s.json", first, enc);
   SugReq *r = malloc(sizeof *r); r->cb = cb; r->ud = ud; net_get(url, on_sug, r);
 }
+
+cJSON *lib_all(void) { return lib_arr(); } /* etapa-73: the whole library (the Retrospective reads it) */
