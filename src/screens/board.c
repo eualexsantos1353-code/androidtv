@@ -1139,7 +1139,9 @@ int board_row_items(const char *id, const Item **items) {
   Board *b = cur(); if (!b || b->rowIdx < 0 || b->rowIdx >= b->n) return 0; const Row *r = &b->rows[b->rowIdx];
   for (int i = 0; i < r->items.n; i++) if (!strcmp(r->items.items[i].id, id)) { *items = r->items.items; return r->items.n; } return 0;
 }
-Screen homeScreen = { enter_home, NULL, key_home, board_tick, board_draw, focused_cur, NULL, NULL, board_origin };
+/* etapa-74: a short OK (it comes as the key goes up): on a story, the Stories; anything else as always */
+static void open_home(const Item *it) { if (story_ok(&boards[0])) return; app_open_item(it); }
+Screen homeScreen = { enter_home, NULL, key_home, board_tick, board_draw, focused_cur, open_home, NULL, board_origin };
 Screen discScreen = { enter_disc, NULL, key_disc, board_tick, board_draw, focused_cur, NULL, NULL, board_origin };
 __attribute__((constructor)) static void board_kinds(void) { boards[0].kind = 0; boards[1].kind = 1; boards[1].featOn = 0; tween_set(&boards[1].rowsA, 1); for (int i = 0; i < 2; i++) tween_set(&boards[i].logoIn, 1); } /* Discover opens on its spotlight */
 int board_sample(Item *out, int max, char *rowTitle, int cap) {

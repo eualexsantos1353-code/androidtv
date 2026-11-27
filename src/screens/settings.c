@@ -443,6 +443,8 @@ static void set_val(Setting *o, const char *v, int dir) {
   if (!strcmp(o->k, "homeLiveRow") || !strcmp(o->k, "homeReleases")) board_invalidate(); /* etapa-72: the live row on Home, in or out */
   if (!strcmp(o->k, "p2pTcpOnly")) p2p_connections_changed();
   if (!strcmp(o->k, "accent")) accent_apply();
+  if (!strcmp(o->k, "theme")) { theme_apply(); board_invalidate(); } /* etapa-74: chosen on the TV too (it was only from the phone) */
+  if (!strcmp(o->k, "seasonal") || !strcmp(o->k, "homeStories")) board_invalidate();
   /* only the row changes: a value slides in from the side pressed */
   if (S.idx < MAXROWS && !is_switch(o)) { RowA *r = &S.ra[S.idx]; r->vAt = app_now(); r->vDir = dir; }
 }

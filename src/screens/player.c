@@ -2037,6 +2037,10 @@ static int lx_recap_fill(void) {
   snprintf(LX.recapT, sizeof LX.recapT, "%s%s%s", se, *nm ? "  \xe2\x80\x94  " : "", nm); snprintf(LX.recap, sizeof LX.recap, "%s", ov);
   LX.recapLines = text_wrap_count(LX.recap, 760, 4, 26, 400, 0); return 1; }
 static void lx_tick(float dt) {
+  { static float acc; if (video_state() == VID_PLAYING && !P.live) acc += dt; /* etapa-74: time watched per month, for the Retrospective */
+    if (acc >= 60) { time_t t = time(NULL); struct tm tm; localtime_r(&t, &tm); char mk[12]; snprintf(mk, sizeof mk, "%d-%02d", tm.tm_year + 1900, tm.tm_mon + 1);
+      cJSON *o = cJSON_Duplicate(store_node("watchLog"), 1); if (!cJSON_IsObject(o)) { cJSON_Delete(o); o = cJSON_CreateObject(); }
+      double v = js_num(o, mk, 0) + acc; cJSON_DeleteItemFromObject(o, mk); cJSON_AddNumberToObject(o, mk, v); store_set_node("watchLog", o); acc = 0; } }
   tween_tick(&LX.introA, dt); tween_tick(&LX.recapA, dt); tween_tick(&LX.askA, dt);
   if (LX.recapWant && video_state() == VID_PLAYING && P.artA.v < 0.05f && (!LX.introAt || now_() - LX.introAt > 2.6)) { LX.recapWant = 0;
     if (lx_recap_fill()) { LX.recapOn = 1; LX.recapAt = now_(); tween_set(&LX.recapA, 0); tween_to(&LX.recapA, 1, 0.5f, EASE_OUT); fprintf(stderr, "[player] where you left off: %s\n", LX.recapT); } }

@@ -4,6 +4,7 @@
 #include "core/i18n.h"
 #include "core/json.h"
 #include "core/stremio.h"
+#include "core/store.h"
 #include "ui/gfx.h"
 #include "ui/text.h"
 #include "ui/img.h"
@@ -17,6 +18,7 @@
 #include <string.h>
 #include <math.h>
 #include <time.h>
+#include <stdint.h>
 
 #define NS 7
 #define SLIDE_S 7.0
@@ -45,9 +47,20 @@ static void compute(void) {
     { const cJSON *l; cJSON_ArrayForEach(l, js_arr(m, "links")) { const char *c = js_str(l, "category", ""); if (!strcmp(c, "Genres")) cnt_add(gen, &ng, 64, js_str(l, "name", ""), w); else if (!strcmp(c, "Cast")) cnt_add(act, &na, 256, js_str(l, "name", ""), 1); } }
     cJSON_ArrayForEach(g, js_arr(m, "cast")) if (cJSON_IsString(g)) cnt_add(act, &na, 256, g->valuestring, 1);
   }
+  { const cJSON *lg = store_node("watchLog"); for (int i = 0; i < 12; i++) { char mk[12]; snprintf(mk, sizeof mk, "%d-%02d", R.year, i + 1); double sec = js_num(lg, mk, 0); if (sec > 600) R.month[i] = sec / 3600.0; } } /* etapa-74: the months as they were watched (from now on) */
   int bg = -1, ba = -1; for (int i = 0; i < ng; i++) if (bg < 0 || gen[i].n > gen[bg].n) bg = i; for (int i = 0; i < na; i++) if (ba < 0 || act[i].n > act[ba].n) ba = i;
   if (bg >= 0) snprintf(R.genre, sizeof R.genre, "%s", gen[bg].s); if (ba >= 0 && act[ba].n >= 2) { snprintf(R.actor, sizeof R.actor, "%s", act[ba].s); R.an = act[ba].n; }
   fprintf(stderr, "[retro] %d: %.0f h, %d films, %d series\n", R.year, R.hours, R.movies, R.series);
+}
+/* etapa-74: genres and faces need each title's page: the ones not seen yet are asked, the slides follow as they come */
+static int pend; static unsigned mgen;
+static void on_meta(cJSON *m, void *ud) { (void)m; if ((unsigned)(uintptr_t)ud != mgen) return; if (--pend <= 0 && R.open) compute(); }
+static void ask_metas(void) {
+  typedef struct { const char *ty, *id; double h; } T_; static T_ t[400]; int n = 0; const cJSON *it; char yp[8]; snprintf(yp, sizeof yp, "%d-", R.year);
+  cJSON_ArrayForEach(it, lib_all()) { const char *ty = js_str(it, "type", ""); if (strcmp(ty, "movie") && strcmp(ty, "series")) continue; const cJSON *st = js_obj(it, "state");
+    if (strncmp(js_str(st, "lastWatched", ""), yp, 5) || n >= 400) continue; double ms = js_num(st, "overallTimeWatched", 0); if (ms <= 0) continue; t[n].ty = ty; t[n].id = js_str(it, "_id", ""); t[n].h = ms; n++; }
+  for (int i = 0; i < n; i++) for (int j = i + 1; j < n; j++) if (t[j].h > t[i].h) { T_ x = t[i]; t[i] = t[j]; t[j] = x; }
+  mgen++; pend = 0; for (int i = 0; i < n && i < 30; i++) if (!sb_meta_cached(t[i].ty, t[i].id)) { pend++; sb_meta(t[i].ty, t[i].id, on_meta, (void *)(uintptr_t)mgen); }
 }
 static Screen scr;
 static void close_(void) { if (!R.open) return; R.closing = 1; tween_to(&R.a, 0, 0.4f, EASE_IN_OUT); if (app_overlay == &scr) app_overlay = NULL; }
@@ -77,12 +90,13 @@ static void draw(void) {
     case 2: case 3: { const Top *tp = R.idx == 2 ? &R.ts : &R.tm; text_draw(T(R.idx == 2 ? "Your series of the year" : "Your film of the year"), SB_W / 2, 140, 40, 700, acc, 1, 0, ALIGN_CENTER);
       if (!tp->name[0]) { big(T("None this year"), 460, 64, WHITE_A(220)); break; } poster(tp->poster, SB_W / 2, 220, 560, k); big(tp->name, 810, 56, WHITE_A(255));
       snprintf(n, sizeof n, "%.0f", tp->h < 1 ? 1 : tp->h); text_draw(T1("{n} hours together", "n", n), SB_W / 2, 890, 32, 500, WHITE_A(200), 0, 0, ALIGN_CENTER); break; }
-    case 4: text_draw(T("Your genre"), SB_W / 2, 230, 40, 600, WHITE_A(200), 0, 0, ALIGN_CENTER); big(R.genre[0] ? T(R.genre) : "\xe2\x80\x94", 300, 130, acc);
+    case 4: text_draw(T("Your genre"), SB_W / 2, 230, 40, 600, WHITE_A(200), 0, 0, ALIGN_CENTER); if (R.genre[0]) big(T(R.genre), 300, 130, acc); else text_draw(T(pend > 0 ? "Finding out\xe2\x80\xa6" : "Not enough yet"), SB_W / 2, 330, 48, 700, WHITE_A(200), 0, 0, ALIGN_CENTER);
       if (R.actor[0]) { text_draw(T("The face you saw the most"), SB_W / 2, 560, 36, 600, WHITE_A(200), 0, 0, ALIGN_CENTER); big(R.actor, 620, 80, WHITE_A(255)); char c[16]; snprintf(c, sizeof c, "%d", R.an); text_draw(T1("in {n} of your titles", "n", c), SB_W / 2, 730, 30, 500, WHITE_A(170), 0, 0, ALIGN_CENTER); } break;
     case 5: { int bm = 0; double mx = 0; for (int i = 0; i < 12; i++) if (R.month[i] > mx) { mx = R.month[i]; bm = i; }
-      text_draw(T("Your marathon month"), SB_W / 2, 150, 40, 600, WHITE_A(200), 0, 0, ALIGN_CENTER); big(mx > 0 ? T(MON[bm]) : "\xe2\x80\x94", 220, 110, acc);
+      text_draw(T("Your marathon month"), SB_W / 2, 150, 40, 600, WHITE_A(200), 0, 0, ALIGN_CENTER); if (mx > 0) big(T(MON[bm]), 220, 110, acc); else text_draw(T("Not enough yet"), SB_W / 2, 250, 48, 700, WHITE_A(200), 0, 0, ALIGN_CENTER);
       float bx = 260, bwid = (SB_W - 520) / 12.f, base = 900, hmax = 420;
       for (int i = 0; i < 12; i++) { float f = mx > 0 ? (float)(R.month[i] / mx) : 0, hh = hmax * f * k; gfx_rrect(bx + i * bwid + 10, base - hh, bwid - 20, hh < 8 ? 8 : hh, 10, i == bm ? acc : WHITE_A(70));
+        if (R.month[i] >= 1 && k > 0.9f) { char hv[16]; snprintf(hv, sizeof hv, "%.0fh", R.month[i]); text_draw(hv, bx + i * bwid + bwid / 2, base - hh - 34, 22, 700, WHITE_A(200), 0, 0, ALIGN_CENTER); }
         char ml[8]; snprintf(ml, sizeof ml, "%.3s", T(MON[i])); text_draw(ml, bx + i * bwid + bwid / 2, base + 16, 22, 600, WHITE_A(170), 0, 0, ALIGN_CENTER); } break; }
     default: lumen_mark_draw(SB_W / 2, 380, 110, 3, 1); big(T("Thanks for watching with the Lumen"), 600, 64, WHITE_A(255)); snprintf(b, sizeof b, "%s %d", T("See you in"), R.year + 1); text_draw(b, SB_W / 2, 700, 36, 500, acc, 0, 0, ALIGN_CENTER); break;
   }
@@ -92,6 +106,6 @@ static void draw(void) {
 }
 static Screen scr = { NULL, NULL, key, tick, draw, NULL, NULL, NULL, NULL, NULL };
 void retro_open(void) {
-  compute(); R.open = 1; R.closing = 0; R.idx = 0; R.slideAt = app_now(); tween_set(&R.a, 0); tween_to(&R.a, 1, 0.5f, EASE_OUT); tween_set(&R.k, 0); tween_to(&R.k, 1, 0.8f, EASE_OUT);
+  compute(); ask_metas(); R.open = 1; R.closing = 0; R.idx = 0; R.slideAt = app_now(); tween_set(&R.a, 0); tween_to(&R.a, 1, 0.5f, EASE_OUT); tween_set(&R.k, 0); tween_to(&R.k, 1, 0.8f, EASE_OUT);
   orbs_place(&R.orbs, 0, 1.6f); app_overlay_keep(&scr); app_overlay = &scr; sound_play(SND_TAB);
 }
