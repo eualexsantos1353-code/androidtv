@@ -21,7 +21,9 @@ static const char *SUB_COLORS[] = { "#ffffff", "#ffe600", "#00e5ff" }, *SUB_BGS[
 /* the lines' brightness (from PR #39, gmarques33): white a little grey, softer on an OLED in a dark room; the colours go
    toward black, never see-through (readable over a bright scene) */
 static const char *SUB_BRIGHT[] = { "100", "80", "60", "40" };
-static int bright_idx(void) { const char *v = store_get("subsBright", "100"); for (int i = 0; i < 4; i++) if (!strcmp(SUB_BRIGHT[i], v)) return i; return 0; }
+static int vid_hdr(void) { static char k[600]; static int h; if (strcmp(k, P.sname)) { snprintf(k, sizeof k, "%s", P.sname); char hd[32]; best_hdr_of(P.sname, hd, sizeof hd); h = hd[0] != 0; } return h; } /* etapa-90: the stream is HDR / Dolby Vision */
+static const char *bright_key(void) { return vid_hdr() ? "subsBrightHdr" : "subsBright"; }
+static int bright_idx(void) { const char *v = store_get(bright_key(), vid_hdr() ? "60" : "100"); for (int i = 0; i < 4; i++) if (!strcmp(SUB_BRIGHT[i], v)) return i; return 0; }
 static uint32_t col_dim(uint32_t c, float k) { if (k >= 0.999f) return c; return (c & 0xff000000u) | ((uint32_t)(((c >> 16) & 255) * k) << 16) | ((uint32_t)(((c >> 8) & 255) * k) << 8) | (uint32_t)((c & 255) * k); }
 static int bg_idx(void) { const char *v = store_get("subsBgStyle", "0"); for (int i = 0; i < 3; i++) if (!strcmp(SUB_BGS[i], v)) return i; return 0; }
 static int color_idx(void) { const char *v = store_get("subsColor", "#ffffff"); for (int i = 0; i < 3; i++) if (!strcasecmp(SUB_COLORS[i], v)) return i; return -1; }

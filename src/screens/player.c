@@ -814,6 +814,9 @@ static void build_btns(void) {
   else if (!live_title()) B("subs", "p_subs", T("Subtitles"), 0); /* (a live channel: none to choose) */
   if (!P.isTrailer) B("aud", "p_aud", T("Audio"), 0);
   if (live_title() && live_catalogs() > 0 && multi_available()) B("mv", "wn_live", !strncmp(i18n_lang(), "pt", 2) ? (multi_on() ? "Uma tela" : "Multi-tela") : (multi_on() ? "One screen" : "Multi-screen"), 0);
+#ifdef SB_ANDROIDTV
+  if (!P.isTrailer && !live_title() && !strncmp(P.url, "http", 4)) B("ext", "play", T("Other player"), 0); /* etapa-90 */
+#endif
   const char *am = !strcmp(P.aspect, "fill") ? "Fill the screen" : !strcmp(P.aspect, "zoom") ? "Zoom" : "Original"; B("asp", "p_asp", T(am), 0);
   #undef B
   P.nbtn = i; if (P.bIdx >= i) P.bIdx = 0; if (fid) for (int k = 0; k < i; k++) if (!strcmp(P.btns[k].id, fid)) P.bIdx = k;
@@ -893,14 +896,16 @@ static void aspect_load(void) { char k[96]; aspect_key(k, sizeof k); const char 
 /* the web sizes the picture's box (Fill / Zoom go past the screen); a TV's plane blanks for a rectangle that leaves
    the screen, so the part of that box on the screen is shown as a crop of the frame instead */
 void player_reapply_window(void);
+static float vwin[4]; /* etapa-90: where the picture sits when it has bars round it (w 0: none) */
 static void apply_aspect(void) {
+  vwin[2] = 0;
   int vw = video_width(), vh = video_height(); float W = SB_W, H = SB_H; P.lastVw = vw; P.lastVh = vh;
   if (growPending || growAt > 0 || shrinkAt > 0) return; /* a preview growing or shrinking places the picture itself every frame (its framing comes as it ends): never a full-screen jump in the middle */
   if (!vw || !vh) { video_set_window(0, 0, W, H); return; }
   float fit = fminf(W / vw, H / vh), fill = fmaxf(W / vw, H / vh), k = fit; int wide = fabsf((float)vw / vh - W / H) < 0.03f;
   if (!strcmp(P.aspect, "fill")) k = wide ? fit * 1.12f : fill; else if (!strcmp(P.aspect, "zoom")) k = wide ? fit * 2.39f / (W / H) : fill * 1.15f;
   float fw = roundf(vw * fit), fh = roundf(vh * fit), fx = roundf((W - fw) / 2), fy = roundf((H - fh) / 2);
-  if (k == fit) { video_set_window(fx, fy, fw, fh); return; }
+  if (k == fit) { video_set_window(fx, fy, fw, fh); vwin[0] = fx; vwin[1] = fy; vwin[2] = fw; vwin[3] = fh; return; }
   float w = roundf(vw * k), h = roundf(vh * k), x = roundf((W - w) / 2), y = roundf((H - h) / 2);
   float dx = fmaxf(0, x), dy = fmaxf(0, y), dw = fminf(W, x + w) - dx, dh = fminf(H, y + h) - dy;
   int sx = (int)roundf((dx - x) / k), sy = (int)roundf((dy - y) / k), sw = (int)roundf(dw / k), sh = (int)roundf(dh / k);
@@ -1075,7 +1080,7 @@ static int style_idx(void) { int c = color_idx(); return P.styK == 1 ? size_idx(
 static int style_n(void) { return P.styK == 1 ? 7 : P.styK == 4 ? 4 : P.styK >= 5 ? SUBF_N : 3; }
 static void style_change(int d) {
   int i = style_idx() + d; if (i < 0 || i >= style_n()) { nudge_start(&P.nudge, d > 0 ? K_RIGHT : K_LEFT); return; }
-  if (P.styK == 1) { char v[4]; snprintf(v, sizeof v, "%d", i); store_set("subtitleSize", v); } else if (P.styK == 2) store_set("subsColor", SUB_COLORS[i]); else if (P.styK == 4) store_set("subsBright", SUB_BRIGHT[i]); else if (P.styK >= 5) { char v[4]; snprintf(v, sizeof v, "%d", i); store_set(P.styK == 5 ? "subsFont" : "subsFontAr", v); } else store_set("subsBgStyle", SUB_BGS[i]);
+  if (P.styK == 1) { char v[4]; snprintf(v, sizeof v, "%d", i); store_set("subtitleSize", v); } else if (P.styK == 2) store_set("subsColor", SUB_COLORS[i]); else if (P.styK == 4) store_set(bright_key(), SUB_BRIGHT[i]); else if (P.styK >= 5) { char v[4]; snprintf(v, sizeof v, "%d", i); store_set(P.styK == 5 ? "subsFont" : "subsFontAr", v); } else store_set("subsBgStyle", SUB_BGS[i]);
   P.posAt = now_(); }
 static void pos_close(void) { P.mode = 0; mo_to(&P.posA, 0, .2f, C_EASE, 0); }
 static void pos_change(int d) { int v = pos_pct() + d; if (v < POS_MIN || v > POS_MAX) { nudge_start(&P.nudge, d > 0 ? K_UP : K_DOWN); return; } char b[8]; snprintf(b, sizeof b, "%d", v); store_set("subsPosPct", b); P.posAt = now_(); }
@@ -1084,8 +1089,20 @@ static void pos_key(int k) {
   if (k == K_UP) pos_change(1); else if (k == K_DOWN) pos_change(-1); else if (k == K_OK) pos_close(); else if (k == K_LEFT || k == K_RIGHT) nudge_start(&P.nudge, k); }
 static struct { float y, h, ux, uw, dx, dw, ox, ow; } PZ; /* the card's parts, for the pointer */
 static void hub_from_player(void) { close_tray(); P.osd = 0; P.mode = 6; hub_open(1, P.id); } /* the live hub over the channel playing (mode 6) */
+static void close_player(int goNext, int goSim);
+#ifdef SB_ANDROIDTV
+void plat_open_external_video(const char *url, const char *title, double startSec);
+#endif
+/* etapa-90: Other player: the stream as it plays, from where it is, in a player of the TV's; this one closes (its place kept) */
+static void open_external_now(void) {
+#ifdef SB_ANDROIDTV
+  if (strncmp(P.url, "http", 4)) { toast(T("Torrents play only here"), 2500, NULL); return; }
+  char t[300]; if (episodic() && P.episode > 0) snprintf(t, sizeof t, "%s S%d:E%d", P.name, P.season, P.episode); else snprintf(t, sizeof t, "%s", P.name);
+  plat_open_external_video(P.url, t, video_time()); close_player(0, 0);
+#endif
+}
 static void act(const char *id) {
-  if (!strcmp(id, "pp")) toggle(); else if (!strcmp(id, "rw")) seek_by(-1); else if (!strcmp(id, "ff")) seek_by(1); else if (!strcmp(id, "beg")) from_start(); else if (!strcmp(id, "asp")) next_aspect(); else if (!strcmp(id, "nxt")) next_auto(); else if (!strcmp(id, "cc")) cc_toggle();
+  if (!strcmp(id, "ext")) { open_external_now(); return; } if (!strcmp(id, "pp")) toggle(); else if (!strcmp(id, "rw")) seek_by(-1); else if (!strcmp(id, "ff")) seek_by(1); else if (!strcmp(id, "beg")) from_start(); else if (!strcmp(id, "asp")) next_aspect(); else if (!strcmp(id, "nxt")) next_auto(); else if (!strcmp(id, "cc")) cc_toggle();
   else if (!strcmp(id, "chn")) { hub_from_player(); return; }
   else if (!strcmp(id, "mv")) { multi_button(); if (multi_armed()) hub_from_player(); else build_btns(); return; }
   else open_tray(!strcmp(id, "eps") ? 1 : !strcmp(id, "src") ? 2 : !strcmp(id, "aud") ? 3 : 4);

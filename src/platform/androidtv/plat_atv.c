@@ -261,3 +261,10 @@ void plat_mem_self(int *rssMb, int *swapMb) {
   char line[128]; long kb; while (fgets(line, sizeof line, f)) { if (sscanf(line, "VmRSS: %ld kB", &kb) == 1) *rssMb = (int)(kb / 1024); else if (sscanf(line, "VmSwap: %ld kB", &kb) == 1) *swapMb = (int)(kb / 1024); }
   fclose(f);
 }
+
+/* etapa-90: a stream in another player (MainActivity.openExternal) */
+void plat_open_external_video(const char *url, const char *title, double startSec) {
+  JNIEnv *e = atv_env(); jmethodID m = atv_method(e, 0, "openExternal", "(Ljava/lang/String;Ljava/lang/String;J)V"); if (!m) return;
+  jstring u = (*e)->NewStringUTF(e, url), t = (*e)->NewStringUTF(e, title ? title : "");
+  (*e)->CallStaticVoidMethod(e, atv_class(e, 0), m, u, t, (jlong)(startSec * 1000)); atv_check(e); (*e)->DeleteLocalRef(e, u); (*e)->DeleteLocalRef(e, t);
+}

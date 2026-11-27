@@ -114,7 +114,9 @@ void streams_show(const char *type, const char *id, const char *vid, const char 
   if (!strcmp(k, S.key) && (S.loading || S.ng) && app_now() - S.t < 600) { render_chips(); rebuild(); return; }
   snprintf(S.key, sizeof S.key, "%s", k); S.t = app_now(); S.n = 0; S.idx = 0; S.nseen = 0; S.bestShown = 0; groups_clear(); snprintf(S.type, sizeof S.type, "%s", type); snprintf(S.id, sizeof S.id, "%s", id); snprintf(S.vid, sizeof S.vid, "%s", vid);
   S.filter = -1; S.chipIdx = 0; S.nchips = 0; S.tok++; S.loading = 1; qt_set(&S.chipsX, 0); qt_set(&S.listY, 0);
-  Stream r; if (sb_resume_stream(id, vid, &r)) { Stream x = r; /* (it keeps its addon: played again, it is remembered as that addon's, not as "Last used") */ snprintf(x.name, sizeof x.name, "%s", T("Resume last stream")); S.resumeSum[0] = 0; { BestRate br; memset(&br, 0, sizeof br); best_rate(&r, NULL, -1, 100, &br); snprintf(S.resumeSum, sizeof S.resumeSum, "%s", br.sum); } /* its specs laid out as the best fit's are */
+  Stream r; if (sb_resume_stream(id, vid, &r)) { Stream x = r; /* (it keeps its addon: played again, it is remembered as that addon's, not as "Last used") */ snprintf(x.name, sizeof x.name, "%s", T("Resume last stream"));
+    { const cJSON *st = js_obj(lib_get(id), "state"); double d = js_num(st, "duration", 0), o = js_num(st, "timeOffset", 0); const char *sv = js_str(st, "video_id", "");
+      if (d > 0 && o > 0 && (!*sv || !strcmp(sv, vid) || !strcmp(type, "movie"))) { char pc[16]; snprintf(pc, sizeof pc, "%d%%", (int)(100 * o / d)); size_t l = strlen(x.name); snprintf(x.name + l, sizeof x.name - l, "  \xc2\xb7  %s", T1("stopped at {p}", "p", pc)); } } /* etapa-90: where you stopped */ S.resumeSum[0] = 0; { BestRate br; memset(&br, 0, sizeof br); best_rate(&r, NULL, -1, 100, &br); snprintf(S.resumeSum, sizeof S.resumeSum, "%s", br.sum); } /* its specs laid out as the best fit's are */
     add(&x, 1, 0, T("Last used"), 1); }
   else rebuild();
   S.pend = S.asked = 0; S.left[0] = S.leftOld[0] = 0; tween_set(&S.leftA, 0); /* (a new list: its own count) */

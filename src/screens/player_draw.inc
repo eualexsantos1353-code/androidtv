@@ -85,7 +85,7 @@ static void draw_art(void) {
 /* the subtitle style, read once while the settings stay as they are */
 typedef struct { unsigned ser; int px; uint32_t col, ol; float bo; } SubStyle;
 static const SubStyle *sub_style(void) {
-  static SubStyle st; if (st.ser == store_serial() && st.ser) return &st;
+  static SubStyle st; static int sh = -1; if (st.ser == store_serial() && st.ser && sh == vid_hdr()) return &st; sh = vid_hdr(); /* (HDR: its own brightness) */
   st.ser = store_serial(); st.px = (int)(38 * SUB_SIZES[size_idx()] / 100.0f + 0.5f); st.col = hexcol(store_get("subsColor", "#ffffff")); st.ol = hexcol(store_get("subsOutlineColor", "#000000")); st.bo = (float)atof(SUB_BGS[bg_idx()]);
   { float k = atoi(SUB_BRIGHT[bright_idx()]) / 100.0f; st.col = col_dim(st.col, k); st.ol = col_dim(st.ol, k); asssubs_brightness(k); } /* (the brightness: plain, embedded and styled lines alike) */
   return &st;
@@ -259,6 +259,10 @@ static void cc_icon(float x, float y, float sz, uint32_t col, uint32_t gap) {
   float c = (3.4f + 17.68f * k + 1) * u; gfx_clip_push(x, y, c, c); icon_draw("p_ccslash", x, y, sz, col); gfx_clip_pop();
 }
 static void draw_osd(void) {
+  /* etapa-90: the bars round a picture that does not fill the screen: pure black (never the window's own colour under it) */
+  if (vwin[2] > 0 && !growPending && growAt <= 0 && shrinkAt <= 0 && !P.closing && strcmp(store_get("trueBlack", "true"), "false")) { float W0 = SB_W, H0 = SB_H;
+    if (vwin[1] > 0.5f) { gfx_rect(0, 0, W0, vwin[1], RGB(0, 0, 0)); gfx_rect(0, vwin[1] + vwin[3], W0, H0 - vwin[1] - vwin[3], RGB(0, 0, 0)); }
+    if (vwin[0] > 0.5f) { gfx_rect(0, 0, vwin[0], H0, RGB(0, 0, 0)); gfx_rect(vwin[0] + vwin[2], 0, W0 - vwin[0] - vwin[2], H0, RGB(0, 0, 0)); } }
   { float t = (float)now_(); lglass_light(0.018f * sinf(t * 0.157f) + 0.012f * sinf(t * 0.263f + 1.3f) + 0.008f * sinf(t * 0.411f + 4.1f)); } /* the glass's light wandering, slowly and a little */
   float W = SB_W, H = SB_H, bx = 72, rowTop = H - 54 - 94, L25 = text_line_height(25), barTop = rowTop - 30 - L25, trkC = barTop + L25 / 2, ttlBot = barTop - 32;
   bake();
@@ -267,6 +271,7 @@ static void draw_osd(void) {
   if (P.dimT.v > 0.001f) { gfx_opacity_push(P.dimT.v); gfx_rrect_v(0, 0, W, 260, 0, BLACK_A(175), BLACK_A(0)); gfx_opacity_pop(); }
   if (P.vig.v > 0.001f) gfx_alpha_tex(vigTex, 0, 0, W, H, BLACK_A((int)(255 * P.vig.v)));
   draw_subs();
+  int hdrDim = vid_hdr() && strcmp(store_get("hdrDimOsd", "true"), "false"); if (hdrDim) gfx_opacity_push(0.8f); /* etapa-90: softer over HDR */
   /* paused: who plays in it (Apple TV's InSight), top right under the clock */
   if (P.vig.v > 0.02f && !XR.on && XR.a.v < 0.02f && !P.isTrailer && !live_title() && P.tray.kind <= 0 && strcmp(store_get("insight", "true"), "false")) { const InsightFace *fc; int ep = episodic();
     int nf = insight_get(P.type, P.id, ep ? P.season : -1, ep ? P.episode : -1, &fc); if (nf > 5) nf = 5;
@@ -434,6 +439,7 @@ static void draw_osd(void) {
         if (i < 2) { PG.prX[i] = x; PG.prY[i] = y; PG.prW[i] = w; PG.prH[i] = h; if (PG.npr < i + 1) PG.npr = i + 1; }
         x -= 16; } }
     gfx_offset_pop(); gfx_opacity_pop(); }
+  if (hdrDim) gfx_opacity_pop();
   dly_draw(); pos_draw(); if (P.mode != 6) live_card_draw(); if (hub_player_mode()) hub_draw(); /* (the hub opened from Home is the page's: never drawn again over the picture) */ lglass_light(0);
 }
 /* a countdown's fill: eases in and out (sine), so it starts and lands softly */

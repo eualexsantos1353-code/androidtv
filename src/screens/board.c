@@ -633,7 +633,12 @@ static void hero_draw(Board *b) {
     if (cb[0]) text_draw(cb, rtl ? cx0 - 22 : cx0 + cw + 22, y + ch / 2 - text_line_height(26) / 2, 26, 500, WHITE_A(175), 0.3f, HERO_W - cw - 22, align);
     gfx_opacity_pop(); gfx_offset_pop(); gfx_opacity_pop(); return; } /* (the box is drawn on its own, above) */
   y += 20; meta_draw_p(&hl->mp, x, y, WHITE_A(255), align); y += text_line_height(META_PX) > 34 ? text_line_height(META_PX) : 34;
-  y += 16; text_draw_wrapped(v->desc, x, y, HERO_W, 3, DESC_PX, 400, WHITE_A(204), 0, align, DESC_LH);
+  y += 16;
+  { /* etapa-90: a description longer than three lines rolls up slowly after a few seconds, rests at its end, then starts again */
+    static char rid[SB_ID]; static double r0; static int rn; if (strcmp(rid, v->id)) { snprintf(rid, sizeof rid, "%s", v->id); r0 = app_now(); rn = text_wrap_count(v->desc, HERO_W, 14, DESC_PX, 400, 0); }
+    float off = 0; if (rn > 3) { double t = app_now() - r0, run = (rn - 3) * 2.2, cyc = 5 + run + 4 + 1.2; t = fmod(t, cyc); off = t < 5 ? 0 : t < 5 + run ? (float)((t - 5) / 2.2) : t < 5 + run + 4 ? (float)(rn - 3) : (float)((rn - 3) * (1 - (t - 5 - run - 4) / 1.2)); }
+    if (off > 0.001f) { gfx_clip_push(x - (align == ALIGN_RIGHT ? HERO_W : 0), y, HERO_W + 4, 3 * DESC_LH); text_draw_wrapped(v->desc, x, y - off * DESC_LH, HERO_W, rn, DESC_PX, 400, WHITE_A(204), 0, align, DESC_LH); gfx_clip_pop(); }
+    else text_draw_wrapped(v->desc, x, y, HERO_W, 3, DESC_PX, 400, WHITE_A(204), 0, align, DESC_LH); }
   gfx_opacity_pop();
   gfx_offset_pop(); gfx_opacity_pop();
 }

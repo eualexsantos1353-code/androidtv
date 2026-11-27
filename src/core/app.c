@@ -9,6 +9,7 @@
 #include "platform/plat.h"
 #include "core/bgtrailer.h"
 #include "core/best.h"
+#include "core/json.h"
 #include "core/keys.h"
 #include "core/store.h"
 #include "core/i18n.h"
@@ -71,7 +72,16 @@ void app_launch_params(const char *json) {
 int (*app_resume_hook)(const Item *it);
 void (*app_card_menu_hook)(const Item *it);
 void (*app_play_hook)(const Stream *s, const char *type, const char *id, const char *vid, int fromStart);
-void app_play(const Stream *s, const char *type, const char *id, const char *vid, int fromStart) { if (!s->url[0]) { app_open_external(s->ext, s->name); return; } if (btr_under()) btr_handover(); else btr_release(); /* a trailer on: the player's art comes over it, then it goes */ /* one decoder: the background trailer lets go first */ if (app_play_hook) app_play_hook(s, type, id, vid, fromStart); else toast(T("Could not play"), 2000, NULL); }
+#ifdef SB_ANDROIDTV
+void plat_open_external_video(const char *url, const char *title, double startSec);
+#endif
+void app_play(const Stream *s, const char *type, const char *id, const char *vid, int fromStart) { if (!s->url[0]) { app_open_external(s->ext, s->name); return; }
+#ifdef SB_ANDROIDTV
+  if (!strcmp(store_get("playerMode", "internal"), "external") && !strncmp(s->url, "http", 4) && !live_type(type)) { /* etapa-90: Settings > Advanced > Player: another one */
+    double at = 0; if (!fromStart) { const cJSON *st = js_obj(lib_get(id), "state"); if (!strcmp(js_str(st, "video_id", id), vid)) at = js_num(st, "timeOffset", 0) / 1000.0; }
+    plat_open_external_video(s->url, s->name, at); return; }
+#endif
+  if (btr_under()) btr_handover(); else btr_release(); /* a trailer on: the player's art comes over it, then it goes */ /* one decoder: the background trailer lets go first */ if (app_play_hook) app_play_hook(s, type, id, vid, fromStart); else toast(T("Could not play"), 2000, NULL); }
 static char fromStartOnce[160];
 /* "Watch from the beginning": the next play of this title/episode ignores the saved position */
 void app_play_from_start(const Item *it) {

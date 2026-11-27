@@ -173,6 +173,17 @@ public class MainActivity extends SDLActivity {
     /* the update asked for while the system's leave to install apps was still to be given: started once it is (onResume) */
     private static volatile String askUrl, askSha;
     private static volatile boolean updRunning;
+    /* etapa-90: a stream in another player (Just Player, VLC, MX...): the system asks which, the start position passed
+       as those players read it */
+    public static void openExternal(final String url, final String title, final long startMs) {
+        final MainActivity a = self; if (a == null) return;
+        a.runOnUiThread(() -> { try {
+            android.content.Intent i = new android.content.Intent(android.content.Intent.ACTION_VIEW);
+            i.setDataAndType(Uri.parse(url), "video/*"); i.putExtra("title", title); i.putExtra("position", (int) startMs); i.putExtra("return_result", true);
+            i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+            a.startActivity(android.content.Intent.createChooser(i, title));
+        } catch (Throwable e) { log("[external] " + e); } });
+    }
     public static void updateStart(final String url, final String sha) {
         final MainActivity a = self; if (a == null) { updFail("The app is closing"); return; }
         updCancel = false;

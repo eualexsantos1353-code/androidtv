@@ -1,6 +1,26 @@
 {
- "version": "89",
+ "version": "90",
  "items": [
+  {
+   "icon": "p_subs",
+   "title": "Legenda própria no HDR",
+   "text": "Em filmes HDR e Dolby Vision a legenda e os controles ficam mais suaves (Configurações > Legendas)."
+  },
+  {
+   "icon": "play",
+   "title": "Barras pretas de verdade",
+   "text": "Filmes com faixas pretas: as bordas agora são preto puro."
+  },
+  {
+   "icon": "play",
+   "title": "Outro player",
+   "text": "Botão no player para abrir no Just Player, VLC ou MX, e opção em Sistema > Avançado."
+  },
+  {
+   "icon": "lib_sort",
+   "title": "Sinopse que rola",
+   "text": "No Início, a sinopse longa do destaque rola sozinha."
+  },
   {
    "icon": "set_look",
    "title": "Configurações novas",
@@ -10,26 +30,6 @@
    "icon": "play",
    "title": "Foco vermelho em tudo",
    "text": "Início, Descobrir e Busca com a mesma borda e brilho da Biblioteca."
-  },
-  {
-   "icon": "lib_sort",
-   "title": "App mais leve",
-   "text": "Traduções juntas num arquivo por idioma e restos de Stories e TV ao vivo removidos."
-  },
-  {
-   "icon": "play",
-   "title": "Player novo",
-   "text": "Título pequeno no topo, sinopse ao pausar, -10s/+10s ao lado do play e o nome de cada botão."
-  },
-  {
-   "icon": "lib_sort",
-   "title": "Detalhes estilo cinema",
-   "text": "Arte grande, botão Continuar S1:E3 e tudo em vermelho e preto."
-  },
-  {
-   "icon": "lib_wall",
-   "title": "Para ver hoje",
-   "text": "Na Biblioteca: 5 títulos seus escolhidos para o dia. E a fileira Novos episódios."
   }
  ],
  "support": {

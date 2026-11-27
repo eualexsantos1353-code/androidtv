@@ -1443,5 +1443,17 @@
 "Advanced": "Avançado",
 "Updates and help": "Atualizações e ajuda",
 "Version, update now, what's new, logs": "Versão, atualizar agora, novidades, registros",
-"IPTV list": "Lista IPTV"
+"IPTV list": "Lista IPTV",
+"Brightness on HDR": "Brilho no HDR",
+"HDR and Dolby Vision make white text glare: a softer one for them alone": "HDR e Dolby Vision deixam o texto branco ofuscante: um brilho mais suave só para eles",
+"Dim the controls on HDR": "Controles mais suaves no HDR",
+"The player’s buttons and bar a little softer over an HDR picture": "Os botões e a barra do player um pouco mais suaves sobre imagem HDR",
+"stopped at {p}": "parou em {p}",
+"Other player": "Outro player",
+"Torrents play only here": "Torrents tocam só aqui",
+"Player": "Player",
+"This app": "Este app",
+"Another player": "Outro player",
+"Another player: Just Player, VLC or MX open each stream (torrents always play here)": "Outro player: Just Player, VLC ou MX abrem cada fonte (torrents sempre tocam aqui)",
+"Player, IPTV list": "Player, lista IPTV"
 }
