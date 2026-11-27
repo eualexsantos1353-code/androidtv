@@ -8,6 +8,8 @@
 #include "core/store.h"
 #include "core/i18n.h"
 #include "core/best.h"
+#include "core/stremio.h"
+#include <strings.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -80,11 +82,19 @@ static double gb_of(const Stream *s, const char *t) {
   for (const char *p = t; *p; p++) if (isdigit((unsigned char)*p)) { char *e; double v = strtod(p, &e); while (*e == ' ') e++; if (!strncmp(e, "gb", 2)) return v; if (!strncmp(e, "mb", 2)) return v / 1024; p = e - 1 > p ? e - 1 : p; }
   return -1; }
 int sfilter_on(void) { return strcmp(store_get("sf_res", "any"), "any") || strcmp(store_get("sf_lang", "any"), "any") || !strcmp(store_get("sf_cam", "false"), "true") || strcmp(store_get("sf_size", "any"), "any") || !strcmp(store_get("sf_nohdr", "false"), "true"); }
+int sfilter_is_anime(const char *type, const char *vid) { /* kitsu/mal/anilist ids, or a title the details call Anime (or Animation from Japan) */
+  if (!vid) return 0; if (!strncmp(vid, "kitsu:", 6) || !strncmp(vid, "mal:", 4) || !strncmp(vid, "anilist:", 8) || !strncmp(vid, "anidb:", 6)) return 1;
+  char id[64]; snprintf(id, sizeof id, "%s", vid); char *c = strchr(id, ':'); if (c && !strncmp(id, "tt", 2)) *c = 0;
+  const cJSON *m = sb_meta_cached(type && *type ? type : "series", id); if (!m) m = sb_meta_cached("movie", id); if (!m) return 0;
+  int an = 0; const cJSON *g; cJSON_ArrayForEach(g, js_arr(m, "genres")) if (cJSON_IsString(g)) { if (!strcasecmp(g->valuestring, "Anime")) return 1; if (!strcasecmp(g->valuestring, "Animation")) an = 1; }
+  const char *co = js_str(m, "country", ""); return an && (strstr(co, "Jap") || strstr(co, "jap")); }
+static int g_anime;
+int sfilter_pass_k(const Stream *s, int anime) { g_anime = anime; int r = sfilter_pass(s); g_anime = 0; return r; }
 int sfilter_pass(const Stream *s) {
-  if (!sfilter_on()) return 1;
+  if (!sfilter_on() && !(g_anime && strcmp(store_get("sf_res_anime", "same"), "same"))) return 1;
   char all[1400]; snprintf(all, sizeof all, "%s %s %s", s->name, s->title, s->filename); char t[1400]; low(all, t, sizeof t);
   const char *rs = best_res_of(all); int res = !rs ? 0 : !strcmp(rs, "4K") ? 2160 : !strcmp(rs, "SD") ? 480 : atoi(rs);
-  const char *fr = store_get("sf_res", "any");
+  const char *fr = store_get("sf_res", "any"); if (g_anime) { const char *fa = store_get("sf_res_anime", "same"); if (strcmp(fa, "same")) fr = fa; }
   if (!strcmp(fr, "4k") && res != 2160) return 0;
   if (!strcmp(fr, "1080") && res > 1080) return 0; if (!strcmp(fr, "720") && res > 720) return 0;
   if (!strcmp(fr, "1080up") && res && res < 1080) return 0;

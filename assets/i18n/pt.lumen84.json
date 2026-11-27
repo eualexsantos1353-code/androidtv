@@ -5,7 +5,6 @@
  "Watched series": "Séries assistidas",
  "More info": "Mais informações",
  "Watch now": "Assistir agora",
- "Hold: options": "Segure: opções",
  "Action": "Ação",
  "Adventure": "Aventura",
  "Animation": "Animação",
@@ -23,5 +22,12 @@
  "Science Fiction": "Ficção científica",
  "Thriller": "Suspense",
  "War": "Guerra",
- "Western": "Faroeste"
+ "Western": "Faroeste",
+ "Open": "Abrir",
+ "In My list": "Na minha lista",
+ "Removed from My list": "Removido da Minha lista",
+ "Added to My list": "Adicionado à Minha lista",
+ "Quality for anime": "Qualidade para animes",
+ "Same as above": "Igual à de cima",
+ "Anime is rarely in 4K: its own quality, so it still finds streams": "Quase não tem anime em 4K: uma qualidade só para eles, pra sempre achar fontes"
 }

@@ -42,7 +42,8 @@
 #define GRID_TOP 490.0f
 #define ROW0_Y (GRID_TOP + 36)
 #define RAIL_X 48.0f
-#define RAIL_Y 410.0f
+static int g_rowsOn; /* etapa-84: the Library in rows: the filters up top, the banner, the rows */
+#define RAIL_Y (g_rowsOn ? 140.0f : 410.0f)
 static const char *F_LB[NF] = { "All", "Movies", "Series", "Collections", "In progress", "Watched", "Not watched" }; /* (what it holds first, then how far it is watched) */
 static const char *F_IC[NF] = { "lib_all", "lib_movie", "lib_series", "lib_coll", "lib_prog", "lib_seen", "lib_new" };
 #define F_COLL 3 /* the collections the Library's films are in, one poster each */
@@ -137,7 +138,7 @@ static void render(void) {
   int *tmp = malloc((L.nall ? L.nall : 1) * sizeof *tmp), m = 0; for (int j = 0; j < L.nall; j++) if (pass(&L.all[j], L.tab)) tmp[m++] = j;
   qsort(tmp, m, sizeof *tmp, cmp); L.n = m < MAXSHOW ? m : MAXSHOW; L.items = tmp;
   if (L.idx > L.n - 1) L.idx = L.n ? L.n - 1 : 0;
-  rows_off(); if (L.tab == 0 && strcmp(store_get("libRows", "true"), "false")) rows_build(); /* etapa-84 */
+  rows_off(); if (strcmp(store_get("libRows", "true"), "false")) rows_build(); /* etapa-84 */
   timer_start(&L.gridIn, 0.3f + 0.12f); /* (the pill row keeps its motion: a filter applied on the move must not snap it) */ /* a new filter or order: the cards rise into place one column after another */
 }
 static const LibIt *at(int i) { return i >= 0 && i < L.n ? &L.all[L.items[i]] : NULL; }
@@ -148,11 +149,12 @@ static const LibIt *at(int i) { return i >= 0 && i < L.n ? &L.all[L.items[i]] : 
    story). The other filters keep their grid. The rows reuse the grid's list: L.items holds every row's titles one
    row after another, so the banner, the card menu and OK work as they did. ---- */
 #define MAXR 12
-#define RCW 232.0f   /* a row's posters */
-#define RCH 348.0f
-#define RSTEP 258.0f
-#define RROWH 440.0f
-#define RTOP (GRID_TOP + 6)
+#define RCW 204.0f   /* a row's posters */
+#define RCH 306.0f
+#define RSTEP 226.0f
+#define RROWH 384.0f
+#define RTOP 650.0f
+static int HB; /* the banner's button in focus (zone 2): Watch now, My list, More info */
 static struct { int on, nr, cur, start[MAXR], len[MAXR], col[MAXR]; char title[MAXR][80]; Tween y, off[MAXR]; int built; } RW;
 static uint32_t lred(float a) { return RGBA(0xe5, 0x1a, 0x2e, (int)(255 * a)); } /* the Library's red (its own, not anyone's brand) */
 static double g_key(const LibIt *o, int how) { return how == 1 ? o->seen : how == 2 ? -(double)o->year : o->added; }
@@ -166,28 +168,28 @@ static void rows_build(void) {
   int cap = L.nall * 4 + 8, *flat = malloc((size_t)cap * sizeof *flat), *ix = malloc((size_t)(L.nall + 1) * sizeof *ix), nf = 0, n; if (!flat || !ix) { free(flat); free(ix); return; }
   int oldCol[MAXR]; char oldT[MAXR][80]; int on = RW.nr; for (int r = 0; r < on; r++) { oldCol[r] = RW.col[r]; snprintf(oldT[r], 80, "%s", RW.title[r]); }
   RW.nr = 0; memset(RW.col, 0, sizeof RW.col);
-  #define PICK(cond) do { n = 0; for (int j = 0; j < L.nreal; j++) { const LibIt *o = &L.all[j]; (void)o; if (cond) ix[n++] = j; } } while (0)
+  #define PICK(cond) do { n = 0; for (int j = 0; j < L.nreal; j++) { const LibIt *o = &L.all[j]; if (pass(o, L.tab) && (cond)) ix[n++] = j; } } while (0)
   PICK(o->cw); g_how = 1; qsort(ix, (size_t)n, sizeof *ix, cmp_how); rows_add(flat, &nf, T("Continue Watching"), ix, n, 40);
   { double cut = ((double)time(NULL) - 45 * 86400.0) * 1000; PICK(o->added >= cut); g_how = 0; qsort(ix, (size_t)n, sizeof *ix, cmp_how); if (n >= 2) rows_add(flat, &nf, T("Recently added"), ix, n, 30); }
-  PICK(1); g_sk = sort_key(); qsort(ix, (size_t)n, sizeof *ix, cmp); { char t[80]; snprintf(t, sizeof t, "%s \xc2\xb7 %s", T("My list"), T(S_LB[sort_key()])); rows_add(flat, &nf, t, ix, n, 60); }
+  PICK(1); g_sk = sort_key(); qsort(ix, (size_t)n, sizeof *ix, cmp); { char t[80]; snprintf(t, sizeof t, "%s \xc2\xb7 %s", L.tab == 0 ? T("My list") : T(F_LB[L.tab]), T(S_LB[sort_key()])); rows_add(flat, &nf, t, ix, n, 60); }
   PICK(!o->done && !o->cw); g_how = 0; qsort(ix, (size_t)n, sizeof *ix, cmp_how); rows_add(flat, &nf, T("Not watched yet"), ix, n, 40);
   PICK(o->done && !strcmp(o->it.type, "movie")); g_how = 1; qsort(ix, (size_t)n, sizeof *ix, cmp_how); rows_add(flat, &nf, T("Watched films"), ix, n, 40);
   PICK(o->done && !strcmp(o->it.type, "series")); g_how = 1; qsort(ix, (size_t)n, sizeof *ix, cmp_how); rows_add(flat, &nf, T("Watched series"), ix, n, 40);
   { /* the genres it holds most (from the titles' details already known), four rows at most, three titles or more each */
     struct { char g[48]; int c; } G[48]; int ng = 0;
-    for (int j = 0; j < L.nreal; j++) { const cJSON *m = sb_meta_cached(L.all[j].it.type, L.all[j].it.id), *g; cJSON_ArrayForEach(g, js_arr(m, "genres")) if (cJSON_IsString(g)) { int k = 0; for (; k < ng; k++) if (!strcmp(G[k].g, g->valuestring)) break; if (k == ng && ng < 48) { snprintf(G[ng].g, sizeof G[ng].g, "%s", g->valuestring); G[ng++].c = 0; } if (k < 48) G[k].c++; } }
-    for (int pass = 0; pass < 4; pass++) { int b = -1; for (int k = 0; k < ng; k++) if (G[k].c >= 3 && (b < 0 || G[k].c > G[b].c)) b = k; if (b < 0) break;
-      n = 0; for (int j = 0; j < L.nreal; j++) { const cJSON *m = sb_meta_cached(L.all[j].it.type, L.all[j].it.id), *g; cJSON_ArrayForEach(g, js_arr(m, "genres")) if (cJSON_IsString(g) && !strcmp(g->valuestring, G[b].g)) { ix[n++] = j; break; } }
+    for (int j = 0; j < L.nreal; j++) { if (!pass(&L.all[j], L.tab)) continue; const cJSON *m = sb_meta_cached(L.all[j].it.type, L.all[j].it.id), *g; cJSON_ArrayForEach(g, js_arr(m, "genres")) if (cJSON_IsString(g)) { int k = 0; for (; k < ng; k++) if (!strcmp(G[k].g, g->valuestring)) break; if (k == ng && ng < 48) { snprintf(G[ng].g, sizeof G[ng].g, "%s", g->valuestring); G[ng++].c = 0; } if (k < 48) G[k].c++; } }
+    for (int gp = 0; gp < 4; gp++) { int b = -1; for (int k = 0; k < ng; k++) if (G[k].c >= 3 && (b < 0 || G[k].c > G[b].c)) b = k; if (b < 0) break;
+      n = 0; for (int j = 0; j < L.nreal; j++) { if (!pass(&L.all[j], L.tab)) continue; const cJSON *m = sb_meta_cached(L.all[j].it.type, L.all[j].it.id), *g; cJSON_ArrayForEach(g, js_arr(m, "genres")) if (cJSON_IsString(g) && !strcmp(g->valuestring, G[b].g)) { ix[n++] = j; break; } }
       g_how = 0; qsort(ix, (size_t)n, sizeof *ix, cmp_how); rows_add(flat, &nf, T(G[b].g), ix, n, 40); G[b].c = 0; } }
-  n = 0; for (int j = L.nreal; j < L.nall; j++) if (L.all[j].ckey[0]) ix[n++] = j; rows_add(flat, &nf, T("Collections"), ix, n, 30);
+  n = 0; if (L.tab == 0 || L.tab == F_COLL) for (int j = L.nreal; j < L.nall; j++) if (L.all[j].ckey[0]) ix[n++] = j; rows_add(flat, &nf, T("Collections"), ix, n, 30);
   #undef PICK
   for (int r = 0; r < RW.nr; r++) for (int q = 0; q < on; q++) if (!strcmp(RW.title[r], oldT[q])) { RW.col[r] = oldCol[q] < RW.len[r] ? oldCol[q] : RW.len[r] - 1; break; } /* (each row keeps its place across a refresh) */
   RW.cur = 0; for (int r = 0; keep[0] && r < RW.nr; r++) if (!strcmp(RW.title[r], keep)) { RW.cur = r; break; }
   free(ix); free(L.items); L.items = flat; L.n = nf; RW.on = 1; if (!RW.built) { RW.built = 1; tween_set(&RW.y, 0); }
-  L.idx = RW.nr ? RW.start[RW.cur] + RW.col[RW.cur] : 0;
+  L.idx = RW.nr ? RW.start[RW.cur] + RW.col[RW.cur] : 0; g_rowsOn = RW.nr > 0;
 }
-static void rows_off(void) { RW.on = 0; }
-static int rows_mode(void) { return RW.on && L.tab == 0 && RW.nr > 0; }
+static void rows_off(void) { RW.on = 0; g_rowsOn = 0; }
+static int rows_mode(void) { return RW.on && RW.nr > 0; }
 static void rows_paint(void) { if (!rows_mode()) return; tween_to(&RW.y, (float)RW.cur, 0.34f, EASE_OUT);
   for (int r = 0; r < RW.nr; r++) { int c = RW.col[r]; float o = c > 1 ? (c - 1) * RSTEP : 0; tween_to(&RW.off[r], o, 0.3f, EASE_OUT); } }
 
@@ -258,21 +260,21 @@ static void logos_ahead(int idx) {
     if (sb_is_imdb(o->it.id)) { char lu[160]; snprintf(lu, sizeof lu, "https://images.metahub.space/logo/medium/%s/img", o->it.id); img_prefetch_pri(lu, 520, 140); } else if (o->it.logo[0]) img_prefetch_pri(o->it.logo, 520, 140); }
 }
 static void head_want(void) {
-  logos_ahead(L.zone == 1 ? L.idx : 0);
-  const LibIt *o = at(L.zone == 1 ? L.idx : 0);
+  logos_ahead(L.zone >= 1 ? L.idx : 0);
+  const LibIt *o = at(L.zone >= 1 ? L.idx : 0);
   if (!o) { if (L.cur.on) { L.prev = L.cur; L.cur.on = 0; timer_start(&L.headIn, 0.35f); } L.shownId[0] = L.wantId[0] = 0; L.wantStage = 0; return; }
   if (!strcmp(L.shownId, o->it.id)) { L.wantStage = 0; L.wantId[0] = 0; return; } /* already there (or on its way) */
   if (L.wantStage && !strcmp(L.wantId, o->it.id)) return;
-  snprintf(L.wantId, sizeof L.wantId, "%s", o->it.id); L.wantIdx = L.items[L.zone == 1 ? L.idx : 0]; L.wantStage = 1; L.wantAt = app_now() + (L.shownId[0] ? 0.22 : 0);
+  snprintf(L.wantId, sizeof L.wantId, "%s", o->it.id); L.wantIdx = L.items[L.zone >= 1 ? L.idx : 0]; L.wantStage = 1; L.wantAt = app_now() + (L.shownId[0] ? 0.22 : 0);
 }
 static void head_tick(void) {
   double now = app_now();
-  { static double lgAt; if (now - lgAt > 0.5) { lgAt = now; logos_ahead(L.zone == 1 ? L.idx : 0); } }
+  { static double lgAt; if (now - lgAt > 0.5) { lgAt = now; logos_ahead(L.zone >= 1 ? L.idx : 0); } }
   if (L.wantStage == 1 && now >= L.wantAt) { const LibIt *o = &L.all[L.wantIdx]; snprintf(L.shownId, sizeof L.shownId, "%s", o->it.id); L.wantStage = 2;
     if (sb_is_imdb(o->it.id)) snprintf(L.hLogo, sizeof L.hLogo, "https://images.metahub.space/logo/medium/%s/img", o->it.id); else snprintf(L.hLogo, sizeof L.hLogo, "%s", o->it.logo);
     if (L.hLogo[0]) img_prefetch_pri(L.hLogo, 520, 140); L.logoDeadline = now + 0.7; L.metaDeadline = now + 0.45;
     meta_once(&o->it);
-    head_ahead(L.zone == 1 ? L.idx : 0);
+    head_ahead(L.zone >= 1 ? L.idx : 0);
     char bu[512], pu[512]; bg_set(sb_bg_hi(&o->it, bu, sizeof bu), 0, sb_poster_of(&o->it, pu, sizeof pu)); } /* the backdrop keeps the old one up until the new one is decoded, then crossfades */
   if (L.wantStage == 2) { const LibIt *o = &L.all[L.wantIdx];
     cJSON *m = sb_meta_cached(o->it.type, o->it.id);
@@ -313,7 +315,8 @@ int lib_warm(void) {
   head_ahead(0); return ok && sb_meta_cached(o->it.type, o->it.id) != NULL;
 }
 void lib_from_bar(void) { L.zone = 0; L.ri = L.tab; paint(); }
-static const Item *focused(void) { const LibIt *o = L.zone == 1 ? at(L.idx) : NULL; return o ? &o->it : NULL; }
+static const Item *focused(void) { const LibIt *o = L.zone >= 1 ? at(L.idx) : NULL; return o ? &o->it : NULL; }
+static void lib_open(const Item *it);
 static int key(int k) {
   if (L.zone == 0) {
     int r0 = L.ri;
@@ -323,20 +326,29 @@ static int key(int k) {
     if ((k == K_RIGHT || k == K_LEFT) && L.ri < NF && L.ri != L.tab) { L.tab = L.ri; L.idx = 0; render(); } /* a filter applies as the focus lands on it */
     else if (k == K_UP) { topnav_focus(); rail_paint(0); return 1; }
     else if (k == K_OK && L.ri == B_DIARY) { timer_start(&L.press, 0.25f); static Item dv[300]; int n = diary_items(dv, 300); if (n) mural_open(dv, n, 0); else toast(T("Your diary is empty: finish a film and give it stars"), 3000, NULL); return 1; }
-    else if (k == K_OK && L.ri == B_WALL) { timer_start(&L.press, 0.25f); Item *v = malloc((size_t)(L.n ? L.n : 1) * sizeof(Item)); if (v) { for (int i = 0; i < L.n; i++) v[i] = at(i)->it; mural_open(v, L.n, L.zone == 1 ? L.idx : 0); free(v); } return 1; }
+    else if (k == K_OK && L.ri == B_WALL) { timer_start(&L.press, 0.25f); Item *v = malloc((size_t)(L.n ? L.n : 1) * sizeof(Item)); if (v) { for (int i = 0; i < L.n; i++) v[i] = at(i)->it; mural_open(v, L.n, L.zone >= 1 ? L.idx : 0); free(v); } return 1; }
     else if (k == K_OK && L.ri == B_CAL) { timer_start(&L.press, 0.25f); retro_open(); return 1; } /* etapa-73: the Calendar is up by the clock now: here, your year */
     else if (k == K_OK && L.ri == NB - 1) { int si = (sort_key() + 1) % 4; store_set("libSort", S_KEY[si]); sound_play(SND_FILTER); L.idx = 0; timer_start(&L.press, 0.25f); render(); paint(); return 1; } /* OK on the sort: the next order */
-    else if (k == K_DOWN || (k == K_OK && L.ri < NF)) { L.ri = L.tab; if (L.n) { L.zone = 1; if (rows_mode()) L.idx = RW.start[RW.cur] + RW.col[RW.cur]; } else nudge_start(&L.nudge, k); } /* down (or OK) into the titles */
+    else if (k == K_DOWN || (k == K_OK && L.ri < NF)) { L.ri = L.tab; if (L.n) { L.zone = 1; if (rows_mode()) { L.idx = RW.start[RW.cur] + RW.col[RW.cur]; L.zone = 2; HB = 0; } } else nudge_start(&L.nudge, k); } /* down (or OK) into the titles */
     else if (k == K_BACK) return 0;
     paint(); return 1; }
+  if (rows_mode() && L.zone == 2) { /* etapa-84: the banner's buttons */
+    if (k == K_RIGHT) { if (HB < 2) HB++; else nudge_start(&L.nudge, k); }
+    else if (k == K_LEFT) { if (HB > 0) HB--; else nudge_start(&L.nudge, k); }
+    else if (k == K_DOWN) { L.zone = 1; }
+    else if (k == K_UP || k == K_BACK) { L.zone = 0; L.ri = L.tab; }
+    else if (k == K_PLAY || k == K_PLAYPAUSE) { const LibIt *o = at(L.idx); if (o) lib_open(&o->it); return 1; }
+    else return 1;
+    sound_play(SND_FOCUS); paint(); return 1; }
   if (rows_mode()) { int r = RW.cur; /* etapa-84: the rows: across a row, down and up between them */
     if (k == K_RIGHT) { if (RW.col[r] < RW.len[r] - 1) RW.col[r]++; else nudge_start(&L.nudge, k); }
     else if (k == K_LEFT) { if (RW.col[r] > 0) RW.col[r]--; else nudge_start(&L.nudge, k); }
     else if (k == K_DOWN) { if (r < RW.nr - 1) RW.cur++; else nudge_start(&L.nudge, k); }
-    else if (k == K_UP) { if (r > 0) RW.cur--; else { L.zone = 0; L.ri = L.tab; } }
-    else if (k == K_PLAY || k == K_PLAYPAUSE) { const LibIt *o = at(L.idx); if (o && !o->ckey[0]) app_open_item(&o->it); return 1; } /* play: straight to it (resume where it was) */
-    else if (k == K_BACK) return 0;
-    if (L.zone == 1) L.idx = RW.start[RW.cur] + RW.col[RW.cur]; sound_play(SND_FOCUS); paint(); return 1; }
+    else if (k == K_UP) { if (r > 0) RW.cur--; else { L.zone = 2; HB = 0; } }
+    else if (k == K_PLAY || k == K_PLAYPAUSE) { const LibIt *o = at(L.idx); if (o) lib_open(&o->it); return 1; } /* play: straight on (resumes where it was) */
+    else if (k == K_BACK) { if (RW.cur > 0) { RW.cur = 0; } else { L.zone = 0; L.ri = L.tab; } } /* back: to the top, then to the filters */
+    else return 1;
+    L.idx = RW.start[RW.cur] + RW.col[RW.cur]; sound_play(SND_FOCUS); paint(); return 1; }
   int i0 = L.idx;
   if (k == K_RIGHT) { if (L.idx % COLS < COLS - 1 && L.idx < L.n - 1) L.idx++; else nudge_start(&L.nudge, k); }
   else if (k == K_LEFT) { if (L.idx % COLS > 0) L.idx--; else nudge_start(&L.nudge, k); }
@@ -357,6 +369,7 @@ static void tick(float dt) {
     else if (grew) { int c = 0; for (int j = 0; j < L.nall; j++) if (pass(&L.all[j], F_COLL)) c++; L.counts[F_COLL] = c; snprintf(L.cnt[F_COLL], sizeof L.cnt[F_COLL], "%d", c); rail_paint(0); } }
   for (int i = 0; i < NB; i++) { tween_tick(&L.bx[i], dt); tween_tick(&L.la[i], dt); tween_tick(&L.bw[i], dt); }
   pill_tick(&L.pc, dt); pill_tick(&L.ps, dt); pill_tick(&L.pf, dt); timer_tick(&L.press, dt); nudge_tick(&L.nudge, dt);
+  tween_tick(&RW.y, dt); for (int r = 0; r < MAXR; r++) tween_tick(&RW.off[r], dt); /* etapa-84 (the rows had stood still) */
   tween_tick(&L.gridY, dt); tween_tick(&L.sortDot, dt); tween_tick(&L.fsc, dt); tween_tick(&L.osc, dt); tween_tick(&L.ringA, dt); timer_tick(&L.ringPop, dt); timer_tick(&L.gridIn, dt); timer_tick(&L.headIn, dt); timer_tick(&L.factsIn, dt);
   head_tick();
 }
@@ -387,8 +400,8 @@ static void facts_draw(Facts *F, float hx, float y, int al, int rtl) {
 static void head_draw(Head *h, Facts *old, float a, float fk) {
   if (a <= 0.001f) return; int rtl = app_rtl(), al = rtl ? ALIGN_RIGHT : ALIGN_LEFT; float hx = rtl ? SB_W - 48 : 48;
   gfx_opacity_push(a);
-  float y = 104; float asp; GLuint lt = h->logo[0] ? img_get(h->logo, 520, 140, &asp) : 0;
-  if (lt) { float w = 520, hh = w / asp; if (hh > 140) { hh = 140; w = hh * asp; } { char sk[80]; snprintf(sk, sizeof sk, "logo:%s", h->it.id); sx_image(sk, lt, rtl ? hx - w : hx, y, w, hh, 0, WHITE_A(255), 0, 0, 1, 1); } y += hh; }
+  float y = g_rowsOn ? 238 : 104, lmax = g_rowsOn ? 118 : 140; float asp; GLuint lt = h->logo[0] ? img_get(h->logo, 520, 140, &asp) : 0;
+  if (lt) { float w = 520, hh = w / asp; if (hh > lmax) { hh = lmax; w = hh * asp; } { char sk[80]; snprintf(sk, sizeof sk, "logo:%s", h->it.id); sx_image(sk, lt, rtl ? hx - w : hx, y, w, hh, 0, WHITE_A(255), 0, 0, 1, 1); } y += hh; }
   else { char sk[80]; snprintf(sk, sizeof sk, "logo:%s", h->it.id); sx_text_wrapped(sk, h->it.name, hx, y, 1200, 1, 64, 800, WHITE_A(255), -1, al, 64 * 1.05f); y += 64 * 1.05f; }
   y += 18;
   if (old && fk < 1) { gfx_opacity_push(1 - fk); facts_draw(old, hx, y, al, rtl); gfx_opacity_pop(); gfx_opacity_push(fk); facts_draw(&h->f, hx, y, al, rtl); gfx_opacity_pop(); }
@@ -406,26 +419,33 @@ static void rcard(const LibIt *o, float x, float y, int load, int foc, float k) 
   if (o->ckey[0]) { char c[16]; snprintf(c, sizeof c, "%d", o->nIn); gfx_rrect(x + 10, y + 10, text_width(c, 20, 800, 0) + 20, 32, 16, BLACK_A(170)); text_draw(c, x + 20, y + 26 - text_line_height(20) / 2, 20, 800, WHITE_A(240), 0, 0, ALIGN_LEFT); }
   if (foc && k > 0.01f) gfx_ring(x - 5, y - 5, RCW + 10, RCH + 10, CARD_R + 5, 4, lred(k));
 }
+static void hero_focus(int i, int b) { (void)b; topNav.active = 0; if (L.zone != 2 || HB != i) { L.zone = 2; HB = i; paint(); } }
 static void rows_draw(float melt) {
   (void)melt; float scroll = RW.y.v; int foc0 = L.zone == 1;
-  gfx_rect(0, GRID_TOP + 60, SB_W, SB_H - GRID_TOP - 60, RGBA(8, 8, 8, 120)); /* (the page under the banner nearly black) */
-  gfx_clip_push(0, GRID_TOP - 4, SB_W, SB_H - GRID_TOP + 4);
+  /* the banner's buttons: Watch now, My list, More info (a collection: just Open) */
+  { const LibIt *o = at(L.idx); if (o) { int coll = o->ckey[0] != 0, inL = !coll && lib_has(o->it.id); float x = 48, y = 552, h = 64;
+      const char *lb[3] = { coll ? T("Open") : T("Watch now"), inL ? T("In My list") : T("My list"), T("More info") }, *ic[3] = { "play", inL ? "check" : "plus", NULL };
+      for (int i = 0; i < (coll ? 1 : 3); i++) { int f = L.zone == 2 && HB == i; float tw = text_width(lb[i], 26, 700, 0), w = tw + (ic[i] ? 96 : 64);
+        uint32_t bg = f ? lred(1) : i == 0 && L.zone != 2 ? WHITE_A(240) : WHITE_A(46), fg = !f && i == 0 && L.zone != 2 ? RGB(8, 8, 8) : WHITE_A(255);
+        float sc = f ? 1.06f : 1; gfx_scale_push(sc, sc, x + w / 2, y + h / 2);
+        if (f) gfx_shadow(x, y + 6, w, h, h / 2, 30, lred(0.5f)); gfx_rrect(x, y, w, h, h / 2, bg);
+        float tx = x + 32; if (ic[i]) { icon_draw(ic[i], x + 26, y + 16, 32, fg); tx = x + 68; }
+        text_draw(lb[i], tx, y + h / 2 - text_line_height(26) / 2, 26, 700, fg, 0, 0, ALIGN_LEFT); gfx_scale_pop();
+        hit_add(x, y, w, h, hero_focus, NULL, i, 0); x += w + 18; } } }
+  gfx_clip_push(0, RTOP - 14, SB_W, SB_H - RTOP + 14);
   float gx = L.zone == 1 ? nudge_x(&L.nudge) : 0, gyn = L.zone == 1 ? nudge_y(&L.nudge) : 0;
-  for (int r = 0; r < RW.nr; r++) { float y = RTOP + (r - scroll) * RROWH; if (y > SB_H || y + RROWH < GRID_TOP - 40) continue;
-    int isR = r == RW.cur; float ra = r < scroll - 0.05f ? clampf(1 - (scroll - r), 0, 1) : 1; if (ra <= 0.01f) continue; gfx_opacity_push(ra);
-    { char t[120]; snprintf(t, sizeof t, "%s", RW.title[r]); float tw = text_draw(t, 62, y, 32, 800, WHITE_A(isR && foc0 ? 255 : 215), -0.3f, 0, ALIGN_LEFT); char c[16]; snprintf(c, sizeof c, "%d", RW.len[r]); text_draw(c, 62 + tw + 14, y + 6, 24, 600, WHITE_A(120), 0, 0, ALIGN_LEFT); }
-    float cy = y + 52, off = RW.off[r].v; int c0 = (int)(off / RSTEP) - 1; if (c0 < 0) c0 = 0;
-    for (int pass = 0; pass < 2; pass++) for (int c = c0; c < RW.len[r] && c < c0 + 9; c++) { float x = 62 + c * RSTEP - off; if (x > SB_W) break; if (x + RCW < 0) continue;
+  for (int r = 0; r < RW.nr; r++) { float y = RTOP + (r - scroll) * RROWH; if (y > SB_H || y + RROWH < RTOP - 40) continue;
+    int isR = r == RW.cur; float ra = r < scroll - 0.02f ? clampf(1 - (scroll - r) * 1.6f, 0, 1) : 1; if (ra <= 0.01f) continue; gfx_opacity_push(ra);
+    { float tw = text_draw(RW.title[r], 62, y, 30, 800, WHITE_A(isR && foc0 ? 255 : 200), -0.3f, 0, ALIGN_LEFT); char c[16]; snprintf(c, sizeof c, "%d", RW.len[r]); text_draw(c, 62 + tw + 14, y + 5, 22, 600, WHITE_A(110), 0, 0, ALIGN_LEFT); }
+    float cy = y + 50, off = RW.off[r].v; int c0 = (int)(off / RSTEP) - 1; if (c0 < 0) c0 = 0;
+    int near = r >= RW.cur - 1 && r <= RW.cur + 2;
+    for (int pass = 0; pass < 2; pass++) for (int c = c0; c < RW.len[r] && c < c0 + 11; c++) { float x = 62 + c * RSTEP - off; if (x > SB_W) break; if (x + RCW < 0) continue;
       int f = foc0 && isR && c == RW.col[r]; if (pass != f) continue; const LibIt *o = at(RW.start[r] + c); if (!o) continue;
-      int near = r >= RW.cur - 1 && r <= RW.cur + 2;
-      if (f) { float s = 1 + 0.08f * L.fsc.v / 1.05f; gfx_offset_push(gx, gyn); gfx_scale_push(s, s, x + RCW / 2, cy + RCH / 2); rcard(o, x, cy, 1, 1, 1); gfx_scale_pop(); gfx_offset_pop(); }
+      if (f) { float sc = 1.08f; gfx_offset_push(gx, gyn); gfx_scale_push(sc, sc, x + RCW / 2, cy + RCH / 2); rcard(o, x, cy, 1, 1, 1); gfx_scale_pop(); gfx_offset_pop(); }
       else rcard(o, x, cy, near, 0, 0);
-      hit_add(x, cy, RCW, RCH, card_focus, NULL, RW.start[r] + c, 0); }
+      if (pass == 0 || f) hit_add(x, cy, RCW, RCH, card_focus, NULL, RW.start[r] + c, 0); }
     gfx_opacity_pop(); }
   gfx_clip_pop();
-  /* the banner's buttons, as keys on the remote */
-  if (L.zone == 1) { float hx = SB_W - 60; const LibIt *o = at(L.idx); int inL = o && !o->ckey[0];
-    float w3 = key_hint(hx, 330, K_OK, T("More info"), WHITE_A(220), 1); if (inL) { float w2 = key_hint(hx - w3 - 36, 330, K_PLAY, T("Watch now"), WHITE_A(220), 1); key_hint(hx - w3 - w2 - 72, 330, K_OK, T("Hold: options"), WHITE_A(170), 1); } }
 }
 static int tipOn, tipI; static float tipX;
 static void draw(void) {
@@ -436,7 +456,10 @@ static void draw(void) {
   float melt = btr_melt();
   /* the shade that keeps the grid readable over the backdrop */
   if (melt > 0) gfx_opacity_push(1 - melt);
-  gfx_rrect_v(0, 0, SB_W, 380, 0, RGBA(12, 11, 17, 0), RGBA(12, 11, 17, 89)); gfx_rrect_v(0, 380, SB_W, 220, 0, RGBA(12, 11, 17, 89), RGBA(12, 11, 17, 235)); gfx_rect(0, 600, SB_W, SB_H - 600, RGBA(12, 11, 17, 235));
+  if (g_rowsOn) { /* etapa-84: a cinema page: the art on the right, black creeping in from the left and from below */
+    gfx_rrect_v(0, 0, SB_W, 230, 0, RGBA(8, 8, 8, 200), RGBA(8, 8, 8, 0)); gfx_rrect_h(0, 0, 1350, 640, 0, RGBA(8, 8, 8, 245), RGBA(8, 8, 8, 0));
+    gfx_rrect_v(0, 420, SB_W, 220, 0, RGBA(8, 8, 8, 0), RGBA(8, 8, 8, 255)); gfx_rect(0, 639, SB_W, SB_H - 639, RGBA(8, 8, 8, 255)); }
+  else { gfx_rrect_v(0, 0, SB_W, 380, 0, RGBA(12, 11, 17, 0), RGBA(12, 11, 17, 89)); gfx_rrect_v(0, 380, SB_W, 220, 0, RGBA(12, 11, 17, 89), RGBA(12, 11, 17, 235)); gfx_rect(0, 600, SB_W, SB_H - 600, RGBA(12, 11, 17, 235)); }
   if (melt > 0) { gfx_opacity_pop(); gfx_opacity_push(1 - 0.4f * melt); }
   /* the head: the new title over the one it replaces, crossfading; facts that came late over the earlier ones */
   { float k = L.headIn.on ? ease_apply(EASE_CSS_EASE, timer_x(&L.headIn)) : 1;
@@ -448,11 +471,11 @@ static void draw(void) {
   #define RX(px, w) (rtl ? SB_W - RAIL_X - (px) - (w) : RAIL_X + (px))
   { const Pill *ps[2] = { &L.pc, &L.ps }; for (int k = 0; k < 2; k++) { const Pill *p = ps[k]; if (p->a.v > 0.001f) { gfx_opacity_push(p->a.v); gfx_rrect(RX(p->x.v, p->w.v), RAIL_Y, p->w.v, 76, 38, WHITE_A(41)); gfx_opacity_pop(); } } }
   if (L.pf.a.v > 0.001f) { float pk = L.press.on ? (timer_x(&L.press) < 0.36f ? 1 - 0.04f * timer_x(&L.press) / 0.36f : 0.96f + 0.04f * (timer_x(&L.press) - 0.36f) / 0.64f) : 1; /* OK: the highlight gives under the press */
-    float px = RX(L.pf.x.v, L.pf.w.v) + nx; gfx_opacity_push(L.pf.a.v); gfx_scale_push(pk, pk, px, RAIL_Y + 38); gfx_rrect(px, RAIL_Y + ny, L.pf.w.v, 76, 38, WHITE_A(255)); gfx_scale_pop(); gfx_opacity_pop(); }
+    float px = RX(L.pf.x.v, L.pf.w.v) + nx; gfx_opacity_push(L.pf.a.v); gfx_scale_push(pk, pk, px, RAIL_Y + 38); gfx_rrect(px, RAIL_Y + ny, L.pf.w.v, 76, 38, g_rowsOn ? lred(1) : WHITE_A(255)); gfx_scale_pop(); gfx_opacity_pop(); }
   for (int i = 0; i < NB; i++) { int f = L.zone == 0 && i == L.ri, open = is_open(i); float w = L.bw[i].v > 1 ? L.bw[i].v : btn_w(i), x = RX(L.bx[i].v, w), bxn = f ? nx : 0, byn = f ? ny : 0;
     hit_add(x, RAIL_Y, w, 76, rail_focus, NULL, i, 0);
     if (!open && L.la[i].v < 0.999f) gfx_circle(rtl ? x + w - 38 : x + 38, RAIL_Y + 38, 38, WHITE_A((int)(41 * (1 - L.la[i].v)))); /* a closed button: its own quiet disc */
-    uint32_t fg = f ? RGB(0x15, 0x13, 0x1c) : WHITE_A(255);
+    uint32_t fg = f && !g_rowsOn ? RGB(0x15, 0x13, 0x1c) : WHITE_A(255);
     if (f && (i == B_CAL || i == B_WALL || i == B_DIARY)) { tipOn = 1; tipX = x + 38 + bxn; tipI = i; } /* (its name: a tag under it, drawn over the cards at the end) */
     icon_draw(i < NF ? F_IC[i] : i == B_CAL ? "lib_retro" : i == B_WALL ? "lib_wall" : i == B_DIARY ? "av_star" : "lib_sort", (rtl ? x + w - 21 - 34 : x + 21) + bxn, RAIL_Y + 21 + byn, 34, fg);
     float ok = L.lw[i] > 1 ? (w - 76) / L.lw[i] : 0; ok = ok < 0 ? 0 : ok > 1 ? 1 : ok; /* the name shows as far as the pill has opened: never ahead of it */
@@ -501,9 +524,14 @@ static void draw(void) {
   if (tipOn) { float tw2 = text_width(L.lbl[tipI], 24, 700, 0) + 36; gfx_shadow(tipX - tw2 / 2, RAIL_Y + 94, tw2, 46, 23, 24, BLACK_A(120)); gfx_rrect(tipX - tw2 / 2, RAIL_Y + 90, tw2, 46, 23, WHITE_A(245)); text_draw(L.lbl[tipI], tipX, RAIL_Y + 113 - text_line_height(24) / 2, 24, 700, RGB(0x15, 0x13, 0x1c), 0, 0, ALIGN_CENTER); } /* etapa-83: over the cards, never under them */
 }
 static int origin(float *x, float *y) {
+  if (rows_mode()) { if (L.zone != 1 || topNav.active) return 0; int r = RW.cur; *x = 62 + RW.col[r] * RSTEP - RW.off[r].v + RCW / 2; *y = RTOP + (r - RW.y.v) * RROWH + 52 + RCH / 2; return 1; }
   if (L.zone != 1 || !L.n || topNav.active) return 0; int c = L.idx % COLS, r = L.idx / COLS;
   *x = col_x(c) + LW / 2; *y = ROW0_Y + r * LROWH + L.gridY.v + LH / 2; return 1;
 }
 /* OK on a card: a collection opens its page, a title as anywhere */
-static void lib_open(const Item *it) { if (!strcmp(it->type, "collection")) { DetailParams p; memset(&p, 0, sizeof p); p.it = *it; app_go(SCR_SIM, &p, 0); return; } app_open_item(it); }
+static void lib_open(const Item *it) {
+  if (rows_mode() && L.zone == 2 && strcmp(it->type, "collection")) { /* etapa-84: the banner's buttons */
+    if (HB == 1) { int had = lib_has(it->id); lib_toggle(it); app_refresh_boards(); toast(had ? T("Removed from My list") : T("Added to My list"), 2500, NULL); return; }
+    if (HB == 2) { DetailParams p; memset(&p, 0, sizeof p); p.it = *it; app_go(SCR_DETAIL, &p, 0); return; } }
+  if (!strcmp(it->type, "collection")) { DetailParams p; memset(&p, 0, sizeof p); p.it = *it; app_go(SCR_SIM, &p, 0); return; } app_open_item(it); }
 Screen libScreen = { enter, NULL, key, tick, draw, focused, lib_open, NULL, origin };

@@ -21,6 +21,8 @@ void prof_avatar_draw(int av, float cx, float cy, float r, const char *name, flo
 /* the catalog's setting key: "coh_<hash>" (Home, area 'h') or "cos_<hash>" (Search, 's'); value show / top / hide */
 void catorg_key(const CatalogDef *d, char area, char *out, size_t cap);
 int  catorg_apply(CatalogDef *d, int n, char area); /* the ones on top first, then the others, hidden ones left out: the new count */
-int  sfilter_pass(const Stream *s);      /* Settings › Filter streams */
+int  sfilter_pass(const Stream *s);
+int  sfilter_pass_k(const Stream *s, int anime); /* etapa-85: an anime title may have a quality of its own */
+int  sfilter_is_anime(const char *type, const char *vid);      /* Settings › Filter streams */
 int  sfilter_on(void);
 #endif

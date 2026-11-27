@@ -139,14 +139,17 @@ static int org_opts(char area) { /* every catalog the addons give Home (or Searc
   return m; }
 static const Opt SFRES[] = { { "any", "Any" }, { "4k", "4K only" }, { "1080up", "1080p and up" }, { "1080", "Up to 1080p" }, { "720", "Up to 720p" } };
 static const Opt SFLANG[] = { { "any", "Any" }, { "pt", "Portuguese / dubbed only" } };
+static const Opt SFRESA[] = { { "same", "Same as above" }, { "any", "Any" }, { "4k", "4K only" }, { "1080up", "1080p and up" }, { "1080", "Up to 1080p" }, { "720", "Up to 720p" } };
 static const Opt SFSIZE[] = { { "any", "Any" }, { "5", "Up to 5 GB" }, { "15", "Up to 15 GB" }, { "30", "Up to 30 GB" }, { "60", "Up to 60 GB" } };
 static int sf_opts(void) {
   set_s(&sfS[0], "sf_res", "Quality", "Only the streams of this quality show (and play by themselves)", SFRES, 5, "any");
+  set_s(&sfS[5], "sf_res_anime", "Quality for anime", "Anime is rarely in 4K: its own quality, so it still finds streams", SFRESA, 6, "same");
   set_s(&sfS[1], "sf_lang", "Language", "Only the streams that say they are in Portuguese, dubbed or dual audio", SFLANG, 2, "any");
   set_s(&sfS[2], "sf_cam", "Hide cinema recordings", "Leaves out CAM, TS and screener copies", OO, 2, "false");
   set_s(&sfS[3], "sf_nohdr", "Hide HDR and Dolby Vision", "For a TV that shows them too dark", OO, 2, "false");
   set_s(&sfS[4], "sf_size", "Largest file", "Leaves out files bigger than this", SFSIZE, 5, "any");
-  return 5; }
+  { Setting q = sfS[5]; for (int i = 5; i > 1; i--) sfS[i] = sfS[i - 1]; sfS[1] = q; } /* (anime's quality under the quality) */
+  return 6; }
 /* a switch per addon: on or off on this TV only */
 static int addon_opts(void) {
   int n = 0; cJSON *l = sb_addons(); const cJSON *a;

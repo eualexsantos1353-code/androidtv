@@ -1,10 +1,15 @@
 {
- "version": "84",
+ "version": "85",
  "items": [
   {
    "icon": "lib_sort",
-   "title": "Biblioteca nova",
-   "text": "Em \"Tudo\": fileiras de Continuar assistindo, Adicionados, Minha lista, Não assistidos, Assistidos e seus gêneros, com o título em destaque no topo. ▶ assiste direto."
+   "title": "Biblioteca repaginada",
+   "text": "Fundo de cinema, destaque no topo com Assistir, Minha lista e Mais informações, e fileiras em todas as abas. ▶ assiste direto, Voltar sobe ao topo."
+  },
+  {
+   "icon": "lib_sort",
+   "title": "Qualidade para animes",
+   "text": "Em Filtrar fontes: deixe filmes e séries em 4K e escolha outra qualidade só para animes."
   },
   {
    "icon": "av_heart",
