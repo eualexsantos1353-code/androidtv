@@ -1,4 +1,7 @@
 #include "core/organize.h"
+#include "core/store.h"
+#include "core/releases.h"
+#include "core/later.h"
 #include "ui/xline.h"
 #include "screens/board.h"
 #include "ui/strip.h"
@@ -158,9 +161,12 @@ static void board_roleta_row(Board *b) {
 }
 static void board_cw_row(Board *b, const KeptRow *kp, int nk) {
   ItemList cw; if (lib_cw_items(&cw) > 0) { Row *r = row_add(b, "Continue Watching", 1, 0); if (r) { r->items = cw; r->hidden = 0; } else itemlist_clear(&cw); } else { itemlist_clear(&cw); closing_row(b, kp, nk, "Continue Watching", 1, 0); }
+  if (b->kind == 0) { ItemList fr; if (notify_fresh(&fr) > 0) { Row *r = row_add(b, "New episodes", 1, 0); if (r) { r->items = fr; r->hidden = 0; } else itemlist_clear(&fr); } else closing_row(b, kp, nk, "New episodes", 1, 0); } /* etapa-72: a series you were watching has a new one out */
   ItemList up; if (notify_upcoming(&up) > 0) { Row *r = row_add(b, "Upcoming episodes", 1, 0); if (r) { r->items = up; r->hidden = 0; } else itemlist_clear(&up); } else closing_row(b, kp, nk, "Upcoming episodes", 1, 0); /* the library's series airing in the next two weeks */
-  if (b->kind == 0) board_roleta_row(b); /* (under Continue Watching and Upcoming, over the live band and the catalogs) */
-  ItemList lv; if (b->kind == 0 && live_band(&lv) > 0) { Row *r = row_add(b, "Live TV", 0, 0); if (r) { r->items = lv; r->hidden = 0; r->round = 1; } else itemlist_clear(&lv); } else { itemlist_clear(&lv); if (b->kind == 0) closing_row(b, kp, nk, "Live TV", 0, 1); } /* a live addon installed: All channels, the pinned, a few more */
+  if (b->kind == 0) { ItemList wl; if (later_items(&wl) > 0) { Row *r = row_add(b, "Watch later", 0, 0); if (r) { r->items = wl; r->hidden = 0; } else itemlist_clear(&wl); } else closing_row(b, kp, nk, "Watch later", 0, 0); } /* etapa-72 */
+  if (b->kind == 0) board_roleta_row(b);
+  if (b->kind == 0) { ItemList rl; if (releases_items(&rl) > 0) { Row *r = row_add(b, "New releases", 0, 0); if (r) { r->items = rl; r->hidden = 0; } else itemlist_clear(&rl); } } /* etapa-72: TMDB's new films and series */ /* (under Continue Watching and Upcoming, over the live band and the catalogs) */
+  ItemList lv; memset(&lv, 0, sizeof lv); if (b->kind == 0 && !strcmp(store_get("homeLiveRow", "false"), "true") && live_band(&lv) > 0) { Row *r = row_add(b, "Live TV", 0, 0); if (r) { r->items = lv; r->hidden = 0; r->round = 1; } else itemlist_clear(&lv); } else { itemlist_clear(&lv); if (b->kind == 0) closing_row(b, kp, nk, "Live TV", 0, 1); } /* a live addon installed: All channels, the pinned, a few more */
 }
 /* ---- Discover's listing: the catalog chosen in the strip, asked with its genre, as lines of posters; its next page
    asked as the focus nears the end ---- */

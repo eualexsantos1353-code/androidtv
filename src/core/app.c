@@ -948,7 +948,7 @@ void app_key(int k, int down, int repeat) {
   if (k == K_INFO) { if (down && !repeat) { int on = strcmp(store_get("nerdStats", "false"), "true") != 0; store_set("nerdStats", on ? "true" : "false"); toast(on ? T("Stats for nerds on") : T("Stats for nerds off"), 1500, NULL); fprintf(stderr, "[app] Info: stats for nerds %s\n", on ? "on" : "off"); } return; } /* (the remote's Info key, wherever you are) */
   if (down && k == K_OK && !repeat) { if (PTR.eatOk || PTR.down || (PTR.clickAt && NOW - PTR.clickAt < PTR_DEDUPE)) { PTR.eatOk = 1; return; } PTR.okKeyAt = NOW; } /* the click of this same press came first */
   if (!down && k == K_OK && PTR.eatOk) { PTR.eatOk = 0; return; }
-  if (down && saver_on() && k != K_CURSOR_SHOW && k != K_CURSOR_HIDE) { saver_stop(); idle_touch(); if (k == K_OK) PTR.eatOk = 1; return; } /* the key that wakes the screensaver does nothing else */
+  if (down && saver_on() && k != K_CURSOR_SHOW && k != K_CURSOR_HIDE) { if (k == K_OK && saver_open_current()) { idle_touch(); PTR.eatOk = 1; return; } saver_stop(); idle_touch(); if (k == K_OK) PTR.eatOk = 1; return; } /* the key that wakes the screensaver does nothing else */
   /* OK over a film with the pointer out is the pointer's click, where it points (the TV's norm): on a control it pressed
      play/pause instead, the key going to the film and not to what was under the pointer */
   if (k == K_OK && PTR.okPtr) { /* (the pages already follow the pointer with their focus) */

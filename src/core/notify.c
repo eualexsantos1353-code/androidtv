@@ -126,6 +126,20 @@ int notify_upcoming(ItemList *out) {
   if (!out->n) { free(out->items); out->items = NULL; return 0; }
   qsort(out->items, (size_t)out->n, sizeof(Item), cmp_air); return out->n;
 }
+static int cmp_air_desc(const void *a, const void *b) { double x = ((const Item *)a)->airAt, y = ((const Item *)b)->airAt; return x > y ? -1 : x < y; }
+int notify_fresh(ItemList *out) {
+  memset(out, 0, sizeof *out); cJSON *n = node(); const cJSON *eps = n ? cJSON_GetObjectItem(n, "eps") : NULL, *e; int m = cJSON_GetArraySize(eps); if (m <= 0) return 0;
+  out->items = calloc((size_t)m, sizeof(Item)); if (!out->items) return 0; double now = (double)time(NULL);
+  cJSON_ArrayForEach(e, eps) { if (!e->string) continue; const cJSON *l = lib_get(e->string); if (!l || !eligible(l)) continue;
+    if (iso_time(js_str(js_obj(l, "state"), "lastWatched", "")) <= 0) continue; /* (one you were watching: never a series only added) */
+    char vid[SB_VID]; double newest = 0; if (!notify_new(l, vid, sizeof vid, &newest) || newest < now - 21 * 86400.0) continue;
+    Item *it = &out->items[out->n++]; memset(it, 0, sizeof *it);
+    snprintf(it->id, sizeof it->id, "%s", js_str(l, "_id", "")); snprintf(it->type, sizeof it->type, "series"); snprintf(it->name, sizeof it->name, "%s", js_str(l, "name", ""));
+    snprintf(it->poster, sizeof it->poster, "%s", js_str(l, "poster", "")); snprintf(it->background, sizeof it->background, "%s", js_str(l, "background", "")); snprintf(it->logo, sizeof it->logo, "%s", js_str(l, "logo", ""));
+    snprintf(it->videoId, sizeof it->videoId, "%s", vid); it->airAt = newest; }
+  if (!out->n) { free(out->items); out->items = NULL; return 0; }
+  qsort(out->items, (size_t)out->n, sizeof(Item), cmp_air_desc); return out->n;
+}
 void notify_dismiss(const char *id) {
   cJSON *l = lib_get(id); if (!l) return; cJSON *s = cJSON_GetObjectItemCaseSensitive(l, "state"); if (!s) return;
   time_t t = time(NULL); struct tm tm; gmtime_r(&t, &tm); char iso[40]; strftime(iso, sizeof iso, "%Y-%m-%dT%H:%M:%S.000Z", &tm);

@@ -15,7 +15,8 @@ void notify_refresh(void);                  /* ask now (a series just added, the
 /* a library item's new episodes: the first not yet watched (*vid, its season and episode), when the newest came out;
    0 = none */
 int  notify_new(const cJSON *libItem, char *vid, size_t cap, double *newestAt);
-int  notify_upcoming(ItemList *out);        /* Upcoming: soonest first; 0 = nothing coming */
+int  notify_upcoming(ItemList *out);
+int  notify_fresh(ItemList *out);           /* etapa-72: series watched before with an episode out in the last 3 weeks not seen yet, newest first */        /* Upcoming: soonest first; 0 = nothing coming */
 void notify_dismiss(const char *id);        /* seen: the series' last watch is now (as the official apps dismiss) */
 void notify_cw_dismiss(const Item *it);    /* out of Continue Watching until it is watched or marked again, or a newer episode comes out (this device) */
 int  notify_cw_hidden(const cJSON *lib, double newestNew); /* that dismissal still holds (newestNew: the newest new episode's air time, s; 0 none) */

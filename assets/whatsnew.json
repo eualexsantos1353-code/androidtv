@@ -1,35 +1,35 @@
 {
- "version": "71",
+ "version": "72",
  "items": [
   {
    "icon": "wn_new",
-   "title": "Lumen",
-   "text": "Nome, logo e abertura novos: O cinema mora aqui."
-  },
-  {
-   "icon": "lib_cal",
-   "title": "Calendário no topo",
-   "text": "Ao lado do relógio, ou no botão azul do controle. Com filtros e pontinhos em cada dia."
-  },
-  {
-   "icon": "wn_subs",
-   "title": "Legenda traduzida",
-   "text": "Só tem em inglês? O Lumen traduz para o português enquanto o filme passa."
+   "title": "Abertura do Lumen",
+   "text": "A marca do Lumen por 2 segundos quando o filme abre."
   },
   {
    "icon": "wn_people",
-   "title": "X-Ray",
-   "text": "Seta para cima no filme: elenco da cena, curiosidades e a página de cada ator."
+   "title": "Ainda está assistindo?",
+   "text": "Depois de 2 episódios sem mexer no controle, ele pausa e pergunta."
   },
   {
-   "icon": "wn_lib",
-   "title": "Perfis e organizar",
-   "text": "Configurações: perfis, organizar o Início e a Pesquisa, filtro de fontes."
+   "icon": "wn_subs",
+   "title": "Onde você parou",
+   "text": "Ao voltar para uma série, um resumo do episódio anterior."
   },
   {
-   "icon": "wn_cast",
-   "title": "JARVIS",
-   "text": "Peça pelo celular: “aquele filme do cara preso em Marte” e ele abre aqui."
+   "icon": "later",
+   "title": "Ver depois",
+   "text": "Segure OK em qualquer pôster. A lista aparece no Início."
+  },
+  {
+   "icon": "lib_cal",
+   "title": "Episódios novos e Lançamentos",
+   "text": "Duas fileiras novas no Início. A TV ao vivo saiu de lá (fica na aba TV)."
+  },
+  {
+   "icon": "wn_remote",
+   "title": "Microfone e protetor de tela",
+   "text": "Microfone do controle abre a Pesquisa falando. OK no protetor abre o título da tela."
   }
  ],
  "support": {
@@ -38,5 +38,5 @@
   "url": "https://ko-fi.com/simussu",
   "github": "https://github.com/stremio-origin/androidtv"
  },
- "note": "Também: Simkl, pular abertura de anime e o resumo das 19:30 no NEXA."
+ "note": "Ajustes em Configurações › Reprodução e › Aparência."
 }

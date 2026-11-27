@@ -7,4 +7,5 @@ int  saver_on(void);        /* showing (keys wake it) */
 int  saver_covers(void);    /* fully in: the page under it need not be drawn */
 void saver_draw(void);      /* over everything (also while it fades away) */
 void saver_stop(void);
+int  saver_open_current(void); /* etapa-72: OK on the screensaver opens the title it shows (1 = opened) */
 #endif

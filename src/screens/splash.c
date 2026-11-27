@@ -64,3 +64,13 @@ void splash_draw(void) {
   { float ks = ease_apply(EASE_OUT, (t - 0.9f) / 0.8f); gfx_opacity_push(ks); text_draw(T("The cinema lives here."), cx, cy + R + 124 + 6 * (1 - ks), 28, 500, RGBA(0xc9, 0xb8, 0xff, 230), 0, 0, ALIGN_CENTER); gfx_opacity_pop(); } /* the slogan, last */
   gfx_opacity_pop();
 }
+
+void lumen_mark_draw(float cx, float cy, float R, float t, int withName) {
+  float k = ease_apply(EASE_OUT, (t - 0.05f) / 0.7f), kp = ease_apply(EASE_OUT, (t - 0.3f) / 0.5f), kt = ease_apply(EASE_OUT, (t - 0.45f) / 0.7f), s = 0.92f + 0.08f * k;
+  gfx_scale_push(s, s, cx, cy);
+  gfx_opacity_push(k); { float rw = R * 0.23f; for (int q = 0; q < 6; q++) { float rr = R - q * rw / 6; gfx_ring(cx - rr, cy - rr, 2 * rr, 2 * rr, rr, rw / 6 + 1, q < 3 ? RGB(0x9b, 0x7b, 0xff) : RGB(0x6a, 0x45, 0xe0)); } } gfx_opacity_pop();
+  { float S = 2 * R * 512 / 264.0f * 0.62f; gfx_opacity_push(kp); icon_draw("o_play", cx - S * 256 / 512 + 6 * (1 - kp), cy - S * 226 / 512, S, WHITE_A(255)); gfx_opacity_pop(); }
+  { float dx = cx + R * 0.71f, dy = cy - R * 0.71f, pulse = 0.85f + 0.15f * sinf(t * 3); gfx_opacity_push(kp); for (int q = 6; q >= 1; q--) gfx_circle(dx, dy, R * 0.07f * (1 + q * 0.45f) * pulse, RGBA(0xc9, 0xb8, 0xff, 26)); gfx_circle(dx, dy, R * 0.105f, WHITE_A(255)); gfx_opacity_pop(); }
+  gfx_scale_pop();
+  if (withName) { float px = R * 0.34f; gfx_opacity_push(kt); text_draw("LUMEN", cx + px * 0.25f, cy + R + px * 0.9f + 8 * (1 - kt), (int)px, 700, WHITE_A(240), px * 0.5f - 6 * kt, 0, ALIGN_CENTER); gfx_opacity_pop(); }
+}

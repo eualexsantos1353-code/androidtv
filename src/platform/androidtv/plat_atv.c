@@ -239,6 +239,8 @@ void plat_luna_pump(void) {
   char b[2048];
   if (job.id) for (int i = 0; i < 4; i++) { atv_jstr(e, (jstring)(*e)->CallStaticObjectMethod(e, atv_class(e, 0), take, (jint)0), b, sizeof b); if (!atv_check(e) || !b[0]) break; if (job.cb) job.cb(b, job.ud); }
   { extern void search_typed(const char *u); for (int i = 0; i < 8; i++) { atv_jstr(e, (jstring)(*e)->CallStaticObjectMethod(e, atv_class(e, 0), take, (jint)4), b, sizeof b); if (!atv_check(e) || !b[0]) break; if (SCR == SCR_SEARCH) search_typed(b); } } /* letters from a real keyboard (MainActivity.typedQ) */
+  { atv_jstr(e, (jstring)(*e)->CallStaticObjectMethod(e, atv_class(e, 0), take, (jint)5), b, sizeof b); /* etapa-72: what was said to the remote's microphone: Search, with it */
+    if (atv_check(e) && b[0]) { extern void search_dev_query(const char *q); extern void app_overlay_close(void); fprintf(stderr, "[voice] to Search\n"); app_overlay_close(); topNav.idx = NAV_SEARCH; app_go(SCR_SEARCH, NULL, 1); search_dev_query(b); } }
   atv_jstr(e, (jstring)(*e)->CallStaticObjectMethod(e, atv_class(e, 0), take, (jint)1), b, sizeof b);
   if (atv_check(e) && b[0]) { fprintf(stderr, "[life] opened with a link\n"); if (!atv_home_link(b)) app_open_external(b, NULL); }
   /* Android's memory warnings (onTrimMemory): pictures not on screen are let go at once, and the budget shrinks while

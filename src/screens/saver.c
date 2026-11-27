@@ -205,3 +205,11 @@ void saver_draw(void) {
     gfx_opacity_pop(); }
   gfx_opacity_pop();
 }
+
+/* etapa-72: OK opens the title on screen at that moment (the one whose name shows; while the next fades in, the next) */
+int saver_open_current(void) {
+  if (!SS.on || player_open()) return 0;
+  const Item *it = SS.infoA.v > 0.2f || !SS.nxt.id[0] ? &SS.cur : &SS.nxt; if (!it->id[0]) return 0;
+  DetailParams p; memset(&p, 0, sizeof p); p.it = *it; fprintf(stderr, "[screensaver] OK: opening %s\n", it->id);
+  saver_stop(); app_overlay_close(); app_go(SCR_DETAIL, &p, 0); return 1;
+}

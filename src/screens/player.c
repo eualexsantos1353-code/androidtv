@@ -46,6 +46,7 @@
 #include "core/audorig.h"
 #include "core/parental.h"
 #include "ui/glass.h"
+#include "screens/splash.h"
 #include "core/rating.h"
 #include "core/hproxy.h"
 #include "core/mp4chap.h"
@@ -2008,9 +2009,60 @@ static void xr_draw(void) {
       text_draw(pp->known[i].title, kx, ky + 276, 21, 700, WHITE_A(225), 0, 176, ALIGN_LEFT); if (lb[0]) text_draw(lb, kx, ky + 304, 19, 500, WHITE_A(150), 0, 176, ALIGN_LEFT); } }
   gfx_opacity_pop();
 }
+/* ---- etapa-72: Lumen's intro before a film, "Still watching?" after a run of episodes nobody touched the remote
+   through, and "Where you left off" (the episode before, in a few lines) as a series starts ---- */
+static struct { int run, ask; double askAt; double introAt; int recapWant, recapOn; double recapAt; char recapT[200], recap[900]; int recapLines; Tween introA, recapA, askA; } LX;
+static int lx_limit(void) { return atoi(store_get("stillWatching", "2")); } /* episodes played by themselves before it asks (0: never) */
+/* the moment a next episode would start by itself: 1 = it asks instead (the film paused under the card) */
+static int lx_gate(void) {
+  int lim = lx_limit(); if (lim <= 0 || P.live) return 0;
+  if (LX.run < lim) { LX.run++; return 0; }
+  LX.ask = 1; LX.askAt = now_(); tween_set(&LX.askA, 0); tween_to(&LX.askA, 1, 0.4f, EASE_OUT); P.prompt.autoN = 0; paint_prompt();
+  if (!paused() && !P.ended) video_pause(); fprintf(stderr, "[player] still watching? (%d episodes by themselves)\n", LX.run); return 1; }
+static void lx_begin(int again) {
+  if (!again) { LX.run = 0; LX.ask = 0; LX.introAt = strcmp(store_get("playerIntro", "true"), "false") && !P.live ? now_() : 0; }
+  LX.recapOn = 0; LX.recapWant = !again && !P.live && !strcmp(P.type, "series") && (P.episode > 1 || P.season > 1) && strcmp(store_get("recapCard", "true"), "false");
+}
+/* the episode before this one: its name and what happened (TMDB in the app's language, else the meta's) */
+static int lx_recap_fill(void) {
+  int s = P.season, e = P.episode - 1; const cJSON *vs = js_arr(P.meta, "videos"), *v, *best = NULL;
+  if (e < 1) { int le = 0; cJSON_ArrayForEach(v, vs) { if ((int)js_num(v, "season", -1) == s - 1) { int ee = (int)js_num(v, "episode", js_num(v, "number", 0)); if (ee > le) { le = ee; best = v; } } } s--; e = le; }
+  else cJSON_ArrayForEach(v, vs) if ((int)js_num(v, "season", -1) == s && (int)js_num(v, "episode", js_num(v, "number", 0)) == e) best = v;
+  if (s < 1 || e < 1) return 0;
+  const char *nm = best ? js_str(best, "name", js_str(best, "title", "")) : "", *ov = best ? js_str(best, "overview", js_str(best, "description", "")) : "";
+  const TmdbLoc *L = tmdb_wanted(P.id) ? tmdb_loc("series", P.id, 0) : NULL; const char *tn = NULL, *to = NULL;
+  if (L && tmdb_episode(L, s, e, &tn, &to)) { if (tn && *tn) nm = tn; if (to && *to) ov = to; }
+  if (!*ov) return 0;
+  char se[40]; snprintf(se, sizeof se, "T%d \xc2\xb7 E%d", s, e);
+  snprintf(LX.recapT, sizeof LX.recapT, "%s%s%s", se, *nm ? "  \xe2\x80\x94  " : "", nm); snprintf(LX.recap, sizeof LX.recap, "%s", ov);
+  LX.recapLines = text_wrap_count(LX.recap, 760, 4, 26, 400, 0); return 1; }
+static void lx_tick(float dt) {
+  tween_tick(&LX.introA, dt); tween_tick(&LX.recapA, dt); tween_tick(&LX.askA, dt);
+  if (LX.recapWant && video_state() == VID_PLAYING && P.artA.v < 0.05f && (!LX.introAt || now_() - LX.introAt > 2.6)) { LX.recapWant = 0;
+    if (lx_recap_fill()) { LX.recapOn = 1; LX.recapAt = now_(); tween_set(&LX.recapA, 0); tween_to(&LX.recapA, 1, 0.5f, EASE_OUT); fprintf(stderr, "[player] where you left off: %s\n", LX.recapT); } }
+  if (LX.recapOn && now_() - LX.recapAt > 14) { LX.recapOn = 0; tween_to(&LX.recapA, 0, 0.5f, EASE_IN_OUT); }
+  if (LX.ask && now_() - LX.askAt > 20 * 60) { LX.ask = 0; fprintf(stderr, "[player] still watching? no answer in 20 min: closed\n"); close_player(0, 0); } /* (asleep: the TV rests) */
+}
+static void lx_draw(void) {
+  if (LX.introAt) { double t = now_() - LX.introAt; if (t > 2.6) LX.introAt = 0;
+    else { float a = t < 2.0 ? 1 : (float)(1 - (t - 2.0) / 0.6); gfx_opacity_push(a); gfx_rect(0, 0, SB_W, SB_H, RGB(0x0b, 0x09, 0x12)); lumen_mark_draw(SB_W / 2, SB_H / 2 - 40, 110, (float)t * 0.9f, 1); gfx_opacity_pop(); } }
+  float ra = LX.recapA.v; if (ra > 0.01f && LX.recap[0]) { float w = 840, h = 46 + 44 + LX.recapLines * 36 + 40, x = 72, y = SB_H - 150 - h + 14 * (1 - ra);
+    gfx_opacity_push(ra); gfx_shadow(x, y + 20, w, h, 28, 60, BLACK_A(120)); gfx_rrect(x, y, w, h, 28, RGBA(14, 12, 22, 215)); gfx_ring(x, y, w, h, 28, 1, WHITE_A(26));
+    text_draw(T("Where you left off"), x + 40, y + 30, 22, 700, col_alpha(ACC2 | 0xff000000u, 1), 1.5f, 0, ALIGN_LEFT);
+    text_draw(LX.recapT, x + 40, y + 64, 30, 700, WHITE_A(250), -0.2f, w - 80, ALIGN_LEFT);
+    text_draw_wrapped(LX.recap, x + 40, y + 108, 760, 4, 26, 400, WHITE_A(210), 0, ALIGN_LEFT, 36); gfx_opacity_pop(); }
+  float aa = LX.askA.v; if (LX.ask && aa > 0.01f) { gfx_opacity_push(aa); gfx_rect(0, 0, SB_W, SB_H, BLACK_A(170));
+    float cx = SB_W / 2, cy = SB_H / 2; text_draw(T("Still watching?"), cx, cy - 90, 64, 800, WHITE_A(255), -1, 0, ALIGN_CENTER);
+    text_draw(T("The next episode waits for you"), cx, cy + 0, 30, 400, WHITE_A(200), 0, 0, ALIGN_CENTER);
+    { const char *a1 = T("Next episode"), *a2 = T("Stop"); float w1 = 38 + 10 + text_width(a1, 22, 600, 0), w2 = 38 + 10 + text_width(a2, 22, 600, 0), gap = 60, x0 = cx - (w1 + gap + w2) / 2;
+      key_hint(x0, cy + 90, K_OK, a1, WHITE_A(240), 0); key_hint(x0 + w1 + gap, cy + 90, K_BACK, a2, WHITE_A(200), 0); }
+    gfx_opacity_pop(); }
+}
 void player_key(int k, int down) {
   if (!down) { if (P.open && P.mode == 6 && k == K_OK) hub_ok_up(); return; } /* (the hub over the picture: OK let go, a tap; held, its streams) */
   if (!P.open) return; if (shrinkAt > 0) return; /* (going back into its box) */ app_touch();
+  if (LX.ask) { if (k == K_OK || k == K_PLAY || k == K_PLAYPAUSE) { LX.ask = 0; LX.run = 0; tween_to(&LX.askA, 0, 0.3f, EASE_OUT); go_next(); } else if (k == K_BACK || k == K_STOP) { LX.ask = 0; close_player(0, 0); } return; } /* etapa-72: "Still watching?" */
+  LX.run = 0; if (LX.recapOn && (k == K_BACK || k == K_OK)) { LX.recapOn = 0; tween_to(&LX.recapA, 0, 0.3f, EASE_IN_OUT); if (k == K_BACK) return; }
   if (P.pw.on && k != K_BACK) { if (k == K_OK) pw_end("Play now"); return; } /* (waiting for the previews: OK plays at once, Back closes, nothing else) */
   P.lastAct = now_(); if (P.ssOn) { ss_exit(); return; } /* the key that wakes the screensaver does nothing else */
   if (P.failed && P.canNext && k == K_OK) { try_next(); return; }
@@ -2195,6 +2247,7 @@ static void prepare(const char *vid, double startAt, int keepSubs) {
   mo_set(&P.artA, artWas); mo_set(&P.in, again ? 1 : 0); mo_set(&P.lnA, 1); mo_set(&P.pwA, 0); mo_set(&P.pwF, 0); P.pw.on = 0; mo_set(&P.prB, 104); mo_set(&P.subB, SB_H * pos_pct() / 100.0f); mo_set(&P.ttlX, -30); mo_set(&P.barY, 18); mo_set(&P.btnY, 24); mo_set(&P.topY, -12); mo_set(&P.prY, 20); mo_set(&P.skS, 0); mo_set(&P.ccS, 1);
   fill_from_meta(); if (!P.logo[0] && !strncmp(P.id, "tt", 2)) snprintf(P.logo, sizeof P.logo, "https://images.metahub.space/logo/medium/%s/img", P.id);
   if (!P.bg[0]) { Item it = lib_item(); sb_bg_mid(&it, P.bg, sizeof P.bg); }
+  lx_begin(again);
 }
 static void on_p2p(void *ud, const char *url, const char *err, uint64_t size) {
   if (!P.open || P.closing || (unsigned)(uintptr_t)ud != p2pTok) return;
@@ -2602,6 +2655,7 @@ void player_away(int behind) {
 void player_tick(float dt) {
   if (awayHold && (!P.open || P.closing)) awayHold = 0;
   if (awayHold && video_state() == VID_PLAYING) { extern int app_behind(void); if (app_behind()) { video_pause(); save_progress(1); fprintf(stderr, "[player] behind another app: held as it started\n"); } }
+  if (P.open) lx_tick(dt);
   status_tick(); pw_tick(); ps_tick(); if (getenv("SB_PREV_LOG")) sp_dev_log(); { static double npAt; if (now_() - npAt > 1) { npAt = now_(); np_tick(); } }
   { int sk = P.open && P.seekT >= 0 && P.seekScrub && prev_enabled() && sp_active() && sp_made() > 0 && !live_bcast(); /* (no picture yet: the seek pill alone, never a row of loaders) */ /* a scrub of the viewer's with previews: in 0.18 s, out 0.45 s where it was let go */
     static double skLast; if (sk) { skLast = now_(); stripQuick = 0; } else if (stripQuick) skLast = -1e9; else if (stripT >= 0 && P.open && now_() - skLast < 0.6) sk = 1; /* (between two presses the strip stays: it never closes and opens again; OK on a picture: it goes at once) */
@@ -2697,10 +2751,10 @@ void player_tick(float dt) {
     if (vs == VID_PLAYING && now_() - P.lastSave >= 10) save_progress(0);
     if (vs == VID_ENDED && !P.ended && live_reload("the stream ended")) vs = video_state();
     if (vs == VID_ENDED && !P.ended) { P.ended = 1; scrobble_player_end(video_time(), dur(), 1); tracking_player_end(video_time(), dur()); save_progress(1); mark_watched(); if (strcmp(store_get("bingeWatch", "true"), "false") && strcmp(store_get("enableNextVideo", "true"), "false") && P.next.has) P.endGoAt = now_() + 0.6; else close_player(0, 0); }
-    if (P.endGoAt && now_() >= P.endGoAt) { P.endGoAt = 0; go_next(); if (!P.open || P.closing) return; }
+    if (P.endGoAt && now_() >= P.endGoAt && !LX.ask) { P.endGoAt = 0; if (!lx_gate()) go_next(); if (!P.open || P.closing) return; }
     check_prompt();
     if (P.prompt.autoN && (P.prompt.k == 1 || P.prompt.k == 2) && now_() - P.prompt.t0 >= P.prompt.adur && !paused()) prompt_go(0);
-    else if (P.prompt.autoN && P.prompt.k == 3 && now_() - P.prompt.t0 >= 10) { P.prompt.autoN = 0; next_auto(); }
+    else if (P.prompt.autoN && P.prompt.k == 3 && now_() - P.prompt.t0 >= 10) { P.prompt.autoN = 0; if (!lx_gate()) next_auto(); }
     if (!P.live) return; /* a new episode is being found */
     const char *r = res_of_video(video_width(), video_height()); if (*r && !P.isTrailer) P.res = r;
     info_update();
@@ -3389,6 +3443,7 @@ void player_draw(void) {
   else if (P.quiet && P.mode != 6) live_card_draw(); /* switching channels, nothing running yet: the corner pill alone */
   else if (P.artA.v < 0.999f) hand_draw();
   draw_art();
+  lx_draw();
   gfx_opacity_pop();
 }
 static void chapters_hook(const char *url, int p2p) { (void)url; (void)p2p; P.chapWant = 1; }

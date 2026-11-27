@@ -105,12 +105,37 @@ public class MainActivity extends SDLActivity {
     /* ---- what the app takes once a frame (src/platform/androidtv: plat_luna_pump): 0 the update's answers, 1 a link the
        app was opened with, 2 a memory warning, 3 the launch's parameters as LG gives them ({"cast":1}) ---- */
     private static final java.util.concurrent.ConcurrentLinkedQueue<String> updateQ = new java.util.concurrent.ConcurrentLinkedQueue<>();
-    private static volatile String link, params; private static volatile int trim;
+    private static volatile String link, params, voice; private static volatile int trim;
+    /* etapa-72: the remote's microphone / search key: Android's speech recognizer, what was said goes to Search (take(5)) */
+    private static final int VOICE_REQ = 4712; private static long voiceAt;
+    public static boolean voiceStart() {
+        final MainActivity a = self; if (a == null) return false;
+        try {
+            final android.content.Intent i = new android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+            i.putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+            i.putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag());
+            i.putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Lumen: diga o nome do filme ou da série");
+            i.putExtra(android.speech.RecognizerIntent.EXTRA_MAX_RESULTS, 1);
+            if (i.resolveActivity(a.getPackageManager()) == null) { log("[voice] no speech recognizer on this TV"); return false; }
+            voiceAt = System.currentTimeMillis();
+            a.runOnUiThread(() -> { try { a.startActivityForResult(i, VOICE_REQ); log("[voice] listening"); } catch (Throwable t) { log("[voice] could not start: " + t); } });
+            return true;
+        } catch (Throwable t) { log("[voice] " + t); return false; }
+    }
+    @Override
+    protected void onActivityResult(int req, int res, android.content.Intent data) {
+        if (req == VOICE_REQ) {
+            if (res == RESULT_OK && data != null) { java.util.ArrayList<String> r = data.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS); if (r != null && !r.isEmpty()) { voice = r.get(0); log("[voice] heard " + voice.length() + " characters"); } }
+            return;
+        }
+        super.onActivityResult(req, res, data);
+    }
     public static String take(int what) {
         if (what == 0) { String s = updateQ.poll(); return s == null ? "" : s; }
         if (what == 1) { String s = link; link = null; return s == null ? "" : s; }
         if (what == 3) { String s = params; params = null; return s == null ? "" : s; }
         if (what == 4) { String s = typedQ.poll(); return s == null ? "" : s; }
+        if (what == 5) { String s = voice; voice = null; return s == null ? "" : s; }
         int t = trim; trim = 0; return t == 0 ? "" : String.valueOf(t);
     }
     /* the TV's home-screen rows (src/platform/androidtv/homerows_atv.c sends the list when it changes): HomeRows */
@@ -322,6 +347,11 @@ public class MainActivity extends SDLActivity {
         if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0 && e.getDevice() != null && e.getDevice().getKeyboardType() == android.view.InputDevice.KEYBOARD_TYPE_ALPHABETIC) {
             int u = e.getUnicodeChar(); if (typedQ.size() < 64) {   /* (a keyboard's letters, digits, space and backspace: a remote's own digit keys are not an alphabetic keyboard's) */
                 if (k == KeyEvent.KEYCODE_DEL) typedQ.add("\b"); else if (u > 0 && (Character.isLetterOrDigit(u) || u == ' ')) typedQ.add(new String(Character.toChars(u))); }
+        }
+        if (k == KeyEvent.KEYCODE_SEARCH || k == 231 /* VOICE_ASSIST */ || k == 219 /* ASSIST */) { /* etapa-72: the microphone key: listen, then Search */
+            if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) { if (voiceStart()) return true; }
+            else if (System.currentTimeMillis() - voiceAt < 3000) return true;
+            if (k != KeyEvent.KEYCODE_SEARCH) return super.dispatchKeyEvent(e);
         }
         if (appKey(k) && (e.getAction() == KeyEvent.ACTION_DOWN || e.getAction() == KeyEvent.ACTION_UP)) {
             try { nativeTvKey(k, e.getAction() == KeyEvent.ACTION_DOWN, e.getRepeatCount()); } catch (UnsatisfiedLinkError ex) { }

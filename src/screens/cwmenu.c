@@ -4,6 +4,7 @@
 #include "core/traktwatch.h"
 #include "screens/livehub.h"
 #include "core/notify.h"
+#include "core/later.h"
 #include "screens/board.h"
 #include "ui/sound.h"
 #include "ui/orbs.h"
@@ -35,7 +36,7 @@
 #define CW 640.0f
 #define PX 36.0f
 #define IH 64.0f    /* an option, and 4 between them */
-enum { A_STREAMS, A_PLAY, A_RESTART, A_DETAILS, A_WATCHED, A_TRAILER, A_SIMILAR, A_REVIEWS, A_LIB, A_DISMISS, A_PIN, A_FORGET, A_CHSTREAMS };
+enum { A_STREAMS, A_PLAY, A_RESTART, A_DETAILS, A_WATCHED, A_TRAILER, A_SIMILAR, A_REVIEWS, A_LIB, A_DISMISS, A_PIN, A_FORGET, A_CHSTREAMS, A_LATER };
 static struct {
   int open, closing, idx, n; int acts[9]; char labels[9][96]; const char *icons[9]; Item it; char kind[32], sub[400];
   Tween x, op; /* the panel's slide and fade: an even ease-out (the quick-tween curve put it all in the first two frames) */ Tween out, grow; double openAt; SGlass glass; FPill pill; Nudge nudge; float h, titleLines;
@@ -154,6 +155,7 @@ static void act(int a) {
     case A_SIMILAR: { close(); DetailParams p; memset(&p, 0, sizeof p); p.it = it; app_go(SCR_SIM, &p, 0); break; }
     case A_REVIEWS: { int i = 0; while (i < M.n && M.acts[i] != A_REVIEWS) i++; /* out of the Reviews option itself; the menu stays, under them, and has the keys again when they fold back into it */
       float by = SB_H / 2 - M.h / 2 + items_y() + i * (IH + 4); revpanel_from_button(); revpanel_show(&it, 0, card_x() + PX, by, CW - 2 * PX, IH, 16); break; }
+    case A_LATER: { int added = later_toggle(&it); sound_play(SND_TOGGLE); fx_start(added ? 1 : 2, added ? "later" : "minus", T(added ? "Added to Watch later" : "Removed from Watch later")); sb_poster_of(&it, FX.poster, sizeof FX.poster); close(); board_invalidate(); app_refresh_boards(); break; }
     case A_LIB: { int in = lib_has(it.id); sound_play(SND_TOGGLE); fx_start(in ? 2 : 1, in ? "minus" : "plus", T(in ? "Removed from Library" : "Added to Library")); sb_poster_of(&it, FX.poster, sizeof FX.poster); } lib_toggle(&it); close(); app_refresh_boards(); if (SCR == SCR_DETAIL) detail_paint_lib(); break;
   }
 }
@@ -236,6 +238,7 @@ void cwmenu_show(const Item *it) {
   if (it->ep) add(A_STREAMS, "play", T("Streams")); else add(A_PLAY, "play", T(it->cw ? "Resume" : "Play"));
   Uint32 tm0 = SDL_GetTicks(); CwInfo ci; if (lib_cw_info(it, &ci) && (!it->ep || !strcmp(ci.vid, it->videoId))) add(A_RESTART, "restart", T("Watch from the beginning"));
   { int inL = lib_has(it->id); add(A_LIB, inL ? "minus" : "plus", T(inL ? "Remove from Library" : "Add to Library")); } /* (among the first) */
+  if (!it->ep) { int lt = later_has(it->id); add(A_LATER, lt ? "minus" : "later", T(lt ? "Remove from Watch later" : "Watch later")); } /* etapa-72 */
   if (!it->ep) add(A_DETAILS, "info", T("Details"));
   int canMark = 1; /* (a film, an episode, or a whole show: every aired episode) */
   if (canMark) { int w = lib_is_marked_watched(it); add(A_WATCHED, w ? "eyeOff" : "eye", T(w ? "Mark as unwatched" : "Mark as watched")); }
