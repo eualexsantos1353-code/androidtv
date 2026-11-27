@@ -1,4 +1,5 @@
 #include "core/tracking.h"
+#include "core/organize.h"
 #include "core/simkl.h"
 #include "core/stremio.h"
 #include "core/addons.h"
@@ -24,14 +25,14 @@ static void tell(const char *action, double pos, double dur) {
   snprintf(v, sizeof v, "%.0f", pos * 1000); addon_extra_add(ex, sizeof ex, "currentTime", v);
   snprintf(v, sizeof v, "%.0f", dur * 1000); addon_extra_add(ex, sizeof ex, "duration", v);
   send_all("player", S.type, S.vid, ex); }
-void tracking_player(const char *type, const char *videoId, int state, double pos, double dur) {
+void tracking_player(const char *type, const char *videoId, int state, double pos, double dur) { if (prof_cur() != 0) { (void)type; (void)videoId; (void)state; (void)pos; (void)dur; return; } /* etapa-74: Simkl and the tracking addons: the first profile's */
   simkl_player(type, videoId, state, pos, dur); /* (Simkl too, when linked) */
   if (!type || !videoId || !*videoId || dur <= 0) return;
   if (strcmp(S.vid, videoId)) { if (S.sent) tell("stop", S.lastPos, dur); memset(&S, 0, sizeof S); snprintf(S.type, sizeof S.type, "%s", type); snprintf(S.vid, sizeof S.vid, "%s", videoId); S.lastPos = pos; }
   int want = state == 1 ? 1 : state == 2 ? 2 : S.sent;
   double jump = pos - S.lastPos; int seeked = S.sent && (jump > 15 || jump < -5); S.lastPos = pos;
   if (want != S.sent || seeked) { tell(want == 1 ? "start" : "pause", pos, dur); S.sent = want; } }
-void tracking_player_end(double pos, double dur) { simkl_player_end(pos, dur); if (S.sent && S.vid[0]) tell("stop", pos, dur > 0 ? dur : pos); memset(&S, 0, sizeof S); }
+void tracking_player_end(double pos, double dur) { if (prof_cur() != 0) return; simkl_player_end(pos, dur); if (S.sent && S.vid[0]) tell("stop", pos, dur > 0 ? dur : pos); memset(&S, 0, sizeof S); }
 void tracking_library(const char *type, const char *id, const char *action, const char *videoIds) {
   char ex[1200] = ""; addon_extra_add(ex, sizeof ex, "action", action); if (videoIds && *videoIds) addon_extra_add(ex, sizeof ex, "videoId", videoIds);
   send_all("library", type && *type ? type : "movie", id, ex); }

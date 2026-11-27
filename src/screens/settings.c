@@ -40,6 +40,7 @@
 #include "core/trakt.h"
 #include "screens/revpanel.h"
 #include "ui/qrcard.h"
+#include "screens/profpick.h"
 #include "core/update.h"
 #include "screens/logcard.h"
 #include "screens/roleta.h"
@@ -129,7 +130,8 @@ static void set_act(Setting *s, const char *k, const char *lb, const char *ds) {
 /* ---- profiles, the catalogs' order, the streams' filter (as the official Stremio's) ---- */
 static const Opt PROFO[] = { { "0", "Main" }, { "1", "Family" }, { "2", "Kids" } };
 static const Opt CATO[] = { { "show", "Show" }, { "top", "On top" }, { "hide", "Hide" } };
-static int prof_opts(void) { set_s(&profS[0], "profCur", "Profile in use", "Each profile has its own addons, the order of its rows and its stream filter. The Library and Continue Watching are the account's", PROFO, PROF_N, "0"); return 1; }
+static int prof_opts(void) { set_act(&profS[0], "__prof", "Who's watching?", "Each profile with its own Stremio account, picture and name: switch, add or edit"); /* etapa-74 */
+  set_s(&profS[1], "profAsk", "Ask at start", "\xe2\x80\x9cWho's watching?\xe2\x80\x9d each time the Lumen opens", OO, 2, "true"); return 2; }
 static int org_opts(char area) { /* every catalog the addons give Home (or Search), as they come; the profile's choice on each */
   static CatalogDef d[MAXROWS]; int n = area == 'h' ? sb_home_defs(d, MAXROWS - 2) : sb_search_defs("a", d, MAXROWS - 2); Setting *S2 = area == 'h' ? orgHS : orgSS; int m = 0;
   for (int i = 0; i < n && m < MAXROWS - 2; i++) { char k[32]; catorg_key(&d[i], area, k, sizeof k); int dup = 0; for (int q = 0; q < m; q++) if (!strcmp(S2[q].k, k)) dup = 1; if (dup) continue;
@@ -353,7 +355,7 @@ static void build(void) {
     { "Account and system", "Trakt", "set_trakt", "Track what you watch", "trakt", traktS, 1, 0 },
     { "Account and system", "Keys", "set_keys", "Titles in your language, ratings and reviews", "keys", keyS, nk, 0 },
     { "Account and system", "About", "info", "Version, updates, logs and support", "about", supS, nab, 0 },
-    { "Account and system", "Profiles", "set_prof", "Each profile with its own addons and filters", NULL, profS, np, 0 },
+    { "Account and system", "Profiles", "set_prof", "Who's watching: each profile with its own account and picture", NULL, profS, np, 0 },
     { "Account and system", "Organize Home", "set_orgh", "Put rows on top or hide them", NULL, orgHS, noh, 0 },
     { "Account and system", "Organize Search", "set_orgs", "Put catalogs on top or hide them", NULL, orgSS, nos, 0 },
     { "Account and system", "Filter streams", "set_sf", "Only 4K, only dubbed, no cinema copies", NULL, sfS, nsf, 0 },
@@ -596,6 +598,7 @@ static int key(int k) {
       if (!strcmp(op->k, "__deb")) { qrcard_show_deb(NULL, NULL); return 1; }
       if (!strcmp(op->k, "__debOff")) { deb_key_clear(); relang(); return 1; }
       if (!strcmp(op->k, "__simkl")) { qrcard_show_simkl(); return 1; }
+      if (!strcmp(op->k, "__prof")) { profpick_open(0); return 1; }
       if (!strcmp(op->k, "__simklOff")) { simkl_unlink(); relang(); return 1; }
       if (!strcmp(op->k, "__cloud")) { DetailParams cp; memset(&cp, 0, sizeof cp); snprintf(cp.it.type, sizeof cp.it.type, "cloud"); snprintf(cp.it.id, sizeof cp.it.id, "cloud"); snprintf(cp.it.name, sizeof cp.it.name, "%s", deb_service_name()); app_go(SCR_SIM, &cp, 0); return 1; }
       if (!strcmp(op->k, "__mdbOff")) { mdb_key_clear(); relang(); return 1; }

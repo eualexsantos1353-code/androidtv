@@ -10,6 +10,8 @@
 #include "ui/gfx.h"
 #include "ui/text.h"
 #include "ui/qr.h"
+#include "core/organize.h"
+#include "screens/profpick.h"
 #include "ui/img.h"
 #include "ui/glass.h"
 #include "ui/widgets.h"
@@ -88,6 +90,7 @@ static int key(int k) {
     if (k == K_UP) { L.editing = 0; SDL_StopTextInput(); return 1; }
     return 1;
   }
+  if (k == K_BACK && prof_count() > 1) { profpick_open(1); return 1; } /* etapa-74: another profile's sign-in: back to "Who's watching?" */
   if (k == K_BACK) { app_quit(); return 1; } /* nowhere to go back to: Back closes the app */
   if ((k == K_DOWN && L.zone == 2) || (k == K_UP && L.zone == 0) || k == K_LEFT || k == K_RIGHT) { nudge_start(&L.nudge, k); return 1; }
   if (k == K_DOWN) L.zone = L.zone < 2 ? L.zone + 1 : 2;

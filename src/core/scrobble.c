@@ -1,4 +1,5 @@
 #include "core/scrobble.h"
+#include "core/organize.h"
 #include "core/trakt.h"
 #include "core/net.h"
 #include "core/store.h"
@@ -228,7 +229,7 @@ static void item_end(double pos, double dur, int ended) {
     if (C.sent || p >= 80) { if (p >= 1) send(J_STOP, p); } } /* (under 1 %: Trakt ignores it; never started and not near the end: nothing to say) */
   cJSON_Delete(C.media); memset(&C, 0, sizeof C);
 }
-void scrobble_player(const ScrobbleItem *it, int state, double pos, double dur) {
+void scrobble_player(const ScrobbleItem *it, int state, double pos, double dur) { if (prof_cur() != 0) return; /* etapa-74: Trakt is the first profile's */
   if (!it || !it->id || !it->type) return;
   char key[160]; snprintf(key, sizeof key, "%s|%s|%d|%d", it->type, it->id, it->season, it->episode);
   if (strcmp(key, C.key)) { if (C.key[0]) item_end(C.lastPos, C.lastDur, 0); snprintf(C.key, sizeof C.key, "%s", key); C.media = scrobble_on() && dur > 0 && dur < 1e7 ? media_of(it) : NULL; C.lastPos = pos; C.lastAt = mono(); } /* another item (the next episode in the same player) */
@@ -244,4 +245,4 @@ void scrobble_player(const ScrobbleItem *it, int state, double pos, double dur) 
     if (state == 2 && C.sent == 1) { send(J_PAUSE, prog(pos, dur)); C.sent = 2; } }
   C.lastPos = pos; C.lastAt = now; if (dur > 0 && dur < 1e7) C.lastDur = dur;
 }
-void scrobble_player_end(double pos, double dur, int ended) { if (C.key[0]) item_end(pos, dur, ended); }
+void scrobble_player_end(double pos, double dur, int ended) { if (prof_cur() != 0) return; if (C.key[0]) item_end(pos, dur, ended); }

@@ -23,6 +23,8 @@
 #include "ui/text.h"
 #include "ui/img.h"
 #include "ui/season.h"
+#include "screens/profpick.h"
+#include "core/organize.h"
 #include "core/tmdb.h"
 #include "ui/icon.h"
 #include "ui/palette.h"
@@ -138,7 +140,7 @@ float nudge_y(const Nudge *n) { return n->dy * nudge_k(n); }
 uint32_t PAGE_C = RGB(12, 11, 17);
 const char *THEME_KEYS[6] = { "lumen", "night", "cinema", "forest", "gold", "graphite" };
 static const uint32_t THEME_PAGE[6] = { 0x0c0b11, 0x080c1a, 0x140809, 0x07110d, 0x14100a, 0x0e0e10 };
-static const char *THEME_ACC[6] = { NULL, "blue", "red", "emerald", "gold", "graphite" };
+static const char *THEME_ACC[6] = { "purple", "blue", "red", "emerald", "gold", "graphite" };
 /* ---- accent ---- */
 uint32_t ACC, ACC2, ACC3, ACC_D, ACC_FG;
 const char *ACCENT_KEYS[18] = { "purple", "violet", "fuchsia", "pink", "rose", "red", "orange", "amber", "gold", "lime", "green", "emerald", "teal", "cyan", "sky", "blue", "indigo", "graphite" };
@@ -247,7 +249,8 @@ static int tint_busy(const char *id) { for (int i = 0; i < 8; i++) if (!strcmp(t
 void theme_apply(void) {
   const char *t = store_get("theme", "lumen"); int k = 0; for (int i = 0; i < 6; i++) if (!strcmp(t, THEME_KEYS[i])) k = i;
   uint32_t c = THEME_PAGE[k]; PAGE_C = RGB((c >> 16) & 255, (c >> 8) & 255, c & 255);
-  if (THEME_ACC[k] && strcmp(store_get("accent", "logo"), THEME_ACC[k])) { store_set("accent", THEME_ACC[k]); accent_apply(); }
+  static int started; if (!started) { started = 1; return; } /* (at start only the page: the accent is whatever was chosen last, a theme or by hand) */
+  if (THEME_ACC[k] && strcmp(store_get("accent", "logo"), THEME_ACC[k])) { store_set("accent", THEME_ACC[k]); accent_apply(); } /* a theme chosen: its accent */
 }
 void accent_apply(void) { if (accent_dynamic()) accent_scope(scopeId[0] ? scopeId : NULL, scopePoster, scopeLogo); else set_accent(fixed_accent()); }
 /* Dynamic accents ("From the logo", "From the artwork") belong to ONE title: they show on that title's
@@ -817,6 +820,7 @@ void app_touch(void) { idle_touch(); }
 static Scr colorFrom; static int colorFromSet;
 void app_go(Scr s, const void *params, int noStack) {
   idle_touch();
+  if ((s == SCR_DISC || s == SCR_LIB) && prof_kid(-1)) { static double said; if (NOW - said > 3) { said = NOW; toast(T("Not in the Kids profile"), 2200, NULL); } s = SCR_HOME; params = NULL; } /* etapa-74: the Kids profile stays on its own Home */
   if (!noStack && SCR != s) { float ox, oy; int has = 1; if (navf.kind == NAV_ZOOM) { ox = navf.x; oy = navf.y; } else has = scr_origin(&ox, &oy); /* nothing focused: a plain fade in, Back toward the middle */
     if (nback == 8) { memmove(backStack, backStack + 1, 7 * sizeof *backStack); memmove(backX, backX + 1, 7 * sizeof *backX); memmove(backY, backY + 1, 7 * sizeof *backY); nback = 7; }
     backX[nback] = ox; backY[nback] = oy; backStack[nback++] = SCR;
@@ -1065,7 +1069,7 @@ void app_tick(float dt) {
   if (okHold.down && !okHold.menu && (NOW - okHold.at) * 1000 >= HOLD_MS) { okHold.menu = 1; menuGuard = 1; orbs_pulse(ORB_HOLD, 1); if (app_card_menu_hook) app_card_menu_hook(&okHold.item); }
   timer_tick(&xin, dt); timer_tick(&xmvT, dt); timer_tick(&xoutT, dt);
   saver_tick(dt);
-  accent_tick(dt); tint_tick(); toast_tick(dt); clock_tick(); if (SCR == SCR_LOGIN || splash_signed_in()) login_glow_bake(); /* (the sign-in's glass: the glows under it) */ amb_bake(); topnav_tick(dt); bg_tick(dt); lg_tick(); sync_tick(); scrobble_tick(); tw_tick(); live_tick(); update_tick(dt); best_tick();
+  accent_tick(dt); tint_tick(); toast_tick(dt); profpick_tick_start(); clock_tick(); if (SCR == SCR_LOGIN || splash_signed_in()) login_glow_bake(); /* (the sign-in's glass: the glows under it) */ amb_bake(); topnav_tick(dt); bg_tick(dt); lg_tick(); sync_tick(); scrobble_tick(); tw_tick(); live_tick(); update_tick(dt); best_tick();
   curKey = 0; /* (a page switch later in the frame is not a key's) */
   btr_tick(dt); lpk_tick(dt); welcome_tick(); { extern void supportcard_tick(void); supportcard_tick(); } lift_tick(dt); tabs_warm_tick();
   { static int greeted; if (!greeted && app_splash_done) { greeted = 1; sound_play(SND_START); } } /* start-up: one very faint sound */

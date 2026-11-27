@@ -5,6 +5,7 @@
 #include "core/scrobble.h"
 #include "core/insight.h"
 #include "core/subtr.h"
+#include "core/organize.h"
 #include "core/tracking.h"
 #include "core/live.h"
 #include "screens/livepeek.h"
@@ -2564,7 +2565,7 @@ static void pg_decide(void) {
   if (P.pg.guideIn && P.pg.certIn && P.pg.certAge >= 0) { P.pg.age = P.pg.certAge; P.pg.at = now_(); } /* (the age alone, no reasons) */
 }
 static void on_pg(const ParGuide *g, void *ud) { if (!P.open || P.closing || (unsigned)(uintptr_t)ud != P.pg.sess) return; if (g) P.pg.g = *g; P.pg.guideIn = 1; fprintf(stderr, "[notice] guide: %d reasons\n", g ? g->n : -1); pg_decide(); }
-static void on_age(const Rating *r, void *ud) { if (!P.open || P.closing || (unsigned)(uintptr_t)ud != P.pg.sess) return; P.pg.certAge = rating_age(r); P.pg.certIn = 1; snprintf(P.pg.cert, sizeof P.pg.cert, "%s", r ? r->rating : ""); P.pg.desc[0] = 0; for (int i = 0; r && i < r->ndesc && i < 3; i++) { size_t l = strlen(P.pg.desc); snprintf(P.pg.desc + l, sizeof P.pg.desc - l, "%s%s", l ? ", " : "", r->desc[i]); } /* (the rating's own reasons, when it gives them) */ fprintf(stderr, "[notice] rating \"%s\" -> age %d\n", r ? r->rating : "", P.pg.certAge); pg_decide(); }
+static void on_age(const Rating *r, void *ud) { if (!P.open || P.closing || (unsigned)(uintptr_t)ud != P.pg.sess) return; P.pg.certAge = rating_age(r); if (prof_kid(-1) && P.pg.certAge > 12) { fprintf(stderr, "[player] Kids profile: %d+ not played\n", P.pg.certAge); toast(T("This title is not for the Kids profile"), 3500, NULL); close_player(0, 0); return; } /* etapa-74 */ P.pg.certIn = 1; snprintf(P.pg.cert, sizeof P.pg.cert, "%s", r ? r->rating : ""); P.pg.desc[0] = 0; for (int i = 0; r && i < r->ndesc && i < 3; i++) { size_t l = strlen(P.pg.desc); snprintf(P.pg.desc + l, sizeof P.pg.desc - l, "%s%s", l ? ", " : "", r->desc[i]); } /* (the rating's own reasons, when it gives them) */ fprintf(stderr, "[notice] rating \"%s\" -> age %d\n", r ? r->rating : "", P.pg.certAge); pg_decide(); }
 static void pg_ask(void) { if (P.pg.asked || P.isTrailer || strncmp(P.id, "tt", 2)) return; P.pg.asked = 1; P.pg.askAt = now_();
   parental_get(P.id, on_pg, (void *)(uintptr_t)P.pg.sess); rating_get(P.type, P.id, on_age, (void *)(uintptr_t)P.pg.sess); }
 /* the page's classes, as targets: each motion goes there with the duration, curve and delay the page gives that state */

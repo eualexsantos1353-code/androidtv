@@ -1122,3 +1122,5 @@ void sb_suggest(const char *q, void (*cb)(ItemList *, char[6][128], int, void *)
 }
 
 cJSON *lib_all(void) { return lib_arr(); } /* etapa-73: the whole library (the Retrospective reads it) */
+
+void sb_account_swapped(void) { lib_invalidate(); adGenOk = 0; } /* etapa-74: another profile's account in */

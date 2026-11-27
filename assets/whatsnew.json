@@ -1,35 +1,30 @@
 {
- "version": "73",
+ "version": "74",
  "items": [
+  {
+   "icon": "set_prof",
+   "title": "Quem está assistindo?",
+   "text": "Perfis com a própria conta Stremio, foto e nome. Aparece ao abrir o Lumen."
+  },
+  {
+   "icon": "av_star",
+   "title": "Perfil Criança",
+   "text": "Início só com filmes, desenhos e séries infantis. Título para maiores de 12 não toca."
+  },
   {
    "icon": "wn_new",
    "title": "Stories",
-   "text": "Bolinhas no topo do Início: episódios novos e lançamentos em tela cheia."
+   "text": "OK numa bolinha abre em tela cheia."
   },
   {
    "icon": "lib_retro",
    "title": "Retrospectiva",
-   "text": "Biblioteca › Retrospectiva: seu ano no Lumen em slides."
-  },
-  {
-   "icon": "lib_wall",
-   "title": "Mural",
-   "text": "Biblioteca › Mural: sua coleção como uma parede de pôsteres."
-  },
-  {
-   "icon": "lib_cal",
-   "title": "Contagem regressiva",
-   "text": "Os pôsteres de episódios que estão chegando mostram um anel com o tempo que falta."
-  },
-  {
-   "icon": "wn_people",
-   "title": "Trailer em tela cheia",
-   "text": "As fileiras descem e o trailer ocupa a tela inteira. O pôster cresce ao abrir um título."
+   "text": "Gênero, ator e as horas de cada mês."
   },
   {
    "icon": "later",
    "title": "Temas",
-   "text": "Aparência › Tema: Azul noite, Vermelho cinema e mais. Em dezembro, neve!"
+   "text": "O tema escolhido na TV agora muda as cores na hora."
   }
  ],
  "support": {
@@ -38,5 +33,5 @@
   "url": "https://ko-fi.com/simussu",
   "github": "https://github.com/stremio-origin/androidtv"
  },
- "note": "Ajustes em Configurações › Aparência."
+ "note": "Perfis: Configurações › Perfis."
 }
