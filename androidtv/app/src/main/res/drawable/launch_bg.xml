@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- etapa-80: what shows while the app starts, before its first frame: the start screen's own colour and its violet glow
+     (it was plain black), so the start screen comes in over the same picture -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item><color android:color="#FF0C0B11" /></item>
+    <item>
+        <shape android:shape="rectangle">
+            <gradient android:type="radial" android:gradientRadius="900dp" android:centerX="0.25" android:centerY="0.2"
+                android:startColor="#552E1B6B" android:endColor="#000C0B11" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <gradient android:type="radial" android:gradientRadius="900dp" android:centerX="0.8" android:centerY="0.85"
+                android:startColor="#443A1E8C" android:endColor="#000C0B11" />
+        </shape>
+    </item>
+</layer-list>

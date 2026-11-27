@@ -90,7 +90,7 @@ static const Opt ACCENT_OPTS[] = { { "logo", "From the logo" }, { "adaptive", "F
 #define NCAT 15
 #define MAXROWS 48
 static Setting profS[2], orgHS[MAXROWS], orgSS[MAXROWS], sfS[6];
-static Setting playBase[17], playS[13], seekS[6], subsS[13], audS[4], lookS[13], langS[44], langOpt, keyS[16], traktS[6], addonS[40], acctS[1], supS[10];
+static Setting playBase[17], playS[13], seekS[6], subsS[13], audS[4], lookS[14], langS[44], langOpt, keyS[16], traktS[6], addonS[40], acctS[1], supS[10];
 static Cat cats[NCAT]; static int ncat; /* (Keys leaves when this build carries every key) */
 static int cat_ix(const Setting *opts) { for (int i = 0; i < ncat; i++) if (cats[i].opts == opts) return i; return -1; }
 static int prof_opts(void); static int org_opts(char area); static int addon_opts(void); static void org_dirty(void);
@@ -261,7 +261,7 @@ static void play_layout(void) {
   if (prev_available()) { seekS[n++] = playBase[10]; /* pictures on the seek bar: only where this app can make them */
     if (strcmp(store_get("seekPreviews", "true"), "false")) seekS[n++] = playBase[11]; } /* (and, while they are on, waiting for them first) */
   set_count(seekS, n);
-  n = 11; lookS[n++] = playBase[3]; if (on) lookS[n++] = playBase[6]; set_count(lookS, n);
+  n = 12; lookS[n++] = playBase[3]; if (on) lookS[n++] = playBase[6]; set_count(lookS, n);
   set_count(traktS, trakt_opts());
   set_count(supS, about_opts());
 }
@@ -328,6 +328,7 @@ static void build(void) {
   set_s(&lookS[3], "spoilers", "Spoilers", "", SPOILO, 3, "off"); /* the episodes not watched yet: their stills blurred, and their descriptions too if asked */
   { static const Opt TH[] = { { "lumen", "Lumen (purple)" }, { "night", "Night blue" }, { "cinema", "Cinema red" }, { "forest", "Forest green" }, { "gold", "Gold" }, { "graphite", "Graphite" } }; /* etapa-73 */
     set_s(&lookS[8], "theme", "Theme", "The page\xe2\x80\x99s colour and an accent that goes with it", TH, 6, "lumen"); }
+  set_s(&lookS[11], "bgMotion", "Living backdrop", "The picture behind Home moves very slowly, as if alive", OO, 2, "true"); /* etapa-79 */
   set_s(&lookS[9], "seasonal", "Seasonal themes", "Snow in December, fireworks at New Year, confetti at Carnival, leaves at Halloween", OO, 2, "true");
   set_s(&lookS[10], "posterFly", "Poster opening", "Opening a title, its poster grows from the card into the page", OO, 2, "true");
   set_s(&lookS[7], "homeReleases", "New releases on Home", "Films out on streaming and new series, most popular first", OO, 2, "true");
@@ -349,7 +350,7 @@ static void build(void) {
     { "Watch", "Seek bar", "set_seek", "Seek step, chapters, previews", NULL, seekS, 4, 0 },
     { "Watch", "Subtitles", "set_subs", "Language, size, font, colour", "subs", subsS, 13, 0 },
     { "Watch", "Audio", "set_aud", "Default audio language, DTS, interface sounds", NULL, audS, 4, 0 },
-    { "Screens", "Appearance", "set_look", "Accent colour, screensaver, clock, trailers", "look", lookS, 11, 0 },
+    { "Screens", "Appearance", "set_look", "Accent colour, screensaver, clock, trailers", "look", lookS, 12, 0 },
     { "Screens", "Language", "set_lang", "The language of the app", NULL, langS, nl, 0 },
     { "Account and system", "Addons", "set_addon", "", NULL, addonS, na, 0 },
     { "Account and system", "Trakt", "set_trakt", "Track what you watch", "trakt", traktS, 1, 0 },

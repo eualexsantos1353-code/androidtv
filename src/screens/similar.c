@@ -16,6 +16,7 @@
 #include "core/net.h"
 #include "core/coll.h"
 #include "core/tmdb.h"
+#include "core/traktsync.h"
 #include "core/debrid.h"
 #include <ctype.h>
 #include "core/addons.h"
@@ -280,9 +281,12 @@ static void cal_more(void) {
       const char *lw = js_str(js_obj(it, "state"), "lastWatched", ""); struct tm tm; memset(&tm, 0, sizeof tm); if (sscanf(lw, "%d-%d-%d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday) != 3) continue;
       tm.tm_year -= 1900; tm.tm_mon--; if (now - timegm(&tm) > 200 * 86400) continue; }
     k++; cxPend++; sb_meta("series", id, on_cal_meta, (void *)(uintptr_t)cxGen); }
+  { static char tids[150][24]; int nt = tsync_shows(tids, 150), kt = 0; /* etapa-80: the shows Trakt follows (its calendar, its watchlist), those not counted above */
+    for (int i = 0; i < nt && kt < 100; i++) { const cJSON *l = lib_get(tids[i]); if (l && !js_bool(l, "removed", 0) && !js_bool(l, "temp", 0)) continue; kt++; k++; cxPend++; sb_meta("series", tids[i], on_cal_meta, (void *)(uintptr_t)cxGen); }
+    if (kt) fprintf(stderr, "[calendar] %d more from Trakt\n", kt); }
   cxAsked = k; fprintf(stderr, "[calendar] asking the episode lists of %d series\n", k); }
-static void cal_enter(void) { memset(&C, 0, sizeof C); G.loadT0 = app_now(); C.day = day_of(time(NULL)); snprintf(G.title, sizeof G.title, "%s", T("Calendar")); cal_more(); cal_load(); }
-static void cal_tick(float dt) { tween_tick(&C.listY, dt); if ((!C.got || G.loading || notify_busy()) && app_now() > C.pollAt) cal_load(); }
+static void cal_enter(void) { tsync_shows_refresh(); memset(&C, 0, sizeof C); G.loadT0 = app_now(); C.day = day_of(time(NULL)); snprintf(G.title, sizeof G.title, "%s", T("Calendar")); cal_more(); cal_load(); }
+static void cal_tick(float dt) { tween_tick(&C.listY, dt); { static double seen; double at = js_num(store_node("traktShows"), "at", 0); if (at != seen) { int first = seen == 0 && !C.got; seen = at; if (!first && at) { cal_more(); } } } /* (Trakt's shows came: asked too) */ if ((!C.got || G.loading || notify_busy()) && app_now() > C.pollAt) cal_load(); }
 static const Item *cal_focused(void) { if (C.zone != 1) return NULL; int f; int n = day_eps(C.day, &f); return n && C.idx < n ? &cl()->items[f + C.idx] : NULL; }
 static int cal_key(int k) {
   int f, n = day_eps(C.day, &f); long d0 = C.day;

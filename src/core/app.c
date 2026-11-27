@@ -785,7 +785,11 @@ void bg_draw(void) {
     uint32_t pg = PAGE & 0x00ffffffu; gfx_rrect_v(0, 809 - 320, SB_W, 190, 0, pg, pg | (120u << 24)); gfx_rrect_v(0, 809 - 130, SB_W, 130, 0, pg | (120u << 24), pg | (235u << 24)); }
   if (under && !app_is_board(SCR)) gfx_rect(0, 0, SB_W, SB_H, col_alpha(PAGE | 0xff000000u, cov)); /* on a page with no backdrop (Settings, Search): its own colour comes over the trailer as it gives way */
   float a = rv * cov; if (a <= 0.001f) return;
-  if (z != 1) gfx_scale_push(z, z, SB_W / 2, SB_H * 0.37f);
+  /* etapa-79: the living backdrop: on Home, Discover and the Library the picture breathes in and drifts very slowly (24 s in, 24 out; 40 s side to side), never under a trailer */
+  int kb = !under && app_is_board(SCR) && strcmp(store_get("bgMotion", "true"), "false"); float kbz = 1, kbx = SB_W / 2;
+  { static float kw; static double kt; float dt = kt ? (float)(NOW - kt) : 0; kt = NOW; if (dt > 0.1f) dt = 0.1f; kw += ((kb ? 1.f : 0.f) - kw) * (dt * 1.5f > 1 ? 1 : dt * 1.5f); /* (in and out smoothly: never a jump when a trailer takes over) */
+    if (kw > 0.001f) { double t = NOW; kbz = 1.0f + kw * 0.04f * (float)(0.5 - 0.5 * cos(t * 6.2832 / 48.0)); kbx = SB_W / 2 + kw * 260 * (float)sin(t * 6.2832 / 80.0); z *= kbz; } }
+  if (z != 1) gfx_scale_push(z, z, kbx, SB_H * 0.37f);
   if (under && btr_hold_gen() && bgGen == btr_hold_gen()) a = 0; /* a key stopped the trailer: its own backdrop never comes back, its last frame stays until the next title's */
   if (a <= 0.001f) { if (z != 1) gfx_scale_pop(); return; }
   if (under && btr_hold_gen()) bg_layer_draw(&bgL[bgTop], a); /* over the trailer's frame: the new one alone, by the cover's fade */

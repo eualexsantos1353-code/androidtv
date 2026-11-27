@@ -13,6 +13,8 @@
 #include "ui/widgets.h"
 #include "ui/season.h"
 #include "screens/splash.h"
+#include "screens/diary.h"
+#include "core/traktsync.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -50,6 +52,11 @@ static void compute(void) {
   { const cJSON *lg = store_node("watchLog"); for (int i = 0; i < 12; i++) { char mk[12]; snprintf(mk, sizeof mk, "%d-%02d", R.year, i + 1); double sec = js_num(lg, mk, 0); if (sec > 600) R.month[i] = sec / 3600.0; } } /* etapa-74: the months as they were watched (from now on) */
   int bg = -1, ba = -1; for (int i = 0; i < ng; i++) if (bg < 0 || gen[i].n > gen[bg].n) bg = i; for (int i = 0; i < na; i++) if (ba < 0 || act[i].n > act[ba].n) ba = i;
   if (bg >= 0) snprintf(R.genre, sizeof R.genre, "%s", gen[bg].s); if (ba >= 0 && act[ba].n >= 2) { snprintf(R.actor, sizeof R.actor, "%s", act[ba].s); R.an = act[ba].n; }
+  { const TsyncYear *y = tsync_year(); if (y && y->ok && y->year == R.year) { /* etapa-80: Trakt's history knows the whole year, every day: it leads */
+      R.hours = y->hours; R.movies = y->movies; R.series = y->series; for (int i = 0; i < 12; i++) if (y->month[i] > R.month[i]) R.month[i] = y->month[i];
+      if (y->showName[0]) { snprintf(R.ts.name, sizeof R.ts.name, "%s", y->showName); snprintf(R.ts.id, sizeof R.ts.id, "%s", y->showId); R.ts.h = y->showH; snprintf(R.ts.poster, sizeof R.ts.poster, "https://images.metahub.space/poster/medium/%s/img", y->showId); snprintf(R.ts.bg, sizeof R.ts.bg, "https://images.metahub.space/background/medium/%s/img", y->showId); }
+      if (y->movieName[0]) { snprintf(R.tm.name, sizeof R.tm.name, "%s", y->movieName); snprintf(R.tm.id, sizeof R.tm.id, "%s", y->movieId); R.tm.h = y->movieH; snprintf(R.tm.poster, sizeof R.tm.poster, "https://images.metahub.space/poster/medium/%s/img", y->movieId); snprintf(R.tm.bg, sizeof R.tm.bg, "https://images.metahub.space/background/medium/%s/img", y->movieId); }
+      if (y->genre[0]) snprintf(R.genre, sizeof R.genre, "%s", y->genre); } }
   fprintf(stderr, "[retro] %d: %.0f h, %d films, %d series\n", R.year, R.hours, R.movies, R.series);
 }
 /* etapa-74: genres and faces need each title's page: the ones not seen yet are asked, the slides follow as they come */
@@ -66,7 +73,7 @@ static Screen scr;
 static void close_(void) { if (!R.open) return; R.closing = 1; tween_to(&R.a, 0, 0.4f, EASE_IN_OUT); if (app_overlay == &scr) app_overlay = NULL; }
 static void go(int d) { int n = R.idx + d; if (n < 0) n = 0; if (n >= NS) { close_(); return; } R.idx = n; R.slideAt = app_now(); tween_set(&R.k, 0); tween_to(&R.k, 1, 0.7f, EASE_OUT); sound_play(SND_TAB); }
 static int key(int k) { if (!R.open || R.closing) return 0; if (k == K_BACK) { close_(); return 1; } if (k == K_RIGHT || k == K_OK || k == K_DOWN) go(1); else if (k == K_LEFT || k == K_UP) go(-1); return 1; }
-static void tick(float dt) { tween_tick(&R.a, dt); tween_tick(&R.k, dt); if (R.closing && R.a.v < 0.01f) { R.open = 0; R.closing = 0; }
+static void tick(float dt) { { static double seen; double at = js_num(store_node("traktYear"), "at", 0); if (at != seen) { seen = at; if (R.open && at) compute(); } } tween_tick(&R.a, dt); tween_tick(&R.k, dt); if (R.closing && R.a.v < 0.01f) { R.open = 0; R.closing = 0; }
   if (R.open && !R.closing && app_now() - R.slideAt > SLIDE_S) go(1); orbs_step(&R.orbs, dt, 0, 1, 1); }
 static void big(const char *s, float y, int px, uint32_t c) { text_draw(s, SB_W / 2, y, px, 800, c, -2, SB_W - 200, ALIGN_CENTER); }
 static void poster(const char *url, float cx, float y, float h, float k) { if (!url[0]) return; float asp = 0; GLuint t = img_get(url, (int)(h * 2 / 3), (int)h, &asp); if (!t) return; float w = h * 2 / 3, s = 0.9f + 0.1f * k;
@@ -86,6 +93,7 @@ static void draw(void) {
     case 1: { double sh = R.hours * fmin(1, (app_now() - R.slideAt) / 2.0); snprintf(n, sizeof n, "%.0f", sh); text_draw(T("You watched"), SB_W / 2, 250, 40, 600, WHITE_A(210), 0, 0, ALIGN_CENTER); big(n, 330, 220, acc);
       text_draw(T("hours of films and series"), SB_W / 2, 600, 44, 700, WHITE_A(240), 0, 0, ALIGN_CENTER);
       char m[16], s2[16]; snprintf(m, sizeof m, "%d", R.movies); snprintf(s2, sizeof s2, "%d", R.series); snprintf(b, sizeof b, "%s  \xc2\xb7  %s", T1("{n} films", "n", m), T1("{n} series", "n", s2)); text_draw(b, SB_W / 2, 690, 34, 500, WHITE_A(200), 0, 0, ALIGN_CENTER);
+      { int dn; double da; if (diary_stats(R.year, &dn, &da) > 0) { char d1[16], d2[16]; snprintf(d1, sizeof d1, "%d", dn); snprintf(d2, sizeof d2, "%.1f", da); text_draw(T2("{n} films in your diary, {a} stars on average", "n", d1, "a", d2), SB_W / 2, 820, 28, 600, RGB(0xf5, 0xb0, 0x3b), 0, 0, ALIGN_CENTER); } } /* etapa-79 */
       { double days = R.hours / 24; if (days >= 1) { char d[16]; snprintf(d, sizeof d, "%.1f", days); text_draw(T1("That is {n} days in a row in front of the TV", "n", d), SB_W / 2, 760, 28, 500, WHITE_A(160), 0, 0, ALIGN_CENTER); } } break; }
     case 2: case 3: { const Top *tp = R.idx == 2 ? &R.ts : &R.tm; text_draw(T(R.idx == 2 ? "Your series of the year" : "Your film of the year"), SB_W / 2, 140, 40, 700, acc, 1, 0, ALIGN_CENTER);
       if (!tp->name[0]) { big(T("None this year"), 460, 64, WHITE_A(220)); break; } poster(tp->poster, SB_W / 2, 220, 560, k); big(tp->name, 810, 56, WHITE_A(255));
@@ -106,6 +114,6 @@ static void draw(void) {
 }
 static Screen scr = { NULL, NULL, key, tick, draw, NULL, NULL, NULL, NULL, NULL };
 void retro_open(void) {
-  compute(); ask_metas(); R.open = 1; R.closing = 0; R.idx = 0; R.slideAt = app_now(); tween_set(&R.a, 0); tween_to(&R.a, 1, 0.5f, EASE_OUT); tween_set(&R.k, 0); tween_to(&R.k, 1, 0.8f, EASE_OUT);
+  compute(); ask_metas(); tsync_retro_refresh(R.year); R.open = 1; R.closing = 0; R.idx = 0; R.slideAt = app_now(); tween_set(&R.a, 0); tween_to(&R.a, 1, 0.5f, EASE_OUT); tween_set(&R.k, 0); tween_to(&R.k, 1, 0.8f, EASE_OUT);
   orbs_place(&R.orbs, 0, 1.6f); app_overlay_keep(&scr); app_overlay = &scr; sound_play(SND_TAB);
 }

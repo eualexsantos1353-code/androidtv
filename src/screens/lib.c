@@ -4,6 +4,7 @@
    order), and a grid of large posters under them, the focused row on top. */
 #include "screens/retro.h"
 #include "screens/mural.h"
+#include "screens/diary.h"
 #include "screens/board.h"
 #include "screens/btrailer.h"
 #include "screens/lib.h"
@@ -27,9 +28,10 @@
 #include <stddef.h>
 
 #define NF 7
-#define NB (NF + 3)          /* the categories, the Calendar, then the sort */
+#define NB (NF + 4)          /* the categories, the Calendar, then the sort */
 #define B_CAL NF
 #define B_WALL (NF + 1) /* etapa-73: the Wall */
+#define B_DIARY (NF + 2) /* etapa-79: the film diary */
 #define COLS 5
 #define MAXSHOW 200
 #define LW 300.0f            /* the posters */
@@ -143,6 +145,7 @@ static void rail_labels(void) {
     if (i < NF) { snprintf(L.lbl[i], sizeof L.lbl[i], "%s", T(F_LB[i])); L.lw[i] = text_width(L.lbl[i], 26, 600, 0) + 12 + text_width(L.cnt[i], 26, 600, 0) + 26; }
     else if (i == B_CAL) { snprintf(L.lbl[i], sizeof L.lbl[i], "%s", T("Your year")); L.lw[i] = text_width(L.lbl[i], 26, 600, 0) + 26; }
     else if (i == B_WALL) { snprintf(L.lbl[i], sizeof L.lbl[i], "%s", T("Wall")); L.lw[i] = text_width(L.lbl[i], 26, 600, 0) + 26; }
+    else if (i == B_DIARY) { snprintf(L.lbl[i], sizeof L.lbl[i], "%s", T("Diary")); L.lw[i] = text_width(L.lbl[i], 26, 600, 0) + 26; }
     else { snprintf(L.lbl[i], sizeof L.lbl[i], "%s", T(S_LB[sort_key()])); L.lw[i] = text_width(L.lbl[i], 26, 600, 0) + 16 + 3 * 13 + 22 + 26; } } /* (and its four dots, the current one a short pill) */
 }
 static int is_open(int i) { int fi = L.zone == 0 ? L.ri : -1; return i == fi || i == L.tab || i == NB - 1; }
@@ -150,7 +153,7 @@ static float btn_w(int i) { return is_open(i) ? 76 + L.lw[i] : 76; }
 static void rail_paint(int snap) {
   rail_labels(); float x = 0; int fi = L.zone == 0 ? L.ri : -1; /* the bar taking the focus leaves the pill where it was, as the page does */
   float px[NB], pw[NB];
-  for (int i = 0; i < NB; i++) { float w = btn_w(i); if (i == B_CAL) x = SB_W - 2 * RAIL_X - btn_w(NB - 1) - 16 - btn_w(B_WALL) - 16 - w; /* the Calendar and the order sit apart at the far end: they do not filter */ px[i] = x; pw[i] = w;
+  for (int i = 0; i < NB; i++) { float w = btn_w(i); if (i == B_CAL) x = SB_W - 2 * RAIL_X - btn_w(NB - 1) - 16 - btn_w(B_WALL) - 16 - btn_w(B_DIARY) - 16 - w; /* the Calendar and the order sit apart at the far end: they do not filter */ px[i] = x; pw[i] = w;
     if (snap || !L.laid) { tween_set(&L.bx[i], x); tween_set(&L.bw[i], w); } else { tween_to(&L.bx[i], x, GLIDE_DUR, GLIDE_EASE); tween_to(&L.bw[i], w, GLIDE_DUR, GLIDE_EASE); }
     tween_to(&L.la[i], is_open(i) ? 1 : 0, snap ? 0 : 0.18f, EASE_IN_OUT); if (snap || !L.laid) tween_set(&L.la[i], is_open(i) ? 1 : 0);
     x += w + 16; }
@@ -266,6 +269,7 @@ static int key(int k) {
     if (L.ri != r0) sound_play(SND_FILTER); /* the filters' own tap */
     if ((k == K_RIGHT || k == K_LEFT) && L.ri < NF && L.ri != L.tab) { L.tab = L.ri; L.idx = 0; render(); } /* a filter applies as the focus lands on it */
     else if (k == K_UP) { topnav_focus(); rail_paint(0); return 1; }
+    else if (k == K_OK && L.ri == B_DIARY) { timer_start(&L.press, 0.25f); static Item dv[300]; int n = diary_items(dv, 300); if (n) mural_open(dv, n, 0); else toast(T("Your diary is empty: finish a film and give it stars"), 3000, NULL); return 1; }
     else if (k == K_OK && L.ri == B_WALL) { timer_start(&L.press, 0.25f); Item *v = malloc((size_t)(L.n ? L.n : 1) * sizeof(Item)); if (v) { for (int i = 0; i < L.n; i++) v[i] = at(i)->it; mural_open(v, L.n, L.zone == 1 ? L.idx : 0); free(v); } return 1; }
     else if (k == K_OK && L.ri == B_CAL) { timer_start(&L.press, 0.25f); retro_open(); return 1; } /* etapa-73: the Calendar is up by the clock now: here, your year */
     else if (k == K_OK && L.ri == NB - 1) { int si = (sort_key() + 1) % 4; store_set("libSort", S_KEY[si]); sound_play(SND_FILTER); L.idx = 0; timer_start(&L.press, 0.25f); render(); paint(); return 1; } /* OK on the sort: the next order */
@@ -354,12 +358,12 @@ static void draw(void) {
     hit_add(x, RAIL_Y, w, 76, rail_focus, NULL, i, 0);
     if (!open && L.la[i].v < 0.999f) gfx_circle(rtl ? x + w - 38 : x + 38, RAIL_Y + 38, 38, WHITE_A((int)(41 * (1 - L.la[i].v)))); /* a closed button: its own quiet disc */
     uint32_t fg = f ? RGB(0x15, 0x13, 0x1c) : WHITE_A(255);
-    icon_draw(i < NF ? F_IC[i] : i == B_CAL ? "lib_retro" : i == B_WALL ? "lib_wall" : "lib_sort", (rtl ? x + w - 21 - 34 : x + 21) + bxn, RAIL_Y + 21 + byn, 34, fg);
+    icon_draw(i < NF ? F_IC[i] : i == B_CAL ? "lib_retro" : i == B_WALL ? "lib_wall" : i == B_DIARY ? "av_star" : "lib_sort", (rtl ? x + w - 21 - 34 : x + 21) + bxn, RAIL_Y + 21 + byn, 34, fg);
     float ok = L.lw[i] > 1 ? (w - 76) / L.lw[i] : 0; ok = ok < 0 ? 0 : ok > 1 ? 1 : ok; /* the name shows as far as the pill has opened: never ahead of it */
     float la = L.la[i].v < ok * ok ? L.la[i].v : ok * ok; if (la > 0.001f) { gfx_opacity_push(la); gfx_clip_push(x, RAIL_Y, w - 18, 76); /* the name shows as the pill widens */ float tx = (rtl ? x + w - 66 : x + 66) + bxn, ty = RAIL_Y + 38 - text_line_height(26) / 2.0f + byn;
       float tw = text_draw(L.lbl[i], tx, ty, 26, 600, fg, 0, 0, al);
       if (i < NF) text_draw(L.cnt[i], rtl ? tx - tw - 12 : tx + tw + 12, ty, 26, 600, col_alpha(fg, 0.6f), 0, 0, al);
-      else if (i == B_CAL || i == B_WALL) { }
+      else if (i == B_CAL || i == B_WALL || i == B_DIARY) { }
       else { /* the sort's orders as dots, the current one lit; a press moves the light to the next */
         float d0 = rtl ? tx - tw - 16 - 5 : tx + tw + 16 + 5, cy = RAIL_Y + 38 + byn, dir = rtl ? -1 : 1; tween_to(&L.sortDot, (float)sort_key(), GLIDE_DUR, GLIDE_EASE);
         /* the current order a short pill, the others dots; the pill flows from one into the next as it changes */

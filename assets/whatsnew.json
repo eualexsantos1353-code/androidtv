@@ -1,30 +1,30 @@
 {
- "version": "74",
+ "version": "80",
  "items": [
   {
-   "icon": "set_prof",
-   "title": "Quem está assistindo?",
-   "text": "Perfis com a própria conta Stremio, foto e nome. Aparece ao abrir o Lumen."
-  },
-  {
-   "icon": "av_star",
-   "title": "Perfil Criança",
-   "text": "Início só com filmes, desenhos e séries infantis. Título para maiores de 12 não toca."
-  },
-  {
-   "icon": "wn_new",
-   "title": "Stories",
-   "text": "OK numa bolinha abre em tela cheia."
+   "icon": "lib_cal",
+   "title": "Calendário com o Trakt",
+   "text": "As séries que você segue no Trakt (e as que vão estrear nas suas listas) aparecem no calendário."
   },
   {
    "icon": "lib_retro",
-   "title": "Retrospectiva",
-   "text": "Gênero, ator e as horas de cada mês."
+   "title": "Retrospectiva com o Trakt",
+   "text": "Horas, séries, filmes e gênero do ano inteiro, tirados do seu histórico no Trakt."
+  },
+  {
+   "icon": "wn_new",
+   "title": "Créditos inteligentes",
+   "text": "Perto do fim, o Lumen avisa se tem cena durante ou depois dos créditos."
+  },
+  {
+   "icon": "av_star",
+   "title": "Diário de filmes",
+   "text": "Terminou um filme? Dê estrelas. Veja em Biblioteca › Diário."
   },
   {
    "icon": "later",
-   "title": "Temas",
-   "text": "O tema escolhido na TV agora muda as cores na hora."
+   "title": "Fundo animado e abertura",
+   "text": "A imagem do Início se mexe devagar, e a tela preta ao abrir o app sumiu."
   }
  ],
  "support": {
@@ -33,5 +33,5 @@
   "url": "https://ko-fi.com/simussu",
   "github": "https://github.com/stremio-origin/androidtv"
  },
- "note": "Perfis: Configurações › Perfis."
+ "note": "O Trakt precisa estar conectado em Configurações › Trakt."
 }

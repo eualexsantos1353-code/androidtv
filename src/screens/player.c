@@ -44,6 +44,7 @@
 #include "core/best.h"
 #include "core/trailer.h"
 #include "core/tmdb.h"
+#include "screens/diary.h"
 #include "core/audorig.h"
 #include "core/parental.h"
 #include "ui/glass.h"
@@ -2013,6 +2014,16 @@ static void xr_draw(void) {
 /* ---- etapa-72: Lumen's intro before a film, "Still watching?" after a run of episodes nobody touched the remote
    through, and "Where you left off" (the episode before, in a few lines) as a series starts ---- */
 static struct { int run, ask; double askAt; double introAt; int recapWant, recapOn; double recapAt; char recapT[200], recap[900]; int recapLines; Tween introA, recapA, askA; } LX;
+/* etapa-79: smart credits: TMDB's keywords say whether a film has a scene during or after its credits; near the end a card says to stay */
+static struct { unsigned tok; int sting, shown; double at; Tween a; char id[SB_ID]; } ST;
+static void on_kw(int st, const unsigned char *b, size_t len, void *ud) { (void)len; if ((unsigned)(uintptr_t)ud != ST.tok) return; cJSON *j = st == 200 ? net_json(b) : NULL; const cJSON *k;
+  cJSON_ArrayForEach(k, js_arr(j, "keywords")) { int id = (int)js_num(k, "id", 0); const char *nm = js_str(k, "name", ""); if (id == 179430 || strstr(nm, "duringcreditsstinger")) ST.sting |= 1; if (id == 179431 || strstr(nm, "aftercreditsstinger")) ST.sting |= 2; }
+  if (ST.sting) fprintf(stderr, "[credits] %s has a scene %s the credits\n", ST.id, ST.sting & 1 ? "during" : "after"); net_json_free(j); }
+static void on_find(int st, const unsigned char *b, size_t len, void *ud) { (void)len; if ((unsigned)(uintptr_t)ud != ST.tok) return; cJSON *j = st == 200 ? net_json(b) : NULL;
+  int tm = (int)js_num(cJSON_GetArrayItem(js_arr(j, "movie_results"), 0), "id", 0); net_json_free(j); if (!tm) return; char p[64]; snprintf(p, sizeof p, "/movie/%d/keywords", tm); tmdb_request(p, on_kw, (void *)(uintptr_t)ST.tok); }
+static void sting_ask(void) { ST.tok++; ST.sting = 0; ST.shown = 0; tween_set(&ST.a, 0); snprintf(ST.id, sizeof ST.id, "%s", P.id);
+  if (P.live || strcmp(P.type, "movie") || strncmp(P.id, "tt", 2) || !tmdb_has_key() || !strcmp(store_get("creditsHint", "true"), "false")) return;
+  char p[80]; snprintf(p, sizeof p, "/find/%s?external_source=imdb_id", P.id); tmdb_request(p, on_find, (void *)(uintptr_t)ST.tok); }
 static int lx_limit(void) { return atoi(store_get("stillWatching", "2")); } /* episodes played by themselves before it asks (0: never) */
 /* the moment a next episode would start by itself: 1 = it asks instead (the film paused under the card) */
 static int lx_gate(void) {
@@ -2022,6 +2033,7 @@ static int lx_gate(void) {
   if (!paused() && !P.ended) video_pause(); fprintf(stderr, "[player] still watching? (%d episodes by themselves)\n", LX.run); return 1; }
 static void lx_begin(int again) {
   if (!again) { LX.run = 0; LX.ask = 0; LX.introAt = strcmp(store_get("playerIntro", "true"), "false") && !P.live ? now_() : 0; }
+  sting_ask();
   LX.recapOn = 0; LX.recapWant = !again && !P.live && !strcmp(P.type, "series") && (P.episode > 1 || P.season > 1) && strcmp(store_get("recapCard", "true"), "false");
 }
 /* the episode before this one: its name and what happened (TMDB in the app's language, else the meta's) */
@@ -2038,6 +2050,9 @@ static int lx_recap_fill(void) {
   snprintf(LX.recapT, sizeof LX.recapT, "%s%s%s", se, *nm ? "  \xe2\x80\x94  " : "", nm); snprintf(LX.recap, sizeof LX.recap, "%s", ov);
   LX.recapLines = text_wrap_count(LX.recap, 760, 4, 26, 400, 0); return 1; }
 static void lx_tick(float dt) {
+  tween_tick(&ST.a, dt);
+  if (ST.sting && !ST.shown) { double d = video_duration(), t = video_time(), left = d - t, at = d * 0.06 > 360 ? d * 0.06 : 360; if (d > 1200 && t > 60 && left > 0 && left <= at && video_state() == VID_PLAYING) { ST.shown = 1; ST.at = now_(); tween_to(&ST.a, 1, 0.5f, EASE_OUT); fprintf(stderr, "[credits] the card: stay for the scene\n"); } }
+  if (ST.shown == 1 && now_() - ST.at > 12) { ST.shown = 2; tween_to(&ST.a, 0, 0.6f, EASE_IN_OUT); }
   { static float acc; if (video_state() == VID_PLAYING && !P.live) acc += dt; /* etapa-74: time watched per month, for the Retrospective */
     if (acc >= 60) { time_t t = time(NULL); struct tm tm; localtime_r(&t, &tm); char mk[12]; snprintf(mk, sizeof mk, "%d-%02d", tm.tm_year + 1900, tm.tm_mon + 1);
       cJSON *o = cJSON_Duplicate(store_node("watchLog"), 1); if (!cJSON_IsObject(o)) { cJSON_Delete(o); o = cJSON_CreateObject(); }
@@ -2049,6 +2064,11 @@ static void lx_tick(float dt) {
   if (LX.ask && now_() - LX.askAt > 20 * 60) { LX.ask = 0; fprintf(stderr, "[player] still watching? no answer in 20 min: closed\n"); close_player(0, 0); } /* (asleep: the TV rests) */
 }
 static void lx_draw(void) {
+  if (ST.a.v > 0.01f) { float a = ST.a.v, w = 640, h = 130, x = SB_W - w - 64, y = 70 - 20 * (1 - a); gfx_opacity_push(a);
+    gfx_shadow(x, y + 16, w, h, 30, 50, BLACK_A(130)); gfx_rrect(x, y, w, h, 30, RGBA(14, 12, 22, 225)); gfx_ring(x, y, w, h, 30, 2, col_alpha(ACC2 | 0xff000000u, 0.7f));
+    icon_draw("wn_new", x + 30, y + 35, 60, ACC2 | 0xff000000u);
+    text_draw(T(ST.sting & 1 ? "There's a scene during the credits" : "There's a scene after the credits"), x + 110, y + 28, 28, 800, WHITE_A(250), 0, w - 140, ALIGN_LEFT);
+    text_draw(T("Stay until the end!"), x + 110, y + 72, 24, 500, WHITE_A(200), 0, w - 140, ALIGN_LEFT); gfx_opacity_pop(); }
   if (LX.introAt) { double t = now_() - LX.introAt; if (t > 2.6) LX.introAt = 0;
     else { float a = t < 2.0 ? 1 : (float)(1 - (t - 2.0) / 0.6); gfx_opacity_push(a); gfx_rect(0, 0, SB_W, SB_H, RGB(0x0b, 0x09, 0x12)); lumen_mark_draw(SB_W / 2, SB_H / 2 - 40, 110, (float)t * 0.9f, 1); gfx_opacity_pop(); } }
   float ra = LX.recapA.v; if (ra > 0.01f && LX.recap[0]) { float w = 840, h = 46 + 44 + LX.recapLines * 36 + 40, x = 72, y = SB_H - 150 - h + 14 * (1 - ra);
@@ -2470,10 +2490,12 @@ int player_cast_state(double *pos, double *du, char *title, int cap) {
   *pos = video_time(); *du = dur();
   return vs == VID_ENDED ? 4 : vs == VID_ERROR ? 5 : paused() ? 3 : vs == VID_LOADING || vs == VID_BUFFERING ? 1 : 2;
 }
-static void finish_close(void) { if (hub_on() && hub_player_mode()) hub_close(); /* (one from Home stays: it is the page) */ { extern void detail_refresh_watched(void); detail_refresh_watched(); } /* the title page under it: its ticks as they are now */ sync_stop(0); gfx_target_free(&handSnap); mo_set(&handA, 0); if (!keepVideo) video_unload(); keepVideo = 0; /* (back into its preview: it plays on there) */ asssubs_close(); if (mkv) { prevspike_stop(); sp_close(); mkv_close(mkv); mkv = NULL; } p2p_player_closed(); p2pTok++; metaTok++; P.open = 0; P.closing = 0; if (P.meta) cJSON_Delete(P.meta); P.meta = NULL; subs_free(P.cues, P.ncues); free(P.ext); free(P.adx); srcs_free(); cols_clear(); memset(&P, 0, sizeof P); sub_reset(); free(extAss); extAss = NULL; app_refresh_boards(); }
+static int diaryWant; static Item diaryIt;
+static void finish_close(void) { if (diaryWant) { diaryWant = 0; diary_ask(&diaryIt); } if (hub_on() && hub_player_mode()) hub_close(); /* (one from Home stays: it is the page) */ { extern void detail_refresh_watched(void); detail_refresh_watched(); } /* the title page under it: its ticks as they are now */ sync_stop(0); gfx_target_free(&handSnap); mo_set(&handA, 0); if (!keepVideo) video_unload(); keepVideo = 0; /* (back into its preview: it plays on there) */ asssubs_close(); if (mkv) { prevspike_stop(); sp_close(); mkv_close(mkv); mkv = NULL; } p2p_player_closed(); p2pTok++; metaTok++; P.open = 0; P.closing = 0; if (P.meta) cJSON_Delete(P.meta); P.meta = NULL; subs_free(P.cues, P.ncues); free(P.ext); free(P.adx); srcs_free(); cols_clear(); memset(&P, 0, sizeof P); sub_reset(); free(extAss); extAss = NULL; app_refresh_boards(); }
 static int closeNext, closeSim, closeArt; static double closeAt, closeT0; /* closeArt: closed on the loading screen (its line and words fade as the logo flies back) */
 static void close_player(int goNext, int goSim) {
   if (!P.open || P.closing) return; multi_stop(); if (bestTok) { best_choose_cancel(bestTok); bestTok = 0; } P.closing = 1; ps_hold(0); sp_verify_reset(); np_stop(); NP.vid[0] = 0; /* (the next episode's pictures made so far: kept) */ /* (a lighter copy not taken yet: it reads on freely, nothing plays) */ closeArt = !P.live && P.artA.v > 0.999f; closeT0 = now_(); sx_begin_quick(0); /* the player's logo moves back to the page */ closeNext = goNext; closeSim = goSim; P.ssOn = 0; P.nx.tok = 0; P.sk.tok = 0;
+  { double d = dur(), t = video_time(); if (!P.live && !P.isTrailer && !strcmp(P.type, "movie") && d > 1200 && (P.ended || t / d >= 0.85)) { Item it = lib_item(); diaryWant = 1; diaryIt = it; } } /* etapa-79: the diary asks, once the player has gone */
   scrobble_player_end(video_time(), dur(), 0); tracking_player_end(video_time(), dur()); save_progress(1); video_pause(); /* (Test playback: nothing told, nothing kept) */
   /* the title's own picture fades back over the paused frame, the video goes, then the cover fades onto the app */
   closeAt = now_() + (closeArt ? 0.01 : 0.26); /* the cover fades back over the paused frame (see css()); from the loading screen the art fades at once, under the logo on its way back */

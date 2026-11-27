@@ -162,7 +162,7 @@ static void board_roleta_row(Board *b) {
   Row *r = row_add(b, "Roulette", 1, 0); if (r) { r->items = l; r->hidden = 0; } else itemlist_clear(&l);
 }
 static void board_cw_row(Board *b, const KeptRow *kp, int nk) {
-  if (b->kind == 0 && strcmp(store_get("homeStories", "true"), "false")) { /* etapa-73: Stories: new episodes of yours, then the week's releases */
+  if (b->kind == 0 && !strcmp(store_get("homeStories", "false"), "true")) { /* etapa-78: off (not wanted) */ /* etapa-73: Stories: new episodes of yours, then the week's releases */
     ItemList fr, rl, st; memset(&st, 0, sizeof st); notify_fresh(&fr); releases_items(&rl); st.items = calloc((size_t)(fr.n + rl.n + 1), sizeof(Item));
     if (st.items) { for (int i = 0; i < fr.n && st.n < 10; i++) st.items[st.n++] = fr.items[i]; for (int i = 0; i < rl.n && st.n < 16; i++) st.items[st.n++] = rl.items[i]; }
     itemlist_clear(&fr); itemlist_clear(&rl);
@@ -952,15 +952,10 @@ static float move_x(Row *r, int i, float x, float step, float *fa) {
 /* etapa-73: a story's ring, as on Instagram: the accent turning into pink while unseen, grey once seen */
 /* etapa-73: depth on the focused poster: a soft light that sweeps across it the way the focus came, and a glass sheen on top */
 static void poster_light(const Row *r, float x, float y, float w, float h) {
-  if (r->round || !strcmp(store_get("posterDepth", "true"), "false")) return;
+  if (r->round || r->wide || !strcmp(store_get("posterDepth", "true"), "false")) return; /* (posters only) */
   static const Row *lr; static int lc = -1; static double t0; static int dir = 1;
   if (lr != r || lc != r->col) { dir = lr == r && r->col < lc ? -1 : 1; lr = r; lc = r->col; t0 = app_now(); }
   float t = (float)(app_now() - t0) / 0.7f;
-  /* etapa-75: depth: the picture drifts inside its frame the way the focus came and settles, then floats gently (a camera, not the card) */
-  { const Item *it = &r->items.items[r->col]; char src[512]; sb_poster_of(it, src, sizeof src); float asp = 0; GLuint tx = src[0] ? img_get(src, (int)w, (int)h, &asp) : 0;
-    if (tx && gfx_tex_fade(tx) >= 1) { float st = t > 1 ? 1 : t, e = 1 - ease_apply(EASE_CSS_EASEOUT, st), ph = (float)(app_now() - t0);
-      float dx = dir * 0.045f * e + 0.010f * sinf(ph * 0.7f), dy = 0.008f * sinf(ph * 0.5f + 1.3f), m = 0.06f;
-      gfx_image(tx, x, y, w, h, CARD_R, WHITE_A(255), m + dx, m + dy, 1 - m + dx, 1 - m + dy); } }
   gfx_clip_push(x, y, w, h);
   gfx_rrect_v(x, y, w, h * 0.42f, CARD_R, WHITE_A(34), WHITE_A(0));
   if (t < 1) { float e = ease_apply(EASE_CSS_EASEOUT, t), gx = dir > 0 ? x - w * 0.3f + w * 1.6f * e : x + w * 1.3f - w * 1.6f * e, a = sinf(3.1416f * t);
