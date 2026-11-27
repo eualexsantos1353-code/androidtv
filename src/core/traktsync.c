@@ -1,5 +1,6 @@
 #include "core/traktsync.h"
 #include "core/scrobble.h"
+#include "core/trakt.h"
 #include "core/store.h"
 #include "core/json.h"
 #include "core/net.h"
@@ -96,7 +97,9 @@ static void on_wl(int st, const unsigned char *b, size_t len, void *ud) {
     snprintf(it.poster, sizeof it.poster, "https://images.metahub.space/poster/medium/%s/img", im); snprintf(it.background, sizeof it.background, "https://images.metahub.space/background/medium/%s/img", im);
     importing = 1; lib_toggle(&it); importing = 0; n++; }
   net_json_free(j); if (n) { fprintf(stderr, "[trakt] %d from the watchlist into the Library\n", n); board_invalidate(); } }
+static void fresh_refresh(void);
 void tsync_tick(void) {
+  if (prof_cur() == 0 && scrobble_state() == TRAKT_LINKED && app_splash_done && sb_signed_in()) fresh_refresh();
   if (pulling || prof_cur() != 0 || scrobble_state() != TRAKT_LINKED || !app_splash_done || !sb_signed_in() || !strcmp(store_get("traktLibrary", "true"), "false")) return;
   if (pullAt && app_now() - pullAt < 3 * 3600) return; pullAt = app_now();
   if (scrobble_get("/sync/watchlist/movies", on_wl, (void *)(uintptr_t)0)) pulling++; if (scrobble_get("/sync/watchlist/shows", on_wl, (void *)(uintptr_t)1)) pulling++;
@@ -107,3 +110,35 @@ void tsync_lib_push(const char *type, const char *id, const char *action) {
   seen_add(id); cJSON *body = cJSON_CreateObject(), *arr = cJSON_AddArrayToObject(body, type && !strcmp(type, "series") ? "shows" : "movies"), *o = cJSON_CreateObject(), *ids = cJSON_AddObjectToObject(o, "ids");
   cJSON_AddStringToObject(ids, "imdb", id); cJSON_AddItemToArray(arr, o);
   scrobble_post(add ? "/sync/watchlist" : "/sync/watchlist/remove", body, NULL, NULL); fprintf(stderr, "[trakt] watchlist: %s %s\n", add ? "added" : "removed", id); }
+
+/* ---- etapa-82: "New episodes" from Trakt's progress: a show watched in the last year (anywhere: other apps, the
+   phone) whose latest episode came out in the last 3 weeks and isn't watched yet; kept as "traktFresh" (3 h) ---- */
+typedef struct { char id[24], slug[96], name[160]; int s, e, wantLast; double aired; } Fr;
+static Fr *fr; static int nfr, frPend; static unsigned frGen; static double frAt;
+static double iso_t(const char *s) { struct tm tm; memset(&tm, 0, sizeof tm); int hh = 0, mi = 0; if (sscanf(s, "%d-%d-%dT%d:%d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday, &hh, &mi) < 3) return 0; tm.tm_year -= 1900; tm.tm_mon--; tm.tm_hour = hh; tm.tm_min = mi; return (double)timegm(&tm); }
+static void fr_done(void) { if (--frPend > 0) return; cJSON *a = cJSON_CreateArray(); int n = 0;
+  for (int i = 0; i < nfr; i++) if (fr[i].aired > 0 && fr[i].s > 0) { cJSON *o = cJSON_CreateObject(); cJSON_AddStringToObject(o, "id", fr[i].id); cJSON_AddStringToObject(o, "name", fr[i].name); cJSON_AddNumberToObject(o, "s", fr[i].s); cJSON_AddNumberToObject(o, "e", fr[i].e); cJSON_AddNumberToObject(o, "aired", fr[i].aired); cJSON_AddItemToArray(a, o); n++; }
+  cJSON *o = cJSON_CreateObject(); cJSON_AddNumberToObject(o, "at", (double)time(NULL)); cJSON_AddItemToObject(o, "shows", a); store_set_node("traktFresh", o); fprintf(stderr, "[trakt] %d shows with a new episode\n", n); board_invalidate(); }
+static void on_last(int st, const unsigned char *b, size_t len, void *ud) { (void)len; unsigned g = (unsigned)((uintptr_t)ud >> 8); int i = (int)((uintptr_t)ud & 0xff); if (g != (frGen & 0xffffff)) return;
+  cJSON *j = st == 200 ? net_json(b) : NULL; double t = iso_t(js_str(j, "first_aired", "")); if (!(t > 0 && t > (double)time(NULL) - 21 * 86400.0)) fr[i].aired = 0; else fr[i].aired = t; net_json_free(j); fr_done(); }
+static void on_prog(int st, const unsigned char *b, size_t len, void *ud) { (void)len; unsigned g = (unsigned)((uintptr_t)ud >> 8); int i = (int)((uintptr_t)ud & 0xff); if (g != (frGen & 0xffffff)) return;
+  cJSON *j = st == 200 ? net_json(b) : NULL; int aired = (int)js_num(j, "aired", 0), done = (int)js_num(j, "completed", 0); const cJSON *nx = js_obj(j, "next_episode");
+  if (aired > done && nx) { fr[i].s = (int)js_num(nx, "season", 0); fr[i].e = (int)js_num(nx, "number", 0); char p[160]; snprintf(p, sizeof p, "/shows/%s/last_episode?extended=full", fr[i].slug);
+    net_json_free(j); if (fr[i].s > 0 && trakt_request(p, on_last, ud)) return; fr[i].s = 0; fr_done(); return; }
+  net_json_free(j); fr_done(); }
+static void on_watched(int st, const unsigned char *b, size_t len, void *ud) {
+  (void)len; if ((unsigned)(uintptr_t)ud != frGen) return; cJSON *j = st == 200 ? net_json(b) : NULL; const cJSON *e; double cut = (double)time(NULL) - 365 * 86400.0;
+  free(fr); fr = calloc(48, sizeof *fr); nfr = 0; frPend = 1;
+  cJSON_ArrayForEach(e, j) { if (nfr >= 48 || !fr) break; if (iso_t(js_str(e, "last_watched_at", "")) < cut) continue; const cJSON *sh = js_obj(e, "show"), *ids = js_obj(sh, "ids"); const char *im = js_str(ids, "imdb", ""), *sl = js_str(ids, "slug", "");
+    if (!*im || !*sl) continue; int soap = 0; { const cJSON *g; cJSON_ArrayForEach(g, js_arr(sh, "genres")) if (cJSON_IsString(g) && !strcmp(g->valuestring, "soap")) soap = 1; } if (soap) continue;
+    Fr *f = &fr[nfr]; snprintf(f->id, sizeof f->id, "%s", im); snprintf(f->slug, sizeof f->slug, "%s", sl); snprintf(f->name, sizeof f->name, "%s", js_str(sh, "title", "")); char p[160];
+    snprintf(p, sizeof p, "/shows/%s/progress/watched?hidden=false&specials=false", sl); if (scrobble_get(p, on_prog, (void *)(uintptr_t)(((frGen & 0xffffff) << 8) | (unsigned)nfr))) { frPend++; nfr++; } }
+  net_json_free(j); fr_done(); }
+static void fresh_refresh(void) { if (frPend > 0) return; const cJSON *o = store_node("traktFresh"); if (o && time(NULL) - js_num(o, "at", 0) < 3 * 3600) return; if (frAt && app_now() - frAt < 600) return; frAt = app_now();
+  frGen++; if (!scrobble_get("/sync/watched/shows?extended=noseasons", on_watched, (void *)(uintptr_t)frGen)) frAt = 0; }
+int tsync_fresh(Item *out, int max) { const cJSON *e; int n = 0;
+  cJSON_ArrayForEach(e, js_arr(store_node("traktFresh"), "shows")) { if (n >= max) break; Item *it = &out[n++]; memset(it, 0, sizeof *it); const char *im = js_str(e, "id", "");
+    snprintf(it->id, sizeof it->id, "%s", im); snprintf(it->type, sizeof it->type, "series"); snprintf(it->name, sizeof it->name, "%s", js_str(e, "name", ""));
+    snprintf(it->poster, sizeof it->poster, "https://images.metahub.space/poster/medium/%s/img", im); snprintf(it->background, sizeof it->background, "https://images.metahub.space/background/medium/%s/img", im);
+    snprintf(it->videoId, sizeof it->videoId, "%s:%d:%d", im, (int)js_num(e, "s", 0), (int)js_num(e, "e", 0)); it->airAt = js_num(e, "aired", 0); }
+  return n; }

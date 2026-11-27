@@ -14,4 +14,6 @@ typedef struct { int year, movies, series, ok; double hours, month[12]; char sho
 const TsyncYear *tsync_year(void);
 void tsync_tick(void);                          /* etapa-81: the watchlist into the Library (every 3 h) */
 void tsync_lib_push(const char *type, const char *id, const char *action); /* added or removed here: on the watchlist too */
+#include "core/stremio.h"
+int  tsync_fresh(Item *out, int max);           /* etapa-82: shows with an episode out lately that Trakt says isn't watched (newest first not promised) */
 #endif

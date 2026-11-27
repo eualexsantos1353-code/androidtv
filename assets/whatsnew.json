@@ -1,6 +1,11 @@
 {
- "version": "81",
+ "version": "82",
  "items": [
+  {
+   "icon": "wn_new",
+   "title": "Episódios novos com o Trakt",
+   "text": "Séries que você viu em qualquer lugar e que soltaram episódio novo aparecem no Início."
+  },
   {
    "icon": "later",
    "title": "Biblioteca com o Trakt",
