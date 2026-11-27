@@ -110,7 +110,7 @@ static void mo_tick(Mo *m, float dt) { if (!m->on) return; m->t += dt; if (m->t 
 static float kf(double at, float dur, const float *c, float delay) { if (!at) return 1; return bez(c, (float)((app_now() - at - delay * ANIM_SPEED) / (dur * ANIM_SPEED))); }
 
 /* ---- state ---- */
-#define MAXBTN 8
+#define MAXBTN 16 /* etapa-92: 11 now (a series with -10 / +10 and Other player): 8 ran over and closed the app */
 #define MAXROW 64
 typedef struct { int k; /* 0 note 1 skel 2 ep 3 src 4 chip; ls: a subtitle row's list, 1 OpenSubtitles 2 the addons' */ char lb[200], sub[120], ov[300], th[512], vl[48]; int on, spin, tool, hid, grey; int i, ls; const cJSON *v; Stream *st; char u[1024]; float d, hh, ww, vw; uint32_t sw; int vwt; } TItem; /* vwt: the value's weight (0: 700), a font row's in its own font */ /* hh, ww, vw: measured on first draw (items are made fresh, zeroed) */
 typedef struct { char title[64], vl[32]; TItem *items; int n; } TCol;
@@ -802,7 +802,7 @@ void player_chapters(const char *url, const PlayerChapter *list, int n) {
 static void build_btns(void) {
   const char *fid = P.nbtn && P.bIdx < P.nbtn ? P.btns[P.bIdx].id : NULL; /* the focus stays on the same button when the row changes */
   P.nbtn = 0; int i = 0;
-  #define B(ID, IC, LB, BIG) do { P.btns[i].id = ID; P.btns[i].icon = IC; snprintf(P.btns[i].lb, 48, "%s", LB); P.btns[i].big = BIG; P.btns[i].nx = 0; i++; } while (0)
+  #define B(ID, IC, LB, BIG) do { if (i >= MAXBTN) break; P.btns[i].id = ID; P.btns[i].icon = IC; snprintf(P.btns[i].lb, 48, "%s", LB); P.btns[i].big = BIG; P.btns[i].nx = 0; i++; } while (0)
   if (live_title() && live_catalogs() > 0) B("chn", "wn_live", T("Channels"), 1); else B("pp", "p_pause", "", 1); /* a channel: its big button is the channels (play / pause on the remote's key) */
   if (!live_title() && !live_bcast()) { B("rw", "p_rw", T("Back 10 s"), 0); B("ff", "p_ff", T("Forward 10 s"), 0); } /* etapa-87 */
   if (!P.isTrailer && P.next.has) { B("nxt", "p_next", T("Next episode"), 0); P.btns[i - 1].nx = 1; }
