@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Version of this build (etapa-87: always above the last, so the TV sees it as new)
+      - name: "Version of this build (etapa-87, always above the last, so the TV sees it as new)"
         run: |
           V="2.${{ github.run_number }}.0"
           jq --arg v "$V" '.version=$v' pkg/appinfo.json > /tmp/ai.json && mv /tmp/ai.json pkg/appinfo.json
