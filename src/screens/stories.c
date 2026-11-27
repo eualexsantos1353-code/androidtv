@@ -10,6 +10,10 @@
 #include "ui/sound.h"
 #include "ui/widgets.h"
 #include "screens/detail.h"
+#include "screens/btrailer.h"
+#include "screens/player.h"
+#include "core/trailer.h"
+#include "core/video.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,25 +23,41 @@
 #define MAXS 24
 #define DUR 6.5
 static struct { int open, closing, n, idx; Item it[MAXS]; char bg[MAXS][512], logo[MAXS][512]; double at; Tween a, k; } S;
+/* etapa-75: each story's clip: its trailer, from 20 s in (past the studios' logos), 15 s of it, under the story */
+#define CLIP 15.0
+static struct { unsigned tok; int own, seeked, shown; double dur; Tween a; } V;
+static void clip_stop(void) { if (V.tok) { trailer_cancel(V.tok); V.tok = 0; } if (V.own) { video_set_volume(0, 0); video_unload(); V.own = 0; } V.seeked = V.shown = 0; tween_set(&V.a, 0); }
+static void on_trailer(const Trailer *t, const char *err, void *ud) {
+  (void)err; if ((unsigned)(uintptr_t)ud != (unsigned)S.idx || !S.open || S.closing) return; V.tok = 0; if (!t || !t->url[0] || player_open()) return;
+  if (btr_owns()) btr_release(); /* (the decoder: Home's trailer lets go) */
+  fprintf(stderr, "[stories] clip for %s\n", S.it[S.idx].id); video_load(t->down[0][0] ? t->down[0] : t->url); video_set_window(0, 0, SB_W, SB_H); video_set_volume(85, 600); V.own = 1; }
+static void clip_start(void) { clip_stop(); const Item *it = &S.it[S.idx]; if (strncmp(it->id, "tt", 2) || !strcmp(store_get("storiesClips", "true"), "false")) return;
+  V.tok = trailer_find(it->id, NULL, 1, on_trailer, (void *)(uintptr_t)S.idx); }
+static double dur_now(void) { return V.shown ? CLIP : DUR; }
 int stories_seen(const char *id) { const cJSON *s = store_node("storiesSeen"), *e; cJSON_ArrayForEach(e, s) if (cJSON_IsString(e) && !strcmp(e->valuestring, id)) return 1; return 0; }
 static void mark_seen(const char *id) { if (!id[0] || stories_seen(id)) return; cJSON *o = store_node("storiesSeen"), *n = cJSON_CreateArray(); cJSON_AddItemToArray(n, cJSON_CreateString(id)); int c = 1; const cJSON *e;
   cJSON_ArrayForEach(e, o) if (c < 200 && cJSON_IsString(e)) { cJSON_AddItemToArray(n, cJSON_CreateString(e->valuestring)); c++; } store_set_node("storiesSeen", n); }
 static Screen scr;
-static void close_(void) { if (!S.open || S.closing) return; S.closing = 1; tween_to(&S.a, 0, 0.35f, EASE_IN_OUT); if (app_overlay == &scr) app_overlay = NULL; }
-static void go(int i) { if (i < 0) i = 0; if (i >= S.n) { close_(); return; } S.idx = i; S.at = app_now(); tween_set(&S.k, 0); tween_to(&S.k, 1, 0.6f, EASE_OUT); mark_seen(S.it[i].id); }
+static void close_(void) { if (!S.open || S.closing) return; clip_stop(); S.closing = 1; tween_to(&S.a, 0, 0.35f, EASE_IN_OUT); if (app_overlay == &scr) app_overlay = NULL; }
+static void go(int i) { if (i < 0) i = 0; if (i >= S.n) { close_(); return; } S.idx = i; S.at = app_now(); tween_set(&S.k, 0); tween_to(&S.k, 1, 0.6f, EASE_OUT); mark_seen(S.it[i].id); clip_start(); }
 static int key(int k) {
   if (!S.open || S.closing) return 0;
   if (k == K_BACK) { close_(); return 1; }
   if (k == K_RIGHT) go(S.idx + 1); else if (k == K_LEFT) go(S.idx - 1);
   else if (k == K_OK) { DetailParams p; memset(&p, 0, sizeof p); p.it = S.it[S.idx]; close_(); app_go(SCR_DETAIL, &p, 0); }
   return 1; }
-static void tick(float dt) { tween_tick(&S.a, dt); tween_tick(&S.k, dt); if (S.closing && S.a.v < 0.01f) { S.open = 0; S.closing = 0; } if (S.open && !S.closing && app_now() - S.at > DUR) go(S.idx + 1); }
+static void tick(float dt) { tween_tick(&S.a, dt); tween_tick(&S.k, dt); tween_tick(&V.a, dt); if (S.closing && S.a.v < 0.01f) { S.open = 0; S.closing = 0; }
+  if (V.own) { video_pump(); VidState vs = video_state();
+    if (vs == VID_PLAYING && video_live()) { if (!V.seeked) { V.seeked = 1; double d = video_duration(); if (d > 60) video_seek(20); } else if (!V.shown && !video_settling()) { V.shown = 1; S.at = app_now(); tween_to(&V.a, 1, 0.8f, EASE_OUT); } }
+    if (vs == VID_ERROR || vs == VID_ENDED) { video_unload(); V.own = 0; tween_to(&V.a, 0, 0.4f, EASE_OUT); } }
+  if (S.open && !S.closing && app_now() - S.at > dur_now()) go(S.idx + 1); }
 static void draw(void) {
   if (!S.open) return; float a = S.a.v; if (a <= 0.001f) return; const Item *it = &S.it[S.idx]; float t = (float)(app_now() - S.at), k = S.k.v;
   gfx_opacity_push(a); gfx_rect(0, 0, SB_W, SB_H, RGB(0, 0, 0));
   { float asp = 0; GLuint tx = img_get(S.bg[S.idx], 1280, 720, &asp); if (tx) { float z = 1.04f + 0.06f * (t / (float)DUR); gfx_opacity_push(k); gfx_scale_push(z, z, SB_W * 0.6f, SB_H * 0.4f); gfx_image(tx, 0, 0, SB_W, SB_H, 0, WHITE_A(255), 0, 0, 1, 1); gfx_scale_pop(); gfx_opacity_pop(); } }
+  if (V.a.v > 0.003f) gfx_hole(0, 0, SB_W, SB_H, 0, V.a.v * a); /* the clip, under the window */
   gfx_rrect_v(0, SB_H * 0.4f, SB_W, SB_H * 0.6f, 0, BLACK_A(0), BLACK_A(230)); gfx_rrect_v(0, 0, SB_W, 200, 0, BLACK_A(150), BLACK_A(0));
-  { float W = SB_W - 200, g = 8, bw = (W - g * (S.n - 1)) / S.n, p = t / (float)DUR; if (p > 1) p = 1;
+  { float W = SB_W - 200, g = 8, bw = (W - g * (S.n - 1)) / S.n, p = t / (float)dur_now(); if (p > 1) p = 1;
     for (int i = 0; i < S.n; i++) { float x = 100 + i * (bw + g); gfx_rrect(x, 48, bw, 6, 3, WHITE_A(70)); float f = i < S.idx ? 1 : i == S.idx ? p : 0; if (f > 0) gfx_rrect(x, 48, bw * f, 6, 3, WHITE_A(240)); } }
   float up = 30 * (1 - k); gfx_opacity_push(k); gfx_offset_push(0, up);
   int newEp = it->videoId[0] != 0; const char *tag = newEp ? T("New episode") : T("New release");

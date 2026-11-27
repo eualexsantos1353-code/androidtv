@@ -955,7 +955,13 @@ static void poster_light(const Row *r, float x, float y, float w, float h) {
   if (r->round || !strcmp(store_get("posterDepth", "true"), "false")) return;
   static const Row *lr; static int lc = -1; static double t0; static int dir = 1;
   if (lr != r || lc != r->col) { dir = lr == r && r->col < lc ? -1 : 1; lr = r; lc = r->col; t0 = app_now(); }
-  float t = (float)(app_now() - t0) / 0.7f; gfx_clip_push(x, y, w, h);
+  float t = (float)(app_now() - t0) / 0.7f;
+  /* etapa-75: depth: the picture drifts inside its frame the way the focus came and settles, then floats gently (a camera, not the card) */
+  { const Item *it = &r->items.items[r->col]; char src[512]; sb_poster_of(it, src, sizeof src); float asp = 0; GLuint tx = src[0] ? img_get(src, (int)w, (int)h, &asp) : 0;
+    if (tx && gfx_tex_fade(tx) >= 1) { float st = t > 1 ? 1 : t, e = 1 - ease_apply(EASE_CSS_EASEOUT, st), ph = (float)(app_now() - t0);
+      float dx = dir * 0.045f * e + 0.010f * sinf(ph * 0.7f), dy = 0.008f * sinf(ph * 0.5f + 1.3f), m = 0.06f;
+      gfx_image(tx, x, y, w, h, CARD_R, WHITE_A(255), m + dx, m + dy, 1 - m + dx, 1 - m + dy); } }
+  gfx_clip_push(x, y, w, h);
   gfx_rrect_v(x, y, w, h * 0.42f, CARD_R, WHITE_A(34), WHITE_A(0));
   if (t < 1) { float e = ease_apply(EASE_CSS_EASEOUT, t), gx = dir > 0 ? x - w * 0.3f + w * 1.6f * e : x + w * 1.3f - w * 1.6f * e, a = sinf(3.1416f * t);
     for (int q = 5; q >= 1; q--) gfx_circle(gx, y + h * 0.35f, w * 0.12f * q, WHITE_A((int)(16 * a))); }

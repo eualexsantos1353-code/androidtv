@@ -2492,6 +2492,16 @@ static void close_step(void) {
 /* the info chips, grouped as the page groups them: [resolution] [HDR · audio format] [size] | [audio language + channels]
    [subtitles]. Kept per place: only a new chip comes in, each 0.05 s after the one before it (the subtitles' last); a
    chip whose words change (another subtitle, another audio track) crossfades them in place, its width gliding */
+/* etapa-75: the chips that say quality wear their colours (4K gold, Dolby Vision violet to pink, HDR amber, Atmos blue), with a glass sheen; the rest as before */
+static void chip_bg(const char *t, float x, float y, float w) {
+  uint32_t c0 = 0, c1 = 0;
+  if (strstr(t, "Dolby Vision") || strstr(t, "DV")) { c0 = RGB(0x8b, 0x5c, 0xf6); c1 = RGB(0xec, 0x48, 0x99); }
+  else if (strstr(t, "4K") || strstr(t, "2160")) { c0 = RGB(0xf5, 0x9e, 0x0b); c1 = RGB(0xd9, 0x77, 0x06); }
+  else if (strstr(t, "HDR")) { c0 = RGB(0xf9, 0x73, 0x16); c1 = RGB(0xf5, 0x9e, 0x0b); }
+  else if (strstr(t, "Atmos")) { c0 = RGB(0x25, 0x63, 0xeb); c1 = RGB(0x06, 0xb6, 0xd4); }
+  if (!c0) { gfx_rrect(x, y, w, 46, 23, RGBA(10, 12, 22, 140)); gfx_ring(x, y, w, 46, 23, 2, WHITE_A(56)); return; }
+  gfx_shadow(x, y + 6, w, 46, 23, 18, col_alpha(c0, 0.45f)); gfx_rrect_h(x, y, w, 46, 23, c0, c1);
+  gfx_rrect_v(x, y, w, 23, 23, WHITE_A(70), WHITE_A(0)); gfx_ring(x, y, w, 46, 23, 2, WHITE_A(110)); }
 static float chip_delay(int i) { return i >= 1 ? 0.05f * (i < 6 ? i : 6) : 0; }
 static void chips_in(void) { double n = now_(); for (int i = 0; i < P.nchip; i++) { P.chip[i].at = n; P.chip[i].delay = chip_delay(i); P.chip[i].xAt = 0; } }
 /* the picture and sound playing, for the info line and a phone's remote: the HDR the TV decodes once it says (the
@@ -3109,7 +3119,7 @@ static void draw_osd(void) {
         float xk = P.chip[i].xAt ? clampf((float)((now_() - P.chip[i].xAt) / 0.26), 0, 1) : 1; xk = 1 - (1 - xk) * (1 - xk) * (1 - xk); if (xk >= 1) P.chip[i].xAt = 0; /* its words changing */
         if (xk < 1) tw = P.chip[i].oldW + (tw - P.chip[i].oldW) * xk;
         float w = 40 + tw + (P.chip[i].icon ? 36 : 0);
-        if (k > 0.001f) { gfx_opacity_push(k); gfx_rrect(cx, cy, w, 46, 23, RGBA(10, 12, 22, 140)); gfx_ring(cx, cy, w, 46, 23, 2, WHITE_A(56)); float tx = cx + 20, ty = cy + (46 - L24) / 2;
+        if (k > 0.001f) { gfx_opacity_push(k); chip_bg(P.chip[i].t, cx, cy, w); float tx = cx + 20, ty = cy + (46 - L24) / 2;
           if (P.chip[i].icon) { icon_draw(P.chip[i].icon, tx, cy + 10, 26, WHITE_A(230)); tx += 36; }
           if (xk < 1) { gfx_clip_push(cx, cy, w, 46); text_draw(P.chip[i].old, tx, ty - 6 * xk, 24, b ? 800 : 600, WHITE_A((int)(255 * (1 - xk))), b ? 0.5f : 0, 0, ALIGN_LEFT); text_draw(P.chip[i].t, tx, ty + 6 * (1 - xk), 24, b ? 800 : 600, WHITE_A((int)(255 * xk)), b ? 0.5f : 0, 0, ALIGN_LEFT); gfx_clip_pop(); }
           else text_draw(P.chip[i].t, tx, ty, 24, b ? 800 : 600, WHITE_A(255), b ? 0.5f : 0, 0, ALIGN_LEFT); gfx_opacity_pop(); }
