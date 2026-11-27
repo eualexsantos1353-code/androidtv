@@ -4,6 +4,7 @@
 #include "screens/board.h"
 #include "core/scrobble.h"
 #include "core/insight.h"
+#include "core/subtr.h"
 #include "core/tracking.h"
 #include "core/live.h"
 #include "screens/livepeek.h"
@@ -492,9 +493,17 @@ static void sub_reset(void) { unsigned t = SL.tok + 1; memset(&SL, 0, sizeof SL)
 static int tv_has_text(int n) { VidTrack t[24]; int k = video_text_tracks(t, 24); for (int i = 0; i < k; i++) if (t[i].idx == n) return 1; return 0; }
 static void subs_off(void) { sync_stop(0); snprintf(P.curSub, sizeof P.curSub, "off"); subs_free(P.cues, P.ncues); P.cues = NULL; P.ncues = 0; sub_begin(); SL.wait = 0; video_select_text(-1); if (mkv) mkv_select(mkv, -1); fprintf(stderr, "[subs] off\n"); refresh_tray(4); }
 static void set_ext_sub(int list, const SubEntry *e);
+/* etapa-71: the translated subtitles (core/subtr) */
+static int subtr_still(Cue *c, int n, unsigned tok) { return P.open && P.cues == c && P.ncues == n && SL.tok == tok && !strncmp(P.curSub, "ext:", 4); }
+static void subtr_begin(void) {
+  const char *l = i18n_lang(); int mine = 0; const char *w = !strncmp(l, "pt", 2) ? "pob" : l;
+  for (int i = 0; i < P.nExt && !mine; i++) mine = subs_lang_match(P.ext[i].lang, w) || (!strcmp(w, "pob") && subs_lang_match(P.ext[i].lang, "por"));
+  int was = subtr_active(); subtr_start(P.cues, P.ncues, P.pick.lang, mine, video_time(), SL.tok, subtr_still);
+  if (subtr_active() && !was) toast(T("Translating these subtitles into your language"), 3000, NULL); }
 static void on_sub_cues(int status_, Cue *cues, int n, void *ud) {
   if (!P.open || (unsigned)(uintptr_t)ud != SL.tok || strncmp(P.curSub, "ext:", 4)) { subs_free(cues, n); return; } /* another choice since */
-  if (n > 0) { subs_free(P.cues, P.ncues); P.cues = cues; P.ncues = n; SL.wait = 0; free(extAss); extAss = subs_take_script(); extAssTok = SL.tok; fprintf(stderr, "[subs] external: %d lines read in %.1f s\n", n, now_() - SL.at); refresh_tray(4); return; }
+  if (n > 0) { subs_free(P.cues, P.ncues); P.cues = cues; P.ncues = n; SL.wait = 0; free(extAss); extAss = subs_take_script(); extAssTok = SL.tok; fprintf(stderr, "[subs] external: %d lines read in %.1f s\n", n, now_() - SL.at); refresh_tray(4);
+    if (!extAss) subtr_begin(); return; } /* (etapa-71: put into the app's language as it plays, when none in it was found) */
   subs_free(cues, n);
   if (status_ <= 0 && !SL.retry) { SL.retry = 1; fprintf(stderr, "[subs] external: no answer, asking once more\n"); subs_load_lang(P.curSub + 4, P.pick.lang, on_sub_cues, (void *)(uintptr_t)SL.tok); return; } /* one network hiccup */
   fprintf(stderr, "[subs] external: failed (HTTP %d, %s)\n", status_, status_ >= 200 && status_ < 300 ? "nothing readable in it" : "no file");
@@ -2842,9 +2851,9 @@ static void draw_subs_lines(void) {
   const SubStyle *st = sub_style(); int px = st->px; uint32_t col = st->col, ol = st->ol; float bo = st->bo;
   float lh = px * 1.35f;
   /* the shown cues' lines, split and measured once while they stay up */
-  static struct { const Cue *a, *b; unsigned gen; int px, lines; char buf[4096]; char *lp[12]; float mw; } SC;
+  static struct { const Cue *a, *b; unsigned gen, tg; int px, lines; char buf[4096]; char *lp[12]; float mw; } SC;
   const Cue *ca = show[0], *cb = ns > 1 ? show[1] : NULL;
-  if (SC.a != ca || SC.b != cb || SC.gen != ix->gen || SC.px != px) { SC.a = ca; SC.b = cb; SC.gen = ix->gen; SC.px = px;
+  if (SC.a != ca || SC.b != cb || SC.gen != ix->gen || SC.px != px || SC.tg != subtr_gen()) { SC.a = ca; SC.b = cb; SC.gen = ix->gen; SC.px = px; SC.tg = subtr_gen();
     char all[4096] = ""; for (int i = 0; i < ns; i++) { size_t l = strlen(all); snprintf(all + l, sizeof all - l, "%s%s", i ? "\n" : "", show[i]->t); }
     SC.lines = 0; snprintf(SC.buf, sizeof SC.buf, "%s", all); for (char *c = strtok(SC.buf, "\n"); c && SC.lines < 12; c = strtok(NULL, "\n")) SC.lp[SC.lines++] = c;
     SC.mw = 0; for (int i = 0; i < SC.lines; i++) SC.mw = fmaxf(SC.mw, text_width(SC.lp[i], px, subw(), 0)); }

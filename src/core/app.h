@@ -99,7 +99,8 @@ float app_hold_k(double since);        /* 0..1 of a hold begun then, on the same
 #define NAV_HOME 3
 #define NAV_LIB 4
 #define NAV_TV 5        /* the TV tab: not a page, it opens All channels (the live hub) */
-typedef struct { int idx, active; int want; double swAt; Nudge nudge; Tween px, pw, pill; float pillShown; Tween cornerF[2], cornerS[2], dotK[2]; Tween setRot; float chipX[6], chipW[6]; int laidOut; } TopNav;
+#define NAV_CAL 6       /* etapa-71: the Calendar, a glass circle beside the clock (Right from TV) */
+typedef struct { int idx, active; int want; double swAt; Nudge nudge; Tween px, pw, pill; float pillShown; Tween cornerF[2], cornerS[2], dotK[2]; Tween setRot; float chipX[7], chipW[7]; Tween calF; int laidOut; } TopNav;
 extern TopNav topNav;
 void topnav_focus(void);
 void topnav_focus_tv(void); /* the bar, the pill on TV (Up from the top of the channels' page) */

@@ -89,7 +89,7 @@ static const Opt ACCENT_OPTS[] = { { "logo", "From the logo" }, { "adaptive", "F
 #define NCAT 15
 #define MAXROWS 48
 static Setting profS[2], orgHS[MAXROWS], orgSS[MAXROWS], sfS[6];
-static Setting playBase[14], playS[10], seekS[6], subsS[12], audS[4], lookS[8], langS[44], langOpt, keyS[16], traktS[6], addonS[40], acctS[1], supS[10];
+static Setting playBase[14], playS[10], seekS[6], subsS[13], audS[4], lookS[8], langS[44], langOpt, keyS[16], traktS[6], addonS[40], acctS[1], supS[10];
 static Cat cats[NCAT]; static int ncat; /* (Keys leaves when this build carries every key) */
 static int cat_ix(const Setting *opts) { for (int i = 0; i < ncat; i++) if (cats[i].opts == opts) return i; return -1; }
 static int prof_opts(void); static int org_opts(char area); static int addon_opts(void); static void org_dirty(void);
@@ -302,6 +302,8 @@ static void build(void) {
     set_s(&subsS[9], "subsPosPct", "Position", "How high over the bottom of the picture; also in the player", PP, 29, "8"); }
   { static const Opt BR[] = { { "100", "100%" }, { "80", "80%" }, { "60", "60%" }, { "40", "40%" } }; set_s(&subsS[8], "subsBright", "Brightness", "", BR, 4, "100"); } /* (PR #39: softer on an OLED in the dark; under Background) */
   set_s(&subsS[11], "subsOnlyMine", "Only my language", "The subtitle lists in the player show only the language chosen above", OO, 2, "false");
+  { static const Opt TR[] = { { "auto", "When none is in my language" }, { "always", "Always" }, { "false", "Off" } }; /* etapa-71: core/subtr */
+    set_s(&subsS[12], "subsTranslate", "Translate subtitles", "A downloaded subtitle in another language is put into the app\xe2\x80\x99s language as the film plays", TR, 3, "auto"); }
   set_s(&subsS[10], "subsAssStyle", "Styled subtitles", "Signs, fonts and effects as the film\xe2\x80\x99s own ASS / SSA subtitles draw them", ASSO, 2, "styled");
   /* the audio language: Original (the film's own track, as it starts) first and by default, then a language, picked by
      itself when a film has it (one row: the old "Auto audio track" switch is folded in: off was Original) */
@@ -333,7 +335,7 @@ static void build(void) {
   Cat c[NCAT] = {
     { "Watch", "Playback", "set_play", "Best stream, next episode, picture size", NULL, playS, 6, 0 }, /* (the counts: play_layout) */
     { "Watch", "Seek bar", "set_seek", "Seek step, chapters, previews", NULL, seekS, 4, 0 },
-    { "Watch", "Subtitles", "set_subs", "Language, size, font, colour", "subs", subsS, 12, 0 },
+    { "Watch", "Subtitles", "set_subs", "Language, size, font, colour", "subs", subsS, 13, 0 },
     { "Watch", "Audio", "set_aud", "Default audio language, DTS, interface sounds", NULL, audS, 4, 0 },
     { "Screens", "Appearance", "set_look", "Accent colour, screensaver, clock, trailers", "look", lookS, 6, 0 },
     { "Screens", "Language", "set_lang", "The language of the app", NULL, langS, nl, 0 },

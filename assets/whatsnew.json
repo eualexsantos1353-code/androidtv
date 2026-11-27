@@ -1,32 +1,42 @@
 {
- "version": "1.1.0",
+ "version": "71",
  "items": [
   {
+   "icon": "wn_new",
+   "title": "Lumen",
+   "text": "Nome, logo e abertura novos: O cinema mora aqui."
+  },
+  {
+   "icon": "lib_cal",
+   "title": "Calendário no topo",
+   "text": "Ao lado do relógio, ou no botão azul do controle. Com filtros e pontinhos em cada dia."
+  },
+  {
+   "icon": "wn_subs",
+   "title": "Legenda traduzida",
+   "text": "Só tem em inglês? O Lumen traduz para o português enquanto o filme passa."
+  },
+  {
+   "icon": "wn_people",
+   "title": "X-Ray",
+   "text": "Seta para cima no filme: elenco da cena, curiosidades e a página de cada ator."
+  },
+  {
    "icon": "wn_lib",
-   "title": "Your addons",
-   "text": "Home, Discover, Library and Search, with your Stremio account."
+   "title": "Perfis e organizar",
+   "text": "Configurações: perfis, organizar o Início e a Pesquisa, filtro de fontes."
   },
   {
-   "icon": "wn_opts",
-   "title": "The best stream",
-   "text": "Picked for you in one press."
-  },
-  {
-   "icon": "wn_av",
-   "title": "Seek previews",
-   "text": "A picture of the film on the seek bar, for debrid and direct links."
-  },
-  {
-   "icon": "wn_lib",
-   "title": "Your library",
-   "text": "Library, watched state and Continue Watching synced with your Stremio account."
-  },
-  "And much more."
+   "icon": "wn_cast",
+   "title": "JARVIS",
+   "text": "Peça pelo celular: “aquele filme do cara preso em Marte” e ele abre aqui."
+  }
  ],
  "support": {
   "title": "Thank you",
   "message": "Thank you!",
   "url": "https://ko-fi.com/simussu",
   "github": "https://github.com/stremio-origin/androidtv"
- }
+ },
+ "note": "Também: Simkl, pular abertura de anime e o resumo das 19:30 no NEXA."
 }

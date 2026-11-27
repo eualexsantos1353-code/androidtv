@@ -70,6 +70,11 @@ static char *on_ask(const char *t, const void *msgv) {
     Item it; memset(&it, 0, sizeof it); snprintf(it.type, sizeof it.type, "%s", js_str(m, "type", "movie")); snprintf(it.id, sizeof it.id, "%s", js_str(m, "id", "")); snprintf(it.name, sizeof it.name, "%s", js_str(m, "name", "")); snprintf(it.poster, sizeof it.poster, "%s", js_str(m, "poster", ""));
     cJSON_AddStringToObject(r, "t", "libadd"); int had = *it.id && lib_has(it.id); if (*it.id && !had) { lib_toggle(&it); board_invalidate(); notify_refresh(); }
     cJSON_AddNumberToObject(r, "ok", *it.id != 0); cJSON_AddNumberToObject(r, "already", had); return reply(r); }
+  if (!strcmp(t, "open")) { /* etapa-71: a title's page on the TV (JARVIS: "aquele filme do cara preso em Marte") */
+    DetailParams p; memset(&p, 0, sizeof p); snprintf(p.it.type, sizeof p.it.type, "%s", js_str(m, "type", "movie")); snprintf(p.it.id, sizeof p.it.id, "%s", js_str(m, "id", "")); snprintf(p.it.name, sizeof p.it.name, "%s", js_str(m, "name", "")); snprintf(p.it.poster, sizeof p.it.poster, "%s", js_str(m, "poster", ""));
+    int busy = player_open(); cJSON_AddStringToObject(r, "t", "open"); cJSON_AddNumberToObject(r, "busy", busy);
+    if (*p.it.id && !busy) { app_activity(); app_overlay_close(); app_go(SCR_DETAIL, &p, 0); }
+    cJSON_AddNumberToObject(r, "ok", *p.it.id && !busy); return reply(r); }
   if (!strcmp(t, "cast?")) { /* who plays in what is on (the X-Ray's cast) */
     char ty[16], id[96], vid[96]; player_cast_ident(ty, sizeof ty, id, sizeof id, vid, sizeof vid); cJSON_AddStringToObject(r, "t", "cast"); cJSON_AddStringToObject(r, "id", id);
     int s = -1, e = -1; { const char *c2 = strrchr(vid, ':'); if (c2 && !strcmp(ty, "series")) { const char *p = c2 - 1; while (p > vid && *p != ':') p--; if (*p == ':') { s = atoi(p + 1); e = atoi(c2 + 1); } } }

@@ -487,3 +487,5 @@ static void draw(void) {
     key_hint(bx + 50, by + bh - 60, K_DOWN, T("Scroll"), WHITE_A(170), 1); key_hint(bx + bw - 50 - key_hint(-9999, 0, K_BACK, T("Close"), 0, 1), by + bh - 60, K_BACK, T("Close"), WHITE_A(170), 1); }
 }
 Screen simScreen = { enter, NULL, key, tick, draw, focused, open_it, NULL, origin };
+
+const char *sim_kind(void) { return G.p.it.type; }

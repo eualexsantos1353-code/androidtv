@@ -19,15 +19,16 @@
    ORIGIN as its letters close up, still until Home is complete; leaving, it grows a touch and fades. Drawn, no
    picture to load. */
 static int on, waitHome, gone; static float outS; static Orbs orbs; static double t0, cap, signedAt; static Timer1 out; 
-#define MIN_UP 0.9  /* the entrance has room to finish */
+#define MIN_UP 2.7  /* the entrance has room to finish (slower since etapa-71) */
+#define SPL_SLOW 0.55f /* the entrance at about half speed */
 /* ready = the first two rows' visible posters are in, the hero text is set and the backdrop is up:
    Home is revealed complete, never with empty cards; 2.5 s at most (a slow network), 9 s right after signing in (nothing cached yet) */
 void splash_start(int waitForHome, double signedInAt) {
   int justSignedIn = signedInAt > 0; signedAt = signedInAt;
-  on = 1; gone = 0; waitHome = waitForHome; memset(&orbs, 0, sizeof orbs); orbs_place(&orbs, 0, 2.2f); /* (drawn in close, then let go) */ t0 = justSignedIn ? app_now() - 2 : app_now(); cap = justSignedIn ? 9.0 : 2.5; outS = 1; /* the restart after signing in: already up, no second entrance */
+  on = 1; gone = 0; waitHome = waitForHome; memset(&orbs, 0, sizeof orbs); orbs_place(&orbs, 0, 2.2f); /* (drawn in close, then let go) */ t0 = justSignedIn ? app_now() - 2 : app_now(); cap = justSignedIn ? 9.0 : 3.4; outS = 1; /* the restart after signing in: already up, no second entrance */
   }
 static void splash_end(void) {
-  if (gone) return; gone = 1; timer_start(&out, 0.36f); app_splash_done = 1;
+  if (gone) return; gone = 1; timer_start(&out, 0.55f); app_splash_done = 1;
   fprintf(stderr, "[start] ready in %.0f ms\n", (app_now() - t0) * 1000);
   if (waitHome) app_reveal_start();
   if (signedAt > 0) welcome_open_now(); /* right after signing in: the guide comes straight from the loading (Home revealed under it) */
@@ -45,11 +46,11 @@ void splash_tick(float dt) {
 void splash_draw(void) {
   if (!on) return;
   float lv = gone ? ease_apply(EASE_CSS_EASE, timer_x(&out)) : 0, a = 1 - lv; gfx_opacity_push(a);
-  float t = (float)(app_now() - t0), cx = SB_W / 2, cy = SB_H / 2 - 40, R = 118;
+  float t = (float)(app_now() - t0) * SPL_SLOW, cx = SB_W / 2, cy = SB_H / 2 - 40, R = 118;
   gfx_rect(0, 0, SB_W, SB_H, PAGE);
   if (signedAt > 0) { login_backdrop_draw(); login_loading_draw(signedAt, 1); gfx_opacity_pop(); return; } /* right after signing in: the same loading carries on, no mark */
   { float g = ease_apply(EASE_IN_OUT, t / 1.1f), sp = 1 + 0.9f * (1 - ease_apply(EASE_OUT, t / 1.6f)); /* the glows: from the middle out round their corners as the screen comes, then drifting round them */
-    orbs_step(&orbs, app_dt() * 2.2f, 0, sp, 2.2f); orbs_draw_col(&orbs, g, 0xb08cff, 0x7a4cf0); } /* (always the mark's purple, whatever the accent; their drift twice as quick here, the screen is short) */
+    orbs_step(&orbs, app_dt() * 1.4f, 0, sp, 2.2f); orbs_draw_col(&orbs, g, 0xb08cff, 0x7a4cf0); } /* (always the mark's purple, whatever the accent; their drift twice as quick here, the screen is short) */
   float k = ease_apply(EASE_OUT, (t - 0.05f) / 0.7f), kp = ease_apply(EASE_OUT, (t - 0.3f) / 0.5f), kt = ease_apply(EASE_OUT, (t - 0.45f) / 0.7f);
   float s = 0.96f + 0.04f * k;
   if (gone) { s = outS + (1.05f - outS) * lv; } else outS = s;
