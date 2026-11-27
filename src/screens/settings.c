@@ -87,9 +87,10 @@ static const Opt BGS[] = { { "0", "None" }, { "1", "Solid" }, { ".6", "Transpare
 static const Opt ASSO[] = { { "styled", "Styled" }, { "plain", "Plain" } };
 static const Opt SS_OPTS[] = { { "0", "Off" }, { "1", "1 min" }, { "2", "2 min" }, { "5", "5 min" }, { "10", "10 min" } };
 static const Opt ACCENT_OPTS[] = { { "logo", "From the logo" }, { "adaptive", "From the artwork" }, { "purple", "Purple" }, { "violet", "Violet" }, { "fuchsia", "Fuchsia" }, { "pink", "Pink" }, { "rose", "Rose" }, { "red", "Red" }, { "orange", "Orange" }, { "amber", "Amber" }, { "gold", "Gold" }, { "lime", "Lime" }, { "green", "Green" }, { "emerald", "Emerald" }, { "teal", "Teal" }, { "cyan", "Cyan" }, { "sky", "Sky" }, { "blue", "Blue" }, { "indigo", "Indigo" }, { "graphite", "Graphite" } };
-#define NCAT 15
+#define NCAT 16
 #define MAXROWS 48
 static Setting profS[2], orgHS[MAXROWS], orgSS[MAXROWS], sfS[6];
+static Setting advS[4], liveRowOpt; /* etapa-89: Advanced: the IPTV list */
 static Setting playBase[17], playS[13], seekS[6], subsS[13], audS[4], lookS[14], langS[44], langOpt, keyS[16], traktS[6], addonS[40], acctS[1], supS[10];
 static Cat cats[NCAT]; static int ncat; /* (Keys leaves when this build carries every key) */
 static int cat_ix(const Setting *opts) { for (int i = 0; i < ncat; i++) if (cats[i].opts == opts) return i; return -1; }
@@ -189,7 +190,7 @@ static int keys_opts(void) {
     set_act(&keyS[n++], "__mdb", pt ? "Notas de outros sites" : "Scores from other sites", mh ? (pt ? "Rotten Tomatoes, Metacritic, Trakt e Letterboxd em cada t\xc3\xadtulo. OK para trocar a chave" : "Rotten Tomatoes, Metacritic, Trakt and Letterboxd on each title. OK to change the key") : (pt ? "OK para colar a chave gr\xc3\xa1tis do MDBList pelo celular" : "OK to add your free MDBList key from your phone"));
     if (mh) set_act(&keyS[n++], "__mdbOff", pt ? "Remover a chave do MDBList" : "Remove the MDBList key", pt ? "As notas de outros sites somem" : "The scores from other sites go away"); }
   { int pt = !strncmp(i18n_lang(), "pt", 2), has = iptv_has();
-    set_act(&keyS[n++], "__iptv", pt ? "Lista IPTV" : "IPTV list", has ? (pt ? "Canais e guia da sua lista, em TV ao vivo. OK para trocar os links" : "Your list's channels and guide, in live TV. OK to change the links") : (pt ? "OK para colar o link da lista (M3U) e do guia (EPG) pelo celular" : "OK to add your list (M3U) and guide (EPG) links from your phone"));
+    int na2 = 0; set_act(&advS[na2++], "__iptv", pt ? "Lista IPTV" : "IPTV list", has ? (pt ? "Canais e guia da sua lista, em TV ao vivo. OK para trocar os links" : "Your list's channels and guide, in live TV. OK to change the links") : (pt ? "OK para colar o link da lista (M3U) e do guia (EPG) pelo celular" : "OK to add your list (M3U) and guide (EPG) links from your phone"));
     { int dh = deb_has_key(); /* debrid: its key, then its cloud */
       set_act(&keyS[n++], "__deb", "Debrid", dh ? (pt ? "Conectado ao servi\xc3\xa7o. OK para trocar a chave" : "Connected. OK to change the key") : (pt ? "TorBox, Real-Debrid ou Premiumize: OK para adicionar a chave pelo celular" : "TorBox, Real-Debrid or Premiumize: OK to add your key from the phone"));
       if (dh) { set_act(&keyS[n++], "__cloud", pt ? "Minha nuvem" : "My cloud", pt ? "Os v\xc3\xad" "deos que est\xc3\xa3o na sua conta do debrid" : "The videos in your debrid account");
@@ -197,9 +198,10 @@ static int keys_opts(void) {
     { int ss = simkl_state(); char sd[160]; if (ss == 1) snprintf(sd, sizeof sd, pt ? "Digite %s em simkl.com/pin" : "Enter %s at simkl.com/pin", simkl_code()); /* (static: the row keeps a pointer) */
       static char sdk[160]; snprintf(sdk, sizeof sdk, "%s", ss == 1 ? sd : ss == 2 ? (pt ? "Conectado: o que voc\xc3\xaa assiste vai para o Simkl" : "Connected: what you watch goes to Simkl") : (pt ? "Anime e s\xc3\xa9ries no Simkl: OK para conectar pelo celular" : "Anime and series on Simkl: OK to connect from your phone"));
       set_act(&keyS[n++], "__simkl", "Simkl", sdk); if (ss) set_act(&keyS[n++], "__simklOff", pt ? "Desconectar o Simkl" : "Disconnect Simkl", pt ? "Para de contar ao Simkl o que voc\xc3\xaa assiste" : "Stops telling Simkl what you watch"); }
-    if (has) set_act(&keyS[n++], "__iptvOff", pt ? "Remover a lista IPTV" : "Remove the IPTV list", pt ? "Apaga os links e os canais dela desta TV" : "Deletes the links and its channels from this TV"); }
+    if (has) set_act(&advS[na2++], "__iptvOff", pt ? "Remover a lista IPTV" : "Remove the IPTV list", pt ? "Apaga os links e os canais dela desta TV" : "Deletes the links and its channels from this TV"); }
   return n;
 }
+static int adv_opts(void) { int n = 0; while (n < 3 && advS[n].k[0]) n++; advS[n++] = liveRowOpt; return n; } /* (filled by keys_opts) */
 /* Trakt: connect this TV with a code, then a switch for what you watch and a way out */
 /* Trakt, at the end of Playback: one row to connect (OK: its code on a card); connected, a switch and Disconnect under it */
 static int trakt_st(void) { return getenv("SB_TRAKT_DEMO") ? TRAKT_LINKED : scrobble_state(); } /* (SB_TRAKT_DEMO, development: the page as connected, with sample figures, for a picture of it) */
@@ -264,7 +266,7 @@ static void play_layout(void) {
   if (prev_available()) { seekS[n++] = playBase[10]; /* pictures on the seek bar: only where this app can make them */
     if (strcmp(store_get("seekPreviews", "true"), "false")) seekS[n++] = playBase[11]; } /* (and, while they are on, waiting for them first) */
   set_count(seekS, n);
-  n = 12; lookS[n++] = playBase[3]; if (on) lookS[n++] = playBase[6]; set_count(lookS, n);
+  n = 11; lookS[n++] = playBase[3]; /* etapa-89: (Live TV on Home went to Advanced) */ if (on) lookS[n++] = playBase[6]; set_count(lookS, n);
   set_count(traktS, trakt_opts());
   set_count(supS, about_opts());
 }
@@ -331,11 +333,11 @@ static void build(void) {
   set_s(&lookS[3], "spoilers", "Spoilers", "", SPOILO, 3, "off"); /* the episodes not watched yet: their stills blurred, and their descriptions too if asked */
   { static const Opt TH[] = { { "lumen", "Lumen (purple)" }, { "night", "Night blue" }, { "cinema", "Cinema red" }, { "forest", "Forest green" }, { "gold", "Gold" }, { "graphite", "Graphite" } }; /* etapa-73 */
     set_s(&lookS[8], "theme", "Theme", "The page\xe2\x80\x99s colour and an accent that goes with it", TH, 6, "lumen"); }
-  set_s(&lookS[11], "bgMotion", "Living backdrop", "The picture behind Home moves very slowly, as if alive", OO, 2, "true"); /* etapa-79 */
+  set_s(&lookS[6], "bgMotion", "Living backdrop", "The picture behind Home moves very slowly, as if alive", OO, 2, "true"); /* etapa-79 */
   set_s(&lookS[9], "seasonal", "Seasonal themes", "Snow in December, fireworks at New Year, confetti at Carnival, leaves at Halloween", OO, 2, "true");
   set_s(&lookS[10], "posterFly", "Poster opening", "Opening a title, its poster grows from the card into the page", OO, 2, "true");
   set_s(&lookS[7], "homeReleases", "New releases on Home", "Films out on streaming and new series, most popular first", OO, 2, "true");
-  set_s(&lookS[6], "homeLiveRow", "Live TV on Home", "The channels\xe2\x80\x99 row on Home (the TV tab always has them)", OO, 2, "false"); /* etapa-72: off by default */
+  set_s(&liveRowOpt, "homeLiveRow", "Live TV on Home", "The channels\xe2\x80\x99 row on Home (the TV tab always has them)", OO, 2, "false"); /* etapa-72: off by default */
   set_s(&lookS[1], "ssDelay", "Screensaver", "After a while without a key, the titles of the moment fill the screen", SS_OPTS, 5, "5");
   /* language names are shown in their own language, never translated */
   set_s(&langOpt, "uiLang", "Language", "The app restarts in the new language", NULL, 0, "auto");
@@ -344,27 +346,28 @@ static void build(void) {
     for (int j = 0; j < (int)(sizeof ORDER / sizeof *ORDER) && n < 40; j++) { int have = 0; for (int i = 0; i < i18n_lang_count(); i++) if (!strcmp(i18n_lang_code(i), ORDER[j])) have = 1; if (!have) continue;
       snprintf(s->dynS[n], 64, "%s", ORDER[j]); s->dyn[n].v = s->dynS[n]; s->dyn[n].lb = i18n_lang_name(ORDER[j]); n++; }
     s->opts = s->dyn; s->nopts = n; }
-  int nl = lang_opts(), nk = keys_opts(), na = addon_opts();
+  memset(advS, 0, sizeof advS); int nl = lang_opts(), nk = keys_opts(), na = addon_opts(), nadv = adv_opts();
   set_act(&acctS[0], "__logout", "Log out", ""); /* (who it is: the card above it) */
   int nab = about_opts(); int np = prof_opts(), noh = org_opts('h'), nos = org_opts('s'), nsf = sf_opts();
   /* grouped by task: what you watch, what the screens look like, account and system; Log out on its own, last */
-  Cat c[NCAT] = {
+  Cat c[NCAT] = { /* etapa-89: four groups: Watch, Screens, Account, System (Advanced and Log out last) */
     { "Watch", "Playback", "set_play", "Best stream, next episode, picture size", NULL, playS, 6, 0 }, /* (the counts: play_layout) */
     { "Watch", "Seek bar", "set_seek", "Seek step, chapters, previews", NULL, seekS, 4, 0 },
     { "Watch", "Subtitles", "set_subs", "Language, size, font, colour", "subs", subsS, 13, 0 },
     { "Watch", "Audio", "set_aud", "Default audio language, DTS, interface sounds", NULL, audS, 4, 0 },
+    { "Watch", "Filter streams", "set_sf", "Only 4K, only dubbed, no cinema copies", NULL, sfS, nsf, 0 },
     { "Screens", "Appearance", "set_look", "Accent colour, screensaver, clock, trailers", "look", lookS, 12, 0 },
     { "Screens", "Language", "set_lang", "The language of the app", NULL, langS, nl, 0 },
-    { "Account and system", "Addons", "set_addon", "", NULL, addonS, na, 0 },
-    { "Account and system", "Trakt", "set_trakt", "Track what you watch", "trakt", traktS, 1, 0 },
-    { "Account and system", "Keys", "set_keys", "Titles in your language, ratings and reviews", "keys", keyS, nk, 0 },
-    { "Account and system", "About", "info", "Version, updates, logs and support", "about", supS, nab, 0 },
-    { "Account and system", "Profiles", "set_prof", "Who's watching: each profile with its own account and picture", NULL, profS, np, 0 },
-    { "Account and system", "Organize Home", "set_orgh", "Put rows on top or hide them", NULL, orgHS, noh, 0 },
-    { "Account and system", "Organize Search", "set_orgs", "Put catalogs on top or hide them", NULL, orgSS, nos, 0 },
-    { "Account and system", "Filter streams", "set_sf", "Only 4K, only dubbed, no cinema copies", NULL, sfS, nsf, 0 },
+    { "Screens", "Organize Home", "set_orgh", "Put rows on top or hide them", NULL, orgHS, noh, 0 },
+    { "Screens", "Organize Search", "set_orgs", "Put catalogs on top or hide them", NULL, orgSS, nos, 0 },
+    { "Account", "Profiles", "set_prof", "Who's watching: each profile with its own account and picture", NULL, profS, np, 0 },
+    { "Account", "Trakt", "set_trakt", "Track what you watch", "trakt", traktS, 1, 0 },
+    { "Account", "Addons", "set_addon", "", NULL, addonS, na, 0 },
+    { "Account", "Keys", "set_keys", "Titles in your language, ratings and reviews", "keys", keyS, nk, 0 },
+    { "System", "Updates and help", "info", "Version, update now, what's new, logs", "about", supS, nab, 0 },
+    { "System", "Advanced", "set_net", "IPTV list", NULL, advS, nadv, 0 },
     { "", "Log out", "set_out", "", "acct", acctS, 0, 1 } }; /* (no row of its own: the category itself is the button, the page shows who is signed in) */
-  ncat = 0; for (int i = 0; i < NCAT; i++) if (c[i].opts != keyS || nk) cats[ncat++] = c[i];
+  ncat = 0; for (int i = 0; i < NCAT; i++) if ((c[i].opts != keyS || nk) && (c[i].opts != advS || nadv)) cats[ncat++] = c[i];
   play_layout(); S.dirty = 1;
   best_caps_probe(caps_known, NULL); /* (the Dolby Vision row, once the TV has said) */
 }

@@ -165,11 +165,7 @@ static void board_roleta_row(Board *b) {
   Row *r = row_add(b, "Roulette", 1, 0); if (r) { r->items = l; r->hidden = 0; } else itemlist_clear(&l);
 }
 static void board_cw_row(Board *b, const KeptRow *kp, int nk) {
-  if (b->kind == 0 && !strcmp(store_get("homeStories", "false"), "true")) { /* etapa-78: off (not wanted) */ /* etapa-73: Stories: new episodes of yours, then the week's releases */
-    ItemList fr, rl, st; memset(&st, 0, sizeof st); notify_fresh(&fr); releases_items(&rl); st.items = calloc((size_t)(fr.n + rl.n + 1), sizeof(Item));
-    if (st.items) { for (int i = 0; i < fr.n && st.n < 10; i++) st.items[st.n++] = fr.items[i]; for (int i = 0; i < rl.n && st.n < 16; i++) st.items[st.n++] = rl.items[i]; }
-    itemlist_clear(&fr); itemlist_clear(&rl);
-    if (st.n > 0) { Row *r = row_add(b, "Stories", 0, 0); if (r) { r->items = st; r->hidden = 0; r->round = 1; } else itemlist_clear(&st); } else itemlist_clear(&st); }
+  /* etapa-89: Stories gone (not wanted) */
   ItemList cw; if (lib_cw_items(&cw) > 0) { Row *r = row_add(b, "Continue Watching", 1, 0); if (r) { r->items = cw; r->hidden = 0; } else itemlist_clear(&cw); } else { itemlist_clear(&cw); closing_row(b, kp, nk, "Continue Watching", 1, 0); }
   if (b->kind == 0) { ItemList fr; if (notify_fresh(&fr) > 0) { Row *r = row_add(b, "New episodes", 1, 0); if (r) { r->items = fr; r->hidden = 0; } else itemlist_clear(&fr); } else closing_row(b, kp, nk, "New episodes", 1, 0); } /* etapa-72: a series you were watching has a new one out */
   ItemList up; if (notify_upcoming(&up) > 0) { Row *r = row_add(b, "Upcoming episodes", 1, 0); if (r) { r->items = up; r->hidden = 0; } else itemlist_clear(&up); } else closing_row(b, kp, nk, "Upcoming episodes", 1, 0); /* the library's series airing in the next two weeks */

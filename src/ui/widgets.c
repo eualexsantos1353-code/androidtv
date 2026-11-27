@@ -389,7 +389,7 @@ float lift_begin_z(unsigned long long key, int focused, float hold, float x, flo
     k = e->k.v; }
   float hk = hold > 0 ? ease_apply(EASE_IN_OUT, hold) : 0, s = (1 + zoom * k) * (1 - 0.04f * hk); /* held: it sinks a little while the line runs */
   gfx_scale_push(s, s, x + w / 2, y + h / 2);
-  if (k * liftDim > 0.002f) gfx_shadow(x, y + 14, w, h, r, 34, BLACK_A((int)(160 * k * liftDim)));
+  if (k * liftDim > 0.002f) { gfx_shadow(x, y + 14, w, h, r, 34, BLACK_A((int)(160 * k * liftDim))); gfx_shadow(x, y + 6, w, h, r, 40, col_alpha(ACC | 0xff000000u, 0.32f * k * liftDim)); } /* etapa-89: a glow in the accent */
   return k;
 }
 void lift_end(unsigned long long key, float x, float y, float w, float h, float r) {
@@ -401,7 +401,7 @@ void lift_end(unsigned long long key, float x, float y, float w, float h, float 
        plain to see */
     if (e->on) { float q = ease_apply(EASE_IN_OUT, p < 0 ? 0 : p > 1 ? 1 : p), pos = -0.2f + 1.0f * q, al = 40 * q + 56 * sinf(3.14159f * q); /* soft as it crosses, settling to its faint rest (half what it was: it glared) */
       gfx_glare(x, y, w, h, r, pos, WHITE_A((int)(al * k))); }
-    if (e->on) { gfx_ring(x, y, w, h, r, 2, col_alpha(col_mix(ACC2 | 0xff000000u, 0xffffffffu, 0.5f), 0.9f * k)); gfx_ring(x + 2, y + 2, w - 4, h - 4, r > 2 ? r - 2 : 0, 1, WHITE_A((int)(34 * k))); } } /* the selection's thin glassy edge, in the accent's light, as every selector */
+    if (e->on) { gfx_ring(x - 4, y - 4, w + 8, h + 8, r + 4, 3.5f, col_alpha(ACC | 0xff000000u, 0.95f * k)); /* etapa-89: the accent's own edge (red in Cinema), as the Library's */ gfx_ring(x + 2, y + 2, w - 4, h - 4, r > 2 ? r - 2 : 0, 1, WHITE_A((int)(34 * k))); } } /* the selection's thin glassy edge, in the accent's light, as every selector */
   gfx_scale_pop();
 }
 /* a remote key drawn as on the remote, then what it does: OK, Back and Down round, the colour keys a small rounded block

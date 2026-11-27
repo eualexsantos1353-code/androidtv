@@ -1,6 +1,21 @@
 {
- "version": "87",
+ "version": "89",
  "items": [
+  {
+   "icon": "set_look",
+   "title": "Configurações novas",
+   "text": "Quatro grupos: Assistir, Telas, Conta e Sistema. A Lista IPTV foi para Sistema > Avançado; Sobre virou Atualizações e ajuda."
+  },
+  {
+   "icon": "play",
+   "title": "Foco vermelho em tudo",
+   "text": "Início, Descobrir e Busca com a mesma borda e brilho da Biblioteca."
+  },
+  {
+   "icon": "lib_sort",
+   "title": "App mais leve",
+   "text": "Traduções juntas num arquivo por idioma e restos de Stories e TV ao vivo removidos."
+  },
   {
    "icon": "play",
    "title": "Player novo",
@@ -15,21 +30,6 @@
    "icon": "lib_wall",
    "title": "Para ver hoje",
    "text": "Na Biblioteca: 5 títulos seus escolhidos para o dia. E a fileira Novos episódios."
-  },
-  {
-   "icon": "play",
-   "title": "Porque você assistiu",
-   "text": "No Início, recomendações do último título que você terminou."
-  },
-  {
-   "icon": "play",
-   "title": "Assistir pelo celular",
-   "text": "Na busca pelo celular: toque em Assistir na TV."
-  },
-  {
-   "icon": "lib_sort",
-   "title": "Atualização pela TV",
-   "text": "Cada etapa nova aparece em Configurações > Sobre e se instala pela própria TV."
   }
  ],
  "support": {
