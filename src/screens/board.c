@@ -3,7 +3,6 @@
 #include "core/releases.h"
 #include "core/later.h"
 #include "core/kids.h"
-#include "screens/stories.h"
 #include "ui/xline.h"
 #include "screens/board.h"
 #include "core/because.h"
@@ -686,14 +685,13 @@ static void move_h(Board *b, int dir) {
   slide_row(r); hero_soon(b, 150); row_more(b, b->rowIdx);
 }
 static void spot_leave(Board *b) { b->featOn = 0; b->featAt = 0; if (b->scoped[0]) { b->scoped[0] = 0; accent_scope(NULL, NULL, NULL); } }
-static int story_ok(Board *b) { if (b->rowIdx >= b->n) return 0; Row *r = &b->rows[b->rowIdx]; if (strcmp(r->title, "Stories") || r->col >= r->items.n) return 0; stories_open(r->items.items, r->items.n, r->col); return 1; }
 static int board_key(Board *b, int k) {
   if (b->ptrHold) { b->ptrHold = 0; Row *hr = b->rowIdx >= 0 && b->rowIdx < b->n ? &b->rows[b->rowIdx] : NULL; if (hr) slide_row(hr); } /* a key: the rows follow the focus again */
   if (spotOn(b)) { feat_fill(b);
     if (k == K_LEFT || k == K_RIGHT) { feat_go(b, k == K_RIGHT ? 1 : -1); sound_focus(); return 1; } /* a move by hand taps; the dots stepping by themselves do not */
     if (k == K_DOWN) { if (b->n) { int n = first_visible_row(b, 0, 1); spot_leave(b); b->rowIdx = n >= 0 ? n : 0; hero_soon(b, 150); } return 1; }
     if (k == K_UP) { topnav_focus(); return 1; }
-    if (k == K_OK) { const Item *it = focused_of(b); if (it && story_ok(b)) return 1; if (it) app_open_item(it); return 1; }
+    if (k == K_OK) { const Item *it = focused_of(b); if (it) app_open_item(it); return 1; }
     return k != K_BACK; }
   if (!b->n || b->rowIdx >= b->n) { if (k == K_UP) topnav_focus(); return 1; }
   if (b->rows[b->rowIdx].filt && filt_key(b, k)) return 1;
@@ -703,7 +701,7 @@ static int board_key(Board *b, int k) {
   else if (k == K_LEFT) move_h(b, -1);
   else if (k == K_DOWN) { int n = first_visible_row(b, b->rowIdx + 1, 1); if (n >= 0) { grid_carry(b, b->rowIdx, n); b->rowIdx = n; hero_soon(b, 150); disc_more(b); } else nudge_start(&r->nudge, K_DOWN); }
   else if (k == K_UP) { int n = first_visible_row(b, b->rowIdx - 1, -1); if (n >= 0) { grid_carry(b, b->rowIdx, n); b->rowIdx = n; hero_soon(b, 150); } else topnav_focus(); }
-  else if (k == K_OK) { const Item *it = focused_of(b); if (it && story_ok(b)) return 1; if (it) app_open_item(it); }
+  else if (k == K_OK) { const Item *it = focused_of(b); if (it) app_open_item(it); }
   else if (k == K_BACK && b->kind == 1 && r->grid) { int f = 0; while (f < b->n && !b->rows[f].filt) f++; if (f >= b->n) return 0; /* Discover's grid: Back goes to its top, the first pill (Back there: the bar) */
     b->rowIdx = f; b->rows[f].col = 0; hero_soon(b, 150); }
   else if (k == K_BACK && b->kind == 0) { int n = first_visible_row(b, 0, 1); if (n < 0 || n >= b->rowIdx) return 0; /* Home scrolled down: Back goes to its top row first (Back there: the bar), as Discover's grid does */
@@ -966,10 +964,6 @@ static void poster_light(const Row *r, float x, float y, float w, float h) {
   if (t < 1) { float e = ease_apply(EASE_CSS_EASEOUT, t), gx = dir > 0 ? x - w * 0.3f + w * 1.6f * e : x + w * 1.3f - w * 1.6f * e, a = sinf(3.1416f * t);
     for (int q = 5; q >= 1; q--) gfx_circle(gx, y + h * 0.35f, w * 0.12f * q, WHITE_A((int)(16 * a))); }
   gfx_clip_pop(); }
-static void story_ring(const Row *r, const Item *it, float x, float y, float d) {
-  if (strcmp(r->title, "Stories")) return; float R = d / 2 + 7, cx = x + d / 2, cy = y + d / 2; int seen = stories_seen(it->id);
-  if (seen) { gfx_ring(cx - R, cy - R, 2 * R, 2 * R, R, 4, WHITE_A(90)); return; }
-  for (int i = 0; i < 96; i++) { float a = 6.2832f * i / 96.f + (float)app_now() * 0.6f, f = 0.5f + 0.5f * sinf(a); gfx_circle(cx + cosf(a) * (R - 2.5f), cy + sinf(a) * (R - 2.5f), 3.4f, col_mix(ACC | 0xff000000u, RGB(0xf4, 0x3f, 0x5e), f)); } }
 static void countdown_ring(const Item *it, float x, float y, float cw) {
   if (it->airAt <= 0) return; double left = it->airAt - (double)time(NULL); if (left <= 0 || left > 30 * 86400.0) return;
   float R = 30, cx = x + cw - R - 12, cy = y + R + 12, f = (float)(1 - left / (7 * 86400.0)); if (f < 0.04f) f = 0.04f; if (f > 1) f = 1;
@@ -1008,7 +1002,7 @@ static void row_draw(Board *b, Row *r, int ri, float y, int near, float rowA) {
     if (mfa < 1) gfx_opacity_push(mfa); /* (a card new to the row fades in as the rest glide) */
     int hold; const CardPrep *cp = row_prep(r, i, load, &hold, NULL); unsigned long long lk = lift_key(r, i);
     float cr = r->round ? cw / 2 : CARD_R; lift_begin(lk, 0, 0, x, cy, cw, ch, cr); /* (the one the focus just left settles back) */
-    if (r->round) { story_ring(r, &r->items.items[i], x, cy, cw); card_draw_round(&r->items.items[i], x, cy, cw); text_draw(r->items.items[i].name, x + cw / 2, cy + ch + 14, 22, 600, WHITE_A(200), 0, cw + 8, ALIGN_CENTER); }
+    if (r->round) { card_draw_round(&r->items.items[i], x, cy, cw); text_draw(r->items.items[i].name, x + cw / 2, cy + ch + 14, 22, 600, WHITE_A(200), 0, cw + 8, ALIGN_CENTER); }
     else { card_draw_prep(&r->items.items[i], cp, x, cy, cw, ch, r->wide, r->label, !hold && (load || near)); countdown_ring(&r->items.items[i], x, cy, cw); }
     if (melt > 0.01f && mkRow == r && mkCol == i) playing_mark(x, cy, ch, melt); /* (the focus has moved on: it fades where it was) */
     lift_end(lk, x, cy, cw, ch, cr); if (mfa < 1) gfx_opacity_pop();
@@ -1020,7 +1014,7 @@ static void row_draw(Board *b, Row *r, int ri, float y, int near, float rowA) {
     float fa = ra * (1 - 0.15f * melt); if (fa < 1) gfx_opacity_push(fa); /* the card whose trailer plays stays clear (.85) while the rest melts */
     float hp = app_hold_progress(); unsigned long long lk = lift_key(r, r->col);
     float cr = r->round ? cw / 2 : CARD_R; lift_begin(lk, 1, hp, x, cy, cw, ch, cr);
-    if (r->round) { story_ring(r, &r->items.items[r->col], x, cy, cw); card_draw_round(&r->items.items[r->col], x, cy, cw); text_draw(r->items.items[r->col].name, x + cw / 2, cy + ch + 14, 22, 700, WHITE_A(255), 0, cw + 8, ALIGN_CENTER); }
+    if (r->round) { card_draw_round(&r->items.items[r->col], x, cy, cw); text_draw(r->items.items[r->col].name, x + cw / 2, cy + ch + 14, 22, 700, WHITE_A(255), 0, cw + 8, ALIGN_CENTER); }
     else { card_draw_prep(&r->items.items[r->col], cp, x, cy, cw, ch, r->wide, r->label, 1); poster_light(r, x, cy, cw, ch); countdown_ring(&r->items.items[r->col], x, cy, cw); }
     if (hp > 0) hold_trace_draw(x, cy, cw, ch, cr, ease_apply(EASE_IN_OUT, hp));
     if (btr_playing() && melt > 0.9f) { mkRow = r; mkCol = r->col; } /* the card whose trailer plays: the mark stays on it, and goes with it */
@@ -1149,7 +1143,7 @@ int board_row_items(const char *id, const Item **items) {
   for (int i = 0; i < r->items.n; i++) if (!strcmp(r->items.items[i].id, id)) { *items = r->items.items; return r->items.n; } return 0;
 }
 /* etapa-74: a short OK (it comes as the key goes up): on a story, the Stories; anything else as always */
-static void open_home(const Item *it) { if (story_ok(&boards[0])) return; app_open_item(it); }
+static void open_home(const Item *it) { app_open_item(it); }
 Screen homeScreen = { enter_home, NULL, key_home, board_tick, board_draw, focused_cur, open_home, NULL, board_origin };
 Screen discScreen = { enter_disc, NULL, key_disc, board_tick, board_draw, focused_cur, NULL, NULL, board_origin };
 __attribute__((constructor)) static void board_kinds(void) { boards[0].kind = 0; boards[1].kind = 1; boards[1].featOn = 0; tween_set(&boards[1].rowsA, 1); for (int i = 0; i < 2; i++) tween_set(&boards[i].logoIn, 1); } /* Discover opens on its spotlight */

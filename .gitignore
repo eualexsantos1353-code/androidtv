@@ -9,3 +9,4 @@ androidtv/build/
 androidtv/app/build/
 androidtv/local.properties
 androidtv/app/src/main/jniLibs/
+*.log

@@ -1,1 +1,0 @@
-A native app for Stremio addons, written in C. Unofficial.
