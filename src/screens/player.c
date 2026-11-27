@@ -3067,8 +3067,8 @@ static void draw_osd(void) {
   float W = SB_W, H = SB_H, bx = 72, rowTop = H - 54 - 94, L25 = text_line_height(25), barTop = rowTop - 30 - L25, trkC = barTop + L25 / 2, ttlBot = barTop - 32;
   bake();
   /* the shades: the bottom for the controls, the top for the clock, the vignette when paused */
-  if (P.dim.v > 0.001f) { gfx_opacity_push(P.dim.v); gfx_rrect_v(0, H * 0.44f, W, H * 0.56f * 0.54f, 0, BLACK_A(0), BLACK_A(140)); gfx_rrect_v(0, H * 0.44f + H * 0.56f * 0.54f, W, H * 0.56f * 0.46f, 0, BLACK_A(140), BLACK_A(224)); gfx_opacity_pop(); }
-  if (P.dimT.v > 0.001f) { gfx_opacity_push(P.dimT.v); gfx_rrect_v(0, 0, W, 240, 0, BLACK_A(140), BLACK_A(0)); gfx_opacity_pop(); }
+  if (P.dim.v > 0.001f) { gfx_opacity_push(P.dim.v); gfx_rrect_v(0, H * 0.44f, W, H * 0.56f * 0.54f, 0, BLACK_A(0), BLACK_A(160)); gfx_rrect_v(0, H * 0.44f + H * 0.56f * 0.54f, W, H * 0.56f * 0.46f, 0, BLACK_A(160), BLACK_A(238)); gfx_opacity_pop(); }
+  if (P.dimT.v > 0.001f) { gfx_opacity_push(P.dimT.v); gfx_rrect_v(0, 0, W, 260, 0, BLACK_A(175), BLACK_A(0)); gfx_opacity_pop(); }
   if (P.vig.v > 0.001f) gfx_alpha_tex(vigTex, 0, 0, W, H, BLACK_A((int)(255 * P.vig.v)));
   draw_subs();
   /* paused: who plays in it (Apple TV's InSight), top right under the clock */
@@ -3129,15 +3129,15 @@ static void draw_osd(void) {
     if (hasMt) { mtTop = y - L25; y = mtTop - 14; }
     if (P.nchip) { infTop = y - 46; y = infTop - 18; }
     if (hasSe) { seTop = y - 36; y = seTop - 18; }
-    float lw, lh; GLuint t = logo_fit(560, 170, &lw, &lh); int nm = name_shown(t), nl = 0; static TMemo nmW; if (nm) { nl = tm_wrap(&nmW, P.name, 1100, 3, 60, 800, -1); lh = nl * 60 * 1.05f; }
+    float lw, lh; GLuint t = logo_fit(400, 112, &lw, &lh); int nm = name_shown(t), nl = 0; static TMemo nmW; if (nm) { nl = tm_wrap(&nmW, P.name, 900, 2, 42, 800, -1); lh = nl * 42 * 1.05f; } /* etapa-86: the title smaller */
     float lgTop = y - lh;
     if (P.pzA.v > 0.001f) { static UMemo pzU; const char *pz = um_upper(&pzU, T("Paused")); text_draw(pz, bx, lgTop - 40, 24, 700, WHITE_A((int)(199 * P.pzA.v)), 6, 0, ALIGN_LEFT); }
 
-    if (t) { char sk[80]; snprintf(sk, sizeof sk, "logo:%s", P.id); sx_image(sk, t, bx, lgTop, lw, lh, 0, WHITE_A(255), 0, 0, 1, 1); } else if (nm) text_draw_wrapped(P.name, bx, lgTop, 1100, 3, 60, 800, WHITE_A((int)(255 * kf(P.nameAt, .45f, C_LGIN, 0))), -1, ALIGN_LEFT, 60 * 1.05f);
+    if (t) { char sk[80]; snprintf(sk, sizeof sk, "logo:%s", P.id); sx_image(sk, t, bx, lgTop, lw, lh, 0, WHITE_A(255), 0, 0, 1, 1); } else if (nm) text_draw_wrapped(P.name, bx, lgTop, 900, 2, 42, 800, WHITE_A((int)(255 * kf(P.nameAt, .45f, C_LGIN, 0))), -1, ALIGN_LEFT, 42 * 1.05f);
     if (hasSe) { float ty = seTop + (36 - L30) / 2;
       if (P.isTrailer) { static UMemo tgU; const char *tg = um_upper(&tgU, trailer_name()); text_draw(tg, bx, seTop + (36 - text_line_height(22)) / 2, 22, 700, ACC2, 6, 0, ALIGN_LEFT); }
-      else { char se[16]; if (P.season >= 0) snprintf(se, sizeof se, "S%d:E%d", P.season, P.episode); else snprintf(se, sizeof se, "E%d", P.episode); float w = txt_sh(se, bx, ty, 30, 800, WHITE_A(255), 0.5f, 0, ALIGN_LEFT, 153);
-        if (P.epTitle[0]) { gfx_circle(bx + w + 16 + 3.5f, seTop + 18, 3.5f, ACC2); txt_sh(P.epTitle, bx + w + 16 + 7 + 16, ty, 30, 700, WHITE_A(255), 0, 1000, ALIGN_LEFT, 153); } } }
+      else { char se[16]; if (P.season >= 0) snprintf(se, sizeof se, "S%d:E%d", P.season, P.episode); else snprintf(se, sizeof se, "E%d", P.episode); float w = txt_sh(se, bx, ty, 27, 800, WHITE_A(255), 0.5f, 0, ALIGN_LEFT, 153);
+        if (P.epTitle[0]) { gfx_circle(bx + w + 16 + 3.5f, seTop + 18, 3.5f, ACC2); txt_sh(P.epTitle, bx + w + 16 + 7 + 16, ty, 27, 600, WHITE_A(230), 0, 1000, ALIGN_LEFT, 153); } } }
     if (P.nchip) { float cx = bx, L24 = text_line_height(24);
       for (int i = 0; i < P.nchip; i++) { float k = kf(P.chip[i].at, .42f, C_OUT, P.chip[i].delay); if (P.chip[i].at && now_() - P.chip[i].at < P.chip[i].delay) k = 0; /* the entrance keeps its first frame through the delay */
         if (P.chip[i].sep) { cx += 4; gfx_rect(cx, infTop + 6 + 8 * (1 - k), 2, 34, WHITE_A((int)(115 * k))); cx += 2 + 16; continue; }
@@ -3173,7 +3173,7 @@ static void draw_osd(void) {
       gfx_rrect(tx, ty, tw, th, 3, WHITE_A(51)); float be = d > 0 ? (float)(video_buffered_end() / d) : 0; if (be > p) gfx_rrect(tx, ty, tw * (be > 1 ? 1 : be), th, 3, WHITE_A(66));
       if (chs && sg == kc && (f || sk)) gfx_rrect(tx, ty, tw, th, 3, WHITE_A(34));
       if (P.skipsOk && d > 0) { struct { int has; double s, e; } segs[3] = { { P.intro.has, P.intro.s, P.intro.e }, { P.recap.has, P.recap.s, P.recap.e }, { P.outro.has, P.outro.s, P.outro.e } }; for (int i = 0; i < 3; i++) if (segs[i].has) { float a = (float)(segs[i].s / d), w = (float)((segs[i].e - segs[i].s) / d); if (w < 0.004f) w = 0.004f; gfx_rrect(tx + tw * a, ty, tw * w, th, 3, WHITE_A(128)); } }
-      gfx_rrect_h(tx, ty, tw * p, th, 3, ACC, ACC2);
+      gfx_rrect_h(tx, ty, tw * p, th, 3, RGB(0xc8, 0x10, 0x24), RGB(0xe5, 0x1a, 0x2e)); /* etapa-86: the progress in the Library's red */
       if (chs) gfx_clip_pop(); }
     float kx = tx + roundf(tw * p);
     if (P.knA.v > 0.001f && !lv) { gfx_opacity_push(P.knA.v); if (f || sk) gfx_circle(kx, trkC, 15, WHITE_A(255)); else gfx_circle(kx, trkC, 9, WHITE_A(255)); gfx_opacity_pop(); }
@@ -3200,19 +3200,19 @@ static void draw_osd(void) {
     int fi = P.mode == 1 && P.row == 0 ? P.bIdx : -1; if (P.mode == 2 && P.tray.kind) { int ak = P.tray.kind < 0 ? -P.tray.kind : P.tray.kind; fi = btn_index(ak == 1 || ak == 5 ? "eps" : ak == 6 ? "chn" : ak == 2 ? "src" : ak == 3 ? "aud" : "subs"); }
     float fa = P.focA.v * fminf(1, kf(P.focFadeAt, .24f, C_EASE, 0));
     { static float sv, lx; lglass_stretch(&sv, &lx, P.focX.v, app_dt()); /* the lit button: accent glass that stretches as it glides and settles round */
-      if (fa > 0.001f) { float w0 = P.focW.v, h0 = P.focH.v, sw = w0 * (1 + 0.16f * sv), sh = h0 * (1 - 0.08f * sv), px = P.focX.v + w0 / 2 - sw / 2, py = P.focY.v + h0 / 2 - sh / 2; lglass_accent(px, py, sw, sh, sh / 2, fa);
+      if (fa > 0.001f) { float w0 = P.focW.v, h0 = P.focH.v, sw = w0 * (1 + 0.16f * sv), sh = h0 * (1 - 0.08f * sv), px = P.focX.v + w0 / 2 - sw / 2, py = P.focY.v + h0 / 2 - sh / 2; gfx_shadow(px, py + 4, sw, sh, sh / 2, 26, RGBA(0xe5, 0x1a, 0x2e, (int)(120 * fa))); gfx_rrect(px, py, sw, sh, sh / 2, RGBA(0xe5, 0x1a, 0x2e, (int)(255 * fa))); /* etapa-86: red, not the glass */
       } }
     if (P.tipA.v > 0.001f && P.tip[0]) { float ta = P.tipA.v * (P.tipAt && now_() - P.tipAt < .08 ? 0 : fminf(1, kf(P.tipAt, .3f, C_EASE, .08f)));
       int cyc = fi >= 0 && !strcmp(P.btns[fi].id, "asp") && !strcmp(P.tip, P.btns[fi].lb); /* a button that cycles: one dot per choice under its name, the lit one gliding on each press */
       if (cyc) { /* the name and its dots centred together in the pill's open part, whatever the name's length */
         float cx = P.focX.v + 70 + (P.focW.v - 70 - 24) / 2; int ai = !strcmp(P.aspect, "fill") ? 1 : !strcmp(P.aspect, "zoom") ? 2 : 0;
-        text_draw(P.tip, cx, P.focY.v + 38 - text_line_height(24) / 2.0f - 8, 24, 700, col_alpha(ACC_FG, ta), 0, 0, ALIGN_CENTER);
-        cycle_dots(0, 3, ai, cx, P.focY.v + 38 + text_line_height(24) / 2.0f + 2, 11, 2.5f, col_alpha(ACC_FG, .3f * ta), col_alpha(ACC_FG, ta), 0); }
-      else { float ks = P.focH.v / 76.f; text_draw(P.tip, P.focX.v + 70 * ks, P.focY.v + 38 * ks - text_line_height(24) / 2.0f, 24, 700, col_alpha(ACC_FG, ta), 0, 0, ALIGN_LEFT); } } /* (the big button's name: past its bigger icon) */
+        text_draw(P.tip, cx, P.focY.v + 38 - text_line_height(24) / 2.0f - 8, 24, 700, WHITE_A((int)(255 * ta)), 0, 0, ALIGN_CENTER);
+        cycle_dots(0, 3, ai, cx, P.focY.v + 38 + text_line_height(24) / 2.0f + 2, 11, 2.5f, WHITE_A((int)(77 * ta)), WHITE_A((int)(255 * ta)), 0); }
+      else { float ks = P.focH.v / 76.f; text_draw(P.tip, P.focX.v + 70 * ks, P.focY.v + 38 * ks - text_line_height(24) / 2.0f, 24, 700, WHITE_A((int)(255 * ta)), 0, 0, ALIGN_LEFT); } } /* (the big button's name: past its bigger icon) */
     for (int i = 0; i < P.nbtn; i++) { float sz = P.btns[i].w, x = P.btns[i].x, y = P.btns[i].y; int f = i == fi;
       if (!f) lglass_shell(x, y, sz, sz, sz / 2, RGBA(16, 16, 24, 90), 0.85f); /* glass at rest */
-      float isz = P.btns[i].big ? 48 : 34, ix = x + sz / 2 - isz / 2, iy = y + sz / 2 - isz / 2; uint32_t ic = f ? ACC_FG : WHITE_A(255);
-      if (!strcmp(P.btns[i].id, "cc")) { cc_icon(ix, iy, isz, ic, f ? ACC : RGBA(30, 30, 34, 235)); continue; }
+      float isz = P.btns[i].big ? 48 : 34, ix = x + sz / 2 - isz / 2, iy = y + sz / 2 - isz / 2; uint32_t ic = WHITE_A(255);
+      if (!strcmp(P.btns[i].id, "cc")) { cc_icon(ix, iy, isz, ic, f ? RGB(0xe5, 0x1a, 0x2e) : RGBA(30, 30, 34, 235)); continue; }
       icon_draw(!strcmp(P.btns[i].id, "pp") ? (paused() ? "p_play" : "p_pause") : P.btns[i].icon, ix, iy, isz, ic); }
     gfx_offset_pop(); gfx_opacity_pop(); }
   /* the prompts: the skip pill, the credits buttons, the next-up card */

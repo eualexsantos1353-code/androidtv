@@ -1,6 +1,11 @@
 {
- "version": "85",
+ "version": "86",
  "items": [
+  {
+   "icon": "play",
+   "title": "Player repaginado",
+   "text": "Nome da série menor, barra e botão em foco em vermelho e sombra de cinema embaixo e em cima."
+  },
   {
    "icon": "lib_sort",
    "title": "Biblioteca repaginada",
