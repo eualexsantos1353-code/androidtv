@@ -149,7 +149,7 @@ static void rail_labels(void) {
     else { snprintf(L.lbl[i], sizeof L.lbl[i], "%s", T(S_LB[sort_key()])); L.lw[i] = text_width(L.lbl[i], 26, 600, 0) + 16 + 3 * 13 + 22 + 26; } } /* (and its four dots, the current one a short pill) */
 }
 static int is_open(int i) { int fi = L.zone == 0 ? L.ri : -1; return i == fi || i == L.tab || i == NB - 1; }
-static float btn_w(int i) { return is_open(i) ? 76 + L.lw[i] : 76; }
+static float btn_w(int i) { if (i == B_CAL || i == B_WALL || i == B_DIARY) return 76; return is_open(i) ? 76 + L.lw[i] : 76; } /* etapa-81: the three round ones never widen (they ran over the filters): their name shows under them */
 static void rail_paint(int snap) {
   rail_labels(); float x = 0; int fi = L.zone == 0 ? L.ri : -1; /* the bar taking the focus leaves the pill where it was, as the page does */
   float px[NB], pw[NB];
@@ -358,6 +358,7 @@ static void draw(void) {
     hit_add(x, RAIL_Y, w, 76, rail_focus, NULL, i, 0);
     if (!open && L.la[i].v < 0.999f) gfx_circle(rtl ? x + w - 38 : x + 38, RAIL_Y + 38, 38, WHITE_A((int)(41 * (1 - L.la[i].v)))); /* a closed button: its own quiet disc */
     uint32_t fg = f ? RGB(0x15, 0x13, 0x1c) : WHITE_A(255);
+    if (f && (i == B_CAL || i == B_WALL || i == B_DIARY)) { float cxm = x + 38 + bxn, tw2 = text_width(L.lbl[i], 22, 700, 0) + 28; gfx_rrect(cxm - tw2 / 2, RAIL_Y + 90, tw2, 40, 20, RGBA(14, 12, 22, 220)); text_draw(L.lbl[i], cxm, RAIL_Y + 110 - text_line_height(22) / 2, 22, 700, WHITE_A(240), 0, 0, ALIGN_CENTER); } /* (its name, as a tag under it) */
     icon_draw(i < NF ? F_IC[i] : i == B_CAL ? "lib_retro" : i == B_WALL ? "lib_wall" : i == B_DIARY ? "av_star" : "lib_sort", (rtl ? x + w - 21 - 34 : x + 21) + bxn, RAIL_Y + 21 + byn, 34, fg);
     float ok = L.lw[i] > 1 ? (w - 76) / L.lw[i] : 0; ok = ok < 0 ? 0 : ok > 1 ? 1 : ok; /* the name shows as far as the pill has opened: never ahead of it */
     float la = L.la[i].v < ok * ok ? L.la[i].v : ok * ok; if (la > 0.001f) { gfx_opacity_push(la); gfx_clip_push(x, RAIL_Y, w - 18, 76); /* the name shows as the pill widens */ float tx = (rtl ? x + w - 66 : x + 66) + bxn, ty = RAIL_Y + 38 - text_line_height(26) / 2.0f + byn;

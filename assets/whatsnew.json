@@ -1,30 +1,25 @@
 {
- "version": "80",
+ "version": "81",
  "items": [
   {
+   "icon": "later",
+   "title": "Biblioteca com o Trakt",
+   "text": "Sua watchlist do Trakt entra na Biblioteca, e o que você adiciona aqui vai para o Trakt."
+  },
+  {
    "icon": "lib_cal",
-   "title": "Calendário com o Trakt",
-   "text": "As séries que você segue no Trakt (e as que vão estrear nas suas listas) aparecem no calendário."
+   "title": "Calendário mais limpo",
+   "text": "No lugar dos pontinhos, um número mostra quantos títulos saem no dia."
   },
   {
    "icon": "lib_retro",
-   "title": "Retrospectiva com o Trakt",
-   "text": "Horas, séries, filmes e gênero do ano inteiro, tirados do seu histórico no Trakt."
+   "title": "Retrospectiva",
+   "text": "Sem novelas nas estatísticas. O filme do ano é o que você deu a maior nota."
   },
   {
    "icon": "wn_new",
-   "title": "Créditos inteligentes",
-   "text": "Perto do fim, o Lumen avisa se tem cena durante ou depois dos créditos."
-  },
-  {
-   "icon": "av_star",
-   "title": "Diário de filmes",
-   "text": "Terminou um filme? Dê estrelas. Veja em Biblioteca › Diário."
-  },
-  {
-   "icon": "later",
-   "title": "Fundo animado e abertura",
-   "text": "A imagem do Início se mexe devagar, e a tela preta ao abrir o app sumiu."
+   "title": "Créditos, diário e fundo animado",
+   "text": "Cena pós-créditos avisada, estrelas no fim do filme e o fundo do Início vivo."
   }
  ],
  "support": {
@@ -33,5 +28,5 @@
   "url": "https://ko-fi.com/simussu",
   "github": "https://github.com/stremio-origin/androidtv"
  },
- "note": "O Trakt precisa estar conectado em Configurações › Trakt."
+ "note": "Tudo do Trakt é do primeiro perfil (o seu)."
 }

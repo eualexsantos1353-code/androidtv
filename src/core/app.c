@@ -25,6 +25,7 @@
 #include "ui/season.h"
 #include "screens/profpick.h"
 #include "core/organize.h"
+#include "core/traktsync.h"
 #include "core/tmdb.h"
 #include "ui/icon.h"
 #include "ui/palette.h"
@@ -1073,7 +1074,7 @@ void app_tick(float dt) {
   if (okHold.down && !okHold.menu && (NOW - okHold.at) * 1000 >= HOLD_MS) { okHold.menu = 1; menuGuard = 1; orbs_pulse(ORB_HOLD, 1); if (app_card_menu_hook) app_card_menu_hook(&okHold.item); }
   timer_tick(&xin, dt); timer_tick(&xmvT, dt); timer_tick(&xoutT, dt);
   saver_tick(dt);
-  accent_tick(dt); tint_tick(); toast_tick(dt); profpick_tick_start(); clock_tick(); if (SCR == SCR_LOGIN || splash_signed_in()) login_glow_bake(); /* (the sign-in's glass: the glows under it) */ amb_bake(); topnav_tick(dt); bg_tick(dt); lg_tick(); sync_tick(); scrobble_tick(); tw_tick(); live_tick(); update_tick(dt); best_tick();
+  accent_tick(dt); tint_tick(); toast_tick(dt); profpick_tick_start(); tsync_tick(); clock_tick(); if (SCR == SCR_LOGIN || splash_signed_in()) login_glow_bake(); /* (the sign-in's glass: the glows under it) */ amb_bake(); topnav_tick(dt); bg_tick(dt); lg_tick(); sync_tick(); scrobble_tick(); tw_tick(); live_tick(); update_tick(dt); best_tick();
   curKey = 0; /* (a page switch later in the frame is not a key's) */
   btr_tick(dt); lpk_tick(dt); welcome_tick(); { extern void supportcard_tick(void); supportcard_tick(); } lift_tick(dt); tabs_warm_tick();
   { static int greeted; if (!greeted && app_splash_done) { greeted = 1; sound_play(SND_START); } } /* start-up: one very faint sound */

@@ -1,5 +1,6 @@
 #include "core/tracking.h"
 #include "core/organize.h"
+#include "core/traktsync.h"
 #include "core/simkl.h"
 #include "core/stremio.h"
 #include "core/addons.h"
@@ -33,6 +34,6 @@ void tracking_player(const char *type, const char *videoId, int state, double po
   double jump = pos - S.lastPos; int seeked = S.sent && (jump > 15 || jump < -5); S.lastPos = pos;
   if (want != S.sent || seeked) { tell(want == 1 ? "start" : "pause", pos, dur); S.sent = want; } }
 void tracking_player_end(double pos, double dur) { if (prof_cur() != 0) return; simkl_player_end(pos, dur); if (S.sent && S.vid[0]) tell("stop", pos, dur > 0 ? dur : pos); memset(&S, 0, sizeof S); }
-void tracking_library(const char *type, const char *id, const char *action, const char *videoIds) {
+void tracking_library(const char *type, const char *id, const char *action, const char *videoIds) { tsync_lib_push(type, id, action);
   char ex[1200] = ""; addon_extra_add(ex, sizeof ex, "action", action); if (videoIds && *videoIds) addon_extra_add(ex, sizeof ex, "videoId", videoIds);
   send_all("library", type && *type ? type : "movie", id, ex); }

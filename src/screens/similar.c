@@ -334,7 +334,7 @@ static void cal_draw(void) {
     if (ne) { /* the first poster, small, and how many */
       const Item *it = &cl()->items[ff]; float aspect; GLuint t = it->poster[0] ? img_get(it->poster, 60, 90, &aspect) : 0;
       if (t) gfx_image(t, x + cw - 48, yy + chh - 66, 38, 56, 6, WHITE_A(inM ? 255 : 120), 0, 0, 1, 1); else gfx_rrect(x + cw - 48, yy + chh - 66, 38, 56, 6, col_alpha(ac, 0.6f));
-      { int nd = ne < 4 ? ne : 4; uint32_t dc = fo && C.zone == 0 ? ac : col_alpha(ac, inM ? 1 : 0.5f); for (int q = 0; q < nd; q++) gfx_circle(x + 22 + q * 16, yy + chh - 22, 5.5f, dc); } } /* a dot for each title that day (four at most) */
+      { if (ne > 1) { char nb[8]; snprintf(nb, sizeof nb, "%d", ne); float bw = text_width(nb, 20, 800, 0) + 18; uint32_t dc = fo && C.zone == 0 ? ac : col_alpha(ac, inM ? 0.9f : 0.45f); gfx_rrect(x + 12, yy + chh - 36, bw, 26, 13, dc); text_draw(nb, x + 12 + bw / 2, yy + chh - 36 + (26 - text_line_height(20)) / 2, 20, 800, WHITE_A(inM ? 255 : 150), 0, 0, ALIGN_CENTER); } } /* etapa-81: how many that day, one small number (no row of dots) */ } /* a dot for each title that day (four at most) */
     }
   /* the day */
   float rx = 960, rw = SB_W - 80 - rx, ry = 150;

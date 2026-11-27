@@ -25,7 +25,7 @@
 #define NS 7
 #define SLIDE_S 7.0
 typedef struct { char name[160], poster[512], bg[512], id[64]; double h; } Top;
-static struct { int open, closing, idx, year, movies, series, eps; double hours, month[12]; Top tm, ts; char genre[64], actor[96]; int gn, an;
+static struct { int open, closing, idx, year, movies, series, eps, mRated, mPlays, mDiary; double hours, month[12]; Top tm, ts; char genre[64], actor[96]; int gn, an;
   double at, slideAt; Tween a, k; Orbs orbs; } R;
 static const char *MON[12] = { "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December" };
 
@@ -33,7 +33,7 @@ typedef struct { char s[96]; int n; } Cnt;
 static void cnt_add(Cnt *c, int *nc, int cap, const char *s, int w) { if (!s || !*s) return; for (int i = 0; i < *nc; i++) if (!strcmp(c[i].s, s)) { c[i].n += w; return; } if (*nc < cap) { snprintf(c[*nc].s, sizeof c[*nc].s, "%s", s); c[(*nc)++].n = w; } }
 static void compute(void) {
   time_t t = time(NULL); struct tm tm; localtime_r(&t, &tm); R.year = tm.tm_year + 1900 - (tm.tm_mon == 0 ? 1 : 0);
-  R.movies = R.series = R.eps = 0; R.hours = 0; memset(R.month, 0, sizeof R.month); memset(&R.tm, 0, sizeof R.tm); memset(&R.ts, 0, sizeof R.ts); R.genre[0] = R.actor[0] = 0;
+  R.movies = R.series = R.eps = 0; R.mRated = R.mPlays = R.mDiary = 0; R.hours = 0; memset(R.month, 0, sizeof R.month); memset(&R.tm, 0, sizeof R.tm); memset(&R.ts, 0, sizeof R.ts); R.genre[0] = R.actor[0] = 0;
   char yp[8]; snprintf(yp, sizeof yp, "%d-", R.year);
   static Cnt gen[64], act[256]; int ng = 0, na = 0;
   const cJSON *it; cJSON_ArrayForEach(it, lib_all()) {
@@ -55,8 +55,13 @@ static void compute(void) {
   { const TsyncYear *y = tsync_year(); if (y && y->ok && y->year == R.year) { /* etapa-80: Trakt's history knows the whole year, every day: it leads */
       R.hours = y->hours; R.movies = y->movies; R.series = y->series; for (int i = 0; i < 12; i++) if (y->month[i] > R.month[i]) R.month[i] = y->month[i];
       if (y->showName[0]) { snprintf(R.ts.name, sizeof R.ts.name, "%s", y->showName); snprintf(R.ts.id, sizeof R.ts.id, "%s", y->showId); R.ts.h = y->showH; snprintf(R.ts.poster, sizeof R.ts.poster, "https://images.metahub.space/poster/medium/%s/img", y->showId); snprintf(R.ts.bg, sizeof R.ts.bg, "https://images.metahub.space/background/medium/%s/img", y->showId); }
+      R.mRated = y->movieRated; R.mPlays = y->moviePlays;
       if (y->movieName[0]) { snprintf(R.tm.name, sizeof R.tm.name, "%s", y->movieName); snprintf(R.tm.id, sizeof R.tm.id, "%s", y->movieId); R.tm.h = y->movieH; snprintf(R.tm.poster, sizeof R.tm.poster, "https://images.metahub.space/poster/medium/%s/img", y->movieId); snprintf(R.tm.bg, sizeof R.tm.bg, "https://images.metahub.space/background/medium/%s/img", y->movieId); }
       if (y->genre[0]) snprintf(R.genre, sizeof R.genre, "%s", y->genre); } }
+  if (!R.mRated) { const cJSON *e, *best = NULL; char yp[8]; snprintf(yp, sizeof yp, "%d-", R.year); /* (no Trakt rating: the diary's best of the year) */
+    cJSON_ArrayForEach(e, store_node("diary")) if (!strncmp(js_str(e, "day", ""), yp, 5) && !strcmp(js_str(e, "type", "movie"), "movie") && (!best || js_num(e, "stars", 0) > js_num(best, "stars", 0))) best = e;
+    if (best && js_num(best, "stars", 0) >= 4) { snprintf(R.tm.name, sizeof R.tm.name, "%s", js_str(best, "name", "")); snprintf(R.tm.id, sizeof R.tm.id, "%s", js_str(best, "id", "")); snprintf(R.tm.poster, sizeof R.tm.poster, "%s", js_str(best, "poster", ""));
+      snprintf(R.tm.bg, sizeof R.tm.bg, "https://images.metahub.space/background/medium/%s/img", R.tm.id); R.mDiary = (int)js_num(best, "stars", 0); } }
   fprintf(stderr, "[retro] %d: %.0f h, %d films, %d series\n", R.year, R.hours, R.movies, R.series);
 }
 /* etapa-74: genres and faces need each title's page: the ones not seen yet are asked, the slides follow as they come */
@@ -95,9 +100,14 @@ static void draw(void) {
       char m[16], s2[16]; snprintf(m, sizeof m, "%d", R.movies); snprintf(s2, sizeof s2, "%d", R.series); snprintf(b, sizeof b, "%s  \xc2\xb7  %s", T1("{n} films", "n", m), T1("{n} series", "n", s2)); text_draw(b, SB_W / 2, 690, 34, 500, WHITE_A(200), 0, 0, ALIGN_CENTER);
       { int dn; double da; if (diary_stats(R.year, &dn, &da) > 0) { char d1[16], d2[16]; snprintf(d1, sizeof d1, "%d", dn); snprintf(d2, sizeof d2, "%.1f", da); text_draw(T2("{n} films in your diary, {a} stars on average", "n", d1, "a", d2), SB_W / 2, 820, 28, 600, RGB(0xf5, 0xb0, 0x3b), 0, 0, ALIGN_CENTER); } } /* etapa-79 */
       { double days = R.hours / 24; if (days >= 1) { char d[16]; snprintf(d, sizeof d, "%.1f", days); text_draw(T1("That is {n} days in a row in front of the TV", "n", d), SB_W / 2, 760, 28, 500, WHITE_A(160), 0, 0, ALIGN_CENTER); } } break; }
-    case 2: case 3: { const Top *tp = R.idx == 2 ? &R.ts : &R.tm; text_draw(T(R.idx == 2 ? "Your series of the year" : "Your film of the year"), SB_W / 2, 140, 40, 700, acc, 1, 0, ALIGN_CENTER);
+    case 2: case 3: { const Top *tp = R.idx == 2 ? &R.ts : &R.tm; text_draw(T(R.idx == 2 ? "Your series of the year" : R.mRated || R.mDiary || !R.mPlays ? "Your film of the year" : "The film you saw the most"), SB_W / 2, 140, 40, 700, acc, 1, 0, ALIGN_CENTER);
       if (!tp->name[0]) { big(T("None this year"), 460, 64, WHITE_A(220)); break; } poster(tp->poster, SB_W / 2, 220, 560, k); big(tp->name, 810, 56, WHITE_A(255));
-      snprintf(n, sizeof n, "%.0f", tp->h < 1 ? 1 : tp->h); text_draw(T1("{n} hours together", "n", n), SB_W / 2, 890, 32, 500, WHITE_A(200), 0, 0, ALIGN_CENTER); break; }
+      if (R.idx == 3 && R.mRated) { snprintf(n, sizeof n, "%d", R.mRated); text_draw(T1("{n}/10 on Trakt", "n", n), SB_W / 2, 890, 32, 600, RGB(0xf5, 0xb0, 0x3b), 0, 0, ALIGN_CENTER); }
+      else if (R.idx == 3 && R.mDiary) { char st[32] = ""; for (int q = 0; q < 5; q++) strcat(st, q < R.mDiary ? "\xe2\x98\x85" : "\xe2\x98\x86"); text_draw(st, SB_W / 2, 890, 36, 600, RGB(0xf5, 0xb0, 0x3b), 2, 0, ALIGN_CENTER); }
+      else if (R.idx == 3 && R.mPlays > 1) { snprintf(n, sizeof n, "%d", R.mPlays); text_draw(T1("Seen {n} times", "n", n), SB_W / 2, 890, 32, 500, WHITE_A(200), 0, 0, ALIGN_CENTER); }
+      else { snprintf(n, sizeof n, "%.0f", tp->h < 1 ? 1 : tp->h); text_draw(T1("{n} hours together", "n", n), SB_W / 2, 890, 32, 500, WHITE_A(200), 0, 0, ALIGN_CENTER); }
+      if (R.idx == 3 && !R.mRated && !R.mDiary) text_draw(T("Give your films stars (Diary or Trakt) to choose your film of the year"), SB_W / 2, 950, 24, 500, WHITE_A(150), 0, 0, ALIGN_CENTER);
+      break; }
     case 4: text_draw(T("Your genre"), SB_W / 2, 230, 40, 600, WHITE_A(200), 0, 0, ALIGN_CENTER); if (R.genre[0]) big(T(R.genre), 300, 130, acc); else text_draw(T(pend > 0 ? "Finding out\xe2\x80\xa6" : "Not enough yet"), SB_W / 2, 330, 48, 700, WHITE_A(200), 0, 0, ALIGN_CENTER);
       if (R.actor[0]) { text_draw(T("The face you saw the most"), SB_W / 2, 560, 36, 600, WHITE_A(200), 0, 0, ALIGN_CENTER); big(R.actor, 620, 80, WHITE_A(255)); char c[16]; snprintf(c, sizeof c, "%d", R.an); text_draw(T1("in {n} of your titles", "n", c), SB_W / 2, 730, 30, 500, WHITE_A(170), 0, 0, ALIGN_CENTER); } break;
     case 5: { int bm = 0; double mx = 0; for (int i = 0; i < 12; i++) if (R.month[i] > mx) { mx = R.month[i]; bm = i; }
