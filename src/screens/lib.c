@@ -129,15 +129,68 @@ static int cmp(const void *a, const void *b) {
   d = y->added - x->added; return d > 0 ? 1 : d < 0 ? -1 : 0;
 }
 static void head_want(void);
+static void rows_build(void);
+static void rows_off(void);
 static void render(void) {
   free(L.items); L.items = NULL; L.n = 0; g_sk = sort_key();
   for (int t = 0; t < NF; t++) { L.counts[t] = 0; for (int j = 0; j < L.nall; j++) if (pass(&L.all[j], t)) L.counts[t]++; snprintf(L.cnt[t], sizeof L.cnt[t], "%d", L.counts[t]); }
   int *tmp = malloc((L.nall ? L.nall : 1) * sizeof *tmp), m = 0; for (int j = 0; j < L.nall; j++) if (pass(&L.all[j], L.tab)) tmp[m++] = j;
   qsort(tmp, m, sizeof *tmp, cmp); L.n = m < MAXSHOW ? m : MAXSHOW; L.items = tmp;
   if (L.idx > L.n - 1) L.idx = L.n ? L.n - 1 : 0;
+  rows_off(); if (L.tab == 0 && strcmp(store_get("libRows", "true"), "false")) rows_build(); /* etapa-84 */
   timer_start(&L.gridIn, 0.3f + 0.12f); /* (the pill row keeps its motion: a filter applied on the move must not snap it) */ /* a new filter or order: the cards rise into place one column after another */
 }
 static const LibIt *at(int i) { return i >= 0 && i < L.n ? &L.all[L.items[i]] : NULL; }
+
+/* ---- etapa-84: the Library's own Home ("All"): rows as a streaming service has them (Continue watching, Recently
+   added, My list in the order chosen, Not watched yet, Watched films, Watched series, the genres it holds most,
+   Collections), the focused title in the banner above (the head: backdrop, logo, year, length, IMDb, genres, the
+   story). The other filters keep their grid. The rows reuse the grid's list: L.items holds every row's titles one
+   row after another, so the banner, the card menu and OK work as they did. ---- */
+#define MAXR 12
+#define RCW 232.0f   /* a row's posters */
+#define RCH 348.0f
+#define RSTEP 258.0f
+#define RROWH 440.0f
+#define RTOP (GRID_TOP + 6)
+static struct { int on, nr, cur, start[MAXR], len[MAXR], col[MAXR]; char title[MAXR][80]; Tween y, off[MAXR]; int built; } RW;
+static uint32_t lred(float a) { return RGBA(0xe5, 0x1a, 0x2e, (int)(255 * a)); } /* the Library's red (its own, not anyone's brand) */
+static double g_key(const LibIt *o, int how) { return how == 1 ? o->seen : how == 2 ? -(double)o->year : o->added; }
+static int g_how;
+static int cmp_how(const void *a, const void *b) { double x = g_key(&L.all[*(const int *)a], g_how), y = g_key(&L.all[*(const int *)b], g_how); return x < y ? 1 : x > y ? -1 : 0; }
+static int rows_add(int *flat, int *nf, const char *title, int *ix, int n, int max) {
+  if (n <= 0 || RW.nr >= MAXR) return 0; if (n > max) n = max; int r = RW.nr++; snprintf(RW.title[r], sizeof RW.title[r], "%s", title); RW.start[r] = *nf; RW.len[r] = n;
+  for (int i = 0; i < n; i++) flat[(*nf)++] = ix[i]; if (RW.col[r] >= n) RW.col[r] = n - 1; return 1; }
+static void rows_build(void) {
+  char keep[80] = ""; if (RW.on && RW.cur < RW.nr) snprintf(keep, sizeof keep, "%s", RW.title[RW.cur]);
+  int cap = L.nall * 4 + 8, *flat = malloc((size_t)cap * sizeof *flat), *ix = malloc((size_t)(L.nall + 1) * sizeof *ix), nf = 0, n; if (!flat || !ix) { free(flat); free(ix); return; }
+  int oldCol[MAXR]; char oldT[MAXR][80]; int on = RW.nr; for (int r = 0; r < on; r++) { oldCol[r] = RW.col[r]; snprintf(oldT[r], 80, "%s", RW.title[r]); }
+  RW.nr = 0; memset(RW.col, 0, sizeof RW.col);
+  #define PICK(cond) do { n = 0; for (int j = 0; j < L.nreal; j++) { const LibIt *o = &L.all[j]; (void)o; if (cond) ix[n++] = j; } } while (0)
+  PICK(o->cw); g_how = 1; qsort(ix, (size_t)n, sizeof *ix, cmp_how); rows_add(flat, &nf, T("Continue Watching"), ix, n, 40);
+  { double cut = ((double)time(NULL) - 45 * 86400.0) * 1000; PICK(o->added >= cut); g_how = 0; qsort(ix, (size_t)n, sizeof *ix, cmp_how); if (n >= 2) rows_add(flat, &nf, T("Recently added"), ix, n, 30); }
+  PICK(1); g_sk = sort_key(); qsort(ix, (size_t)n, sizeof *ix, cmp); { char t[80]; snprintf(t, sizeof t, "%s \xc2\xb7 %s", T("My list"), T(S_LB[sort_key()])); rows_add(flat, &nf, t, ix, n, 60); }
+  PICK(!o->done && !o->cw); g_how = 0; qsort(ix, (size_t)n, sizeof *ix, cmp_how); rows_add(flat, &nf, T("Not watched yet"), ix, n, 40);
+  PICK(o->done && !strcmp(o->it.type, "movie")); g_how = 1; qsort(ix, (size_t)n, sizeof *ix, cmp_how); rows_add(flat, &nf, T("Watched films"), ix, n, 40);
+  PICK(o->done && !strcmp(o->it.type, "series")); g_how = 1; qsort(ix, (size_t)n, sizeof *ix, cmp_how); rows_add(flat, &nf, T("Watched series"), ix, n, 40);
+  { /* the genres it holds most (from the titles' details already known), four rows at most, three titles or more each */
+    struct { char g[48]; int c; } G[48]; int ng = 0;
+    for (int j = 0; j < L.nreal; j++) { const cJSON *m = sb_meta_cached(L.all[j].it.type, L.all[j].it.id), *g; cJSON_ArrayForEach(g, js_arr(m, "genres")) if (cJSON_IsString(g)) { int k = 0; for (; k < ng; k++) if (!strcmp(G[k].g, g->valuestring)) break; if (k == ng && ng < 48) { snprintf(G[ng].g, sizeof G[ng].g, "%s", g->valuestring); G[ng++].c = 0; } if (k < 48) G[k].c++; } }
+    for (int pass = 0; pass < 4; pass++) { int b = -1; for (int k = 0; k < ng; k++) if (G[k].c >= 3 && (b < 0 || G[k].c > G[b].c)) b = k; if (b < 0) break;
+      n = 0; for (int j = 0; j < L.nreal; j++) { const cJSON *m = sb_meta_cached(L.all[j].it.type, L.all[j].it.id), *g; cJSON_ArrayForEach(g, js_arr(m, "genres")) if (cJSON_IsString(g) && !strcmp(g->valuestring, G[b].g)) { ix[n++] = j; break; } }
+      g_how = 0; qsort(ix, (size_t)n, sizeof *ix, cmp_how); rows_add(flat, &nf, T(G[b].g), ix, n, 40); G[b].c = 0; } }
+  n = 0; for (int j = L.nreal; j < L.nall; j++) if (L.all[j].ckey[0]) ix[n++] = j; rows_add(flat, &nf, T("Collections"), ix, n, 30);
+  #undef PICK
+  for (int r = 0; r < RW.nr; r++) for (int q = 0; q < on; q++) if (!strcmp(RW.title[r], oldT[q])) { RW.col[r] = oldCol[q] < RW.len[r] ? oldCol[q] : RW.len[r] - 1; break; } /* (each row keeps its place across a refresh) */
+  RW.cur = 0; for (int r = 0; keep[0] && r < RW.nr; r++) if (!strcmp(RW.title[r], keep)) { RW.cur = r; break; }
+  free(ix); free(L.items); L.items = flat; L.n = nf; RW.on = 1; if (!RW.built) { RW.built = 1; tween_set(&RW.y, 0); }
+  L.idx = RW.nr ? RW.start[RW.cur] + RW.col[RW.cur] : 0;
+}
+static void rows_off(void) { RW.on = 0; }
+static int rows_mode(void) { return RW.on && L.tab == 0 && RW.nr > 0; }
+static void rows_paint(void) { if (!rows_mode()) return; tween_to(&RW.y, (float)RW.cur, 0.34f, EASE_OUT);
+  for (int r = 0; r < RW.nr; r++) { int c = RW.col[r]; float o = c > 1 ? (c - 1) * RSTEP : 0; tween_to(&RW.off[r], o, 0.3f, EASE_OUT); } }
+
 
 /* ---- the rail ---- */
 static void rail_labels(void) {
@@ -236,7 +289,7 @@ static void lift(int i) { if (i == L.fcur) return; L.fold = L.fcur; tween_set(&L
 static void paint(void) { rail_paint(0); head_want();
   lift(L.zone == 1 ? L.idx : -1);
   tween_to(&L.ringA, L.zone == 1 ? 1 : 0, 0.16f, EASE_IN_OUT);
-  int row = L.zone == 1 ? L.idx / COLS : 0; tween_to(&L.gridY, -row * LROWH, 0.32f, EASE_OUT); }
+  int row = L.zone == 1 ? L.idx / COLS : 0; tween_to(&L.gridY, -row * LROWH, 0.32f, EASE_OUT); rows_paint(); }
 static void enter(const void *p) {
   (void)p; int keep = L.built && L.ver == lib_version(); if (!L.built) L.zone = 1; /* the first visit opens on the grid */ L.built = 1;
   if (!keep) { L.ver = lib_version(); load(); coll_cards(); L.collVer = coll_version(); render(); }
@@ -273,9 +326,17 @@ static int key(int k) {
     else if (k == K_OK && L.ri == B_WALL) { timer_start(&L.press, 0.25f); Item *v = malloc((size_t)(L.n ? L.n : 1) * sizeof(Item)); if (v) { for (int i = 0; i < L.n; i++) v[i] = at(i)->it; mural_open(v, L.n, L.zone == 1 ? L.idx : 0); free(v); } return 1; }
     else if (k == K_OK && L.ri == B_CAL) { timer_start(&L.press, 0.25f); retro_open(); return 1; } /* etapa-73: the Calendar is up by the clock now: here, your year */
     else if (k == K_OK && L.ri == NB - 1) { int si = (sort_key() + 1) % 4; store_set("libSort", S_KEY[si]); sound_play(SND_FILTER); L.idx = 0; timer_start(&L.press, 0.25f); render(); paint(); return 1; } /* OK on the sort: the next order */
-    else if (k == K_DOWN || (k == K_OK && L.ri < NF)) { L.ri = L.tab; if (L.n) L.zone = 1; else nudge_start(&L.nudge, k); } /* down (or OK) into the titles */
+    else if (k == K_DOWN || (k == K_OK && L.ri < NF)) { L.ri = L.tab; if (L.n) { L.zone = 1; if (rows_mode()) L.idx = RW.start[RW.cur] + RW.col[RW.cur]; } else nudge_start(&L.nudge, k); } /* down (or OK) into the titles */
     else if (k == K_BACK) return 0;
     paint(); return 1; }
+  if (rows_mode()) { int r = RW.cur; /* etapa-84: the rows: across a row, down and up between them */
+    if (k == K_RIGHT) { if (RW.col[r] < RW.len[r] - 1) RW.col[r]++; else nudge_start(&L.nudge, k); }
+    else if (k == K_LEFT) { if (RW.col[r] > 0) RW.col[r]--; else nudge_start(&L.nudge, k); }
+    else if (k == K_DOWN) { if (r < RW.nr - 1) RW.cur++; else nudge_start(&L.nudge, k); }
+    else if (k == K_UP) { if (r > 0) RW.cur--; else { L.zone = 0; L.ri = L.tab; } }
+    else if (k == K_PLAY || k == K_PLAYPAUSE) { const LibIt *o = at(L.idx); if (o && !o->ckey[0]) app_open_item(&o->it); return 1; } /* play: straight to it (resume where it was) */
+    else if (k == K_BACK) return 0;
+    if (L.zone == 1) L.idx = RW.start[RW.cur] + RW.col[RW.cur]; sound_play(SND_FOCUS); paint(); return 1; }
   int i0 = L.idx;
   if (k == K_RIGHT) { if (L.idx % COLS < COLS - 1 && L.idx < L.n - 1) L.idx++; else nudge_start(&L.nudge, k); }
   else if (k == K_LEFT) { if (L.idx % COLS > 0) L.idx--; else nudge_start(&L.nudge, k); }
@@ -302,7 +363,7 @@ static void tick(float dt) {
 static float col_x(int c) { float x = GRID_X + c * LSTEP; return app_rtl() ? SB_W - x - LW : x; }
 /* the pointer: on a category or the sort, on a poster */
 static void rail_focus(int i, int b) { (void)b; int was = topNav.active; topNav.active = 0; if (was || L.zone != 0 || L.ri != i) { L.zone = 0; L.ri = i; paint(); } }
-static void card_focus(int i, int b) { (void)b; int was = topNav.active; topNav.active = 0; if (was || L.zone != 1 || L.idx != i) { L.zone = 1; L.idx = i; paint(); } }
+static void card_focus(int i, int b) { (void)b; if (rows_mode()) for (int r = 0; r < RW.nr; r++) if (i >= RW.start[r] && i < RW.start[r] + RW.len[r]) { RW.cur = r; RW.col[r] = i - RW.start[r]; break; } int was = topNav.active; topNav.active = 0; if (was || L.zone != 1 || L.idx != i) { L.zone = 1; L.idx = i; paint(); } }
 static void draw_card(const LibIt *o, float x, float y, int load) {
   const char *src = o->poster; GLuint t = src[0] && (load || img_shaped_loaded(src, (int)LW, (int)LH, CARD_R, 0)) ? img_get_shaped(src, (int)LW, (int)LH, CARD_R, 0) : 0;
   int failed = !t && (!src[0] || img_shaped_failed(src, (int)LW, (int)LH, CARD_R, 0));
@@ -334,7 +395,41 @@ static void head_draw(Head *h, Facts *old, float a, float fk) {
   else facts_draw(&h->f, hx, y, al, rtl);
   gfx_opacity_pop();
 }
+/* etapa-84: the rows drawn: each row's name, its posters sliding so the focused one stays in view; the focused poster
+   grows a little with a red edge and glow; a progress line on what is under way; the page darker under the banner */
+static void rcard(const LibIt *o, float x, float y, int load, int foc, float k) {
+  const char *src = o->poster; GLuint t = src[0] && (load || img_shaped_loaded(src, (int)RCW, (int)RCH, CARD_R, 0)) ? img_get_shaped(src, (int)RCW, (int)RCH, CARD_R, 0) : 0;
+  if (foc && k > 0.01f) { gfx_shadow(x, y + 10, RCW, RCH, CARD_R, 46, lred(0.55f * k)); }
+  if (t || (src[0] && !img_shaped_failed(src, (int)RCW, (int)RCH, CARD_R, 0))) ph_picture(t, x, y, RCW, RCH, CARD_R, WHITE_A(255)); else card_standin(&o->it, x, y, RCW, RCH, CARD_R, 0, 0);
+  if (o->done) { gfx_circle(x + RCW - 30, y + 30, 18, lred(0.95f)); icon_draw("check", x + RCW - 42, y + 18, 24, WHITE_A(255)); }
+  if (o->cw) { gfx_rrect(x + 10, y + RCH - 14, RCW - 20, 5, 2.5f, WHITE_A(70)); float pw = (RCW - 20) * clampf(o->pct, 0, 1); if (pw > 1) gfx_rrect(x + 10, y + RCH - 14, pw, 5, 2.5f, lred(1)); }
+  if (o->ckey[0]) { char c[16]; snprintf(c, sizeof c, "%d", o->nIn); gfx_rrect(x + 10, y + 10, text_width(c, 20, 800, 0) + 20, 32, 16, BLACK_A(170)); text_draw(c, x + 20, y + 26 - text_line_height(20) / 2, 20, 800, WHITE_A(240), 0, 0, ALIGN_LEFT); }
+  if (foc && k > 0.01f) gfx_ring(x - 5, y - 5, RCW + 10, RCH + 10, CARD_R + 5, 4, lred(k));
+}
+static void rows_draw(float melt) {
+  (void)melt; float scroll = RW.y.v; int foc0 = L.zone == 1;
+  gfx_rect(0, GRID_TOP + 60, SB_W, SB_H - GRID_TOP - 60, RGBA(8, 8, 8, 120)); /* (the page under the banner nearly black) */
+  gfx_clip_push(0, GRID_TOP - 4, SB_W, SB_H - GRID_TOP + 4);
+  float gx = L.zone == 1 ? nudge_x(&L.nudge) : 0, gyn = L.zone == 1 ? nudge_y(&L.nudge) : 0;
+  for (int r = 0; r < RW.nr; r++) { float y = RTOP + (r - scroll) * RROWH; if (y > SB_H || y + RROWH < GRID_TOP - 40) continue;
+    int isR = r == RW.cur; float ra = r < scroll - 0.05f ? clampf(1 - (scroll - r), 0, 1) : 1; if (ra <= 0.01f) continue; gfx_opacity_push(ra);
+    { char t[120]; snprintf(t, sizeof t, "%s", RW.title[r]); float tw = text_draw(t, 62, y, 32, 800, WHITE_A(isR && foc0 ? 255 : 215), -0.3f, 0, ALIGN_LEFT); char c[16]; snprintf(c, sizeof c, "%d", RW.len[r]); text_draw(c, 62 + tw + 14, y + 6, 24, 600, WHITE_A(120), 0, 0, ALIGN_LEFT); }
+    float cy = y + 52, off = RW.off[r].v; int c0 = (int)(off / RSTEP) - 1; if (c0 < 0) c0 = 0;
+    for (int pass = 0; pass < 2; pass++) for (int c = c0; c < RW.len[r] && c < c0 + 9; c++) { float x = 62 + c * RSTEP - off; if (x > SB_W) break; if (x + RCW < 0) continue;
+      int f = foc0 && isR && c == RW.col[r]; if (pass != f) continue; const LibIt *o = at(RW.start[r] + c); if (!o) continue;
+      int near = r >= RW.cur - 1 && r <= RW.cur + 2;
+      if (f) { float s = 1 + 0.08f * L.fsc.v / 1.05f; gfx_offset_push(gx, gyn); gfx_scale_push(s, s, x + RCW / 2, cy + RCH / 2); rcard(o, x, cy, 1, 1, 1); gfx_scale_pop(); gfx_offset_pop(); }
+      else rcard(o, x, cy, near, 0, 0);
+      hit_add(x, cy, RCW, RCH, card_focus, NULL, RW.start[r] + c, 0); }
+    gfx_opacity_pop(); }
+  gfx_clip_pop();
+  /* the banner's buttons, as keys on the remote */
+  if (L.zone == 1) { float hx = SB_W - 60; const LibIt *o = at(L.idx); int inL = o && !o->ckey[0];
+    float w3 = key_hint(hx, 330, K_OK, T("More info"), WHITE_A(220), 1); if (inL) { float w2 = key_hint(hx - w3 - 36, 330, K_PLAY, T("Watch now"), WHITE_A(220), 1); key_hint(hx - w3 - w2 - 72, 330, K_OK, T("Hold: options"), WHITE_A(170), 1); } }
+}
+static int tipOn, tipI; static float tipX;
 static void draw(void) {
+  tipOn = 0;
   int rtl = app_rtl(); int al = rtl ? ALIGN_RIGHT : ALIGN_LEFT; float hx = rtl ? SB_W - 48 : 48;
   /* a background trailer playing: the page melts back as Home's does (its shade gone, the rail and the posters to .19, the
      head to .6, the focused poster kept clear at .85) */
@@ -358,7 +453,7 @@ static void draw(void) {
     hit_add(x, RAIL_Y, w, 76, rail_focus, NULL, i, 0);
     if (!open && L.la[i].v < 0.999f) gfx_circle(rtl ? x + w - 38 : x + 38, RAIL_Y + 38, 38, WHITE_A((int)(41 * (1 - L.la[i].v)))); /* a closed button: its own quiet disc */
     uint32_t fg = f ? RGB(0x15, 0x13, 0x1c) : WHITE_A(255);
-    if (f && (i == B_CAL || i == B_WALL || i == B_DIARY)) { float cxm = x + 38 + bxn, tw2 = text_width(L.lbl[i], 22, 700, 0) + 28; gfx_rrect(cxm - tw2 / 2, RAIL_Y + 90, tw2, 40, 20, RGBA(14, 12, 22, 220)); text_draw(L.lbl[i], cxm, RAIL_Y + 110 - text_line_height(22) / 2, 22, 700, WHITE_A(240), 0, 0, ALIGN_CENTER); } /* (its name, as a tag under it) */
+    if (f && (i == B_CAL || i == B_WALL || i == B_DIARY)) { tipOn = 1; tipX = x + 38 + bxn; tipI = i; } /* (its name: a tag under it, drawn over the cards at the end) */
     icon_draw(i < NF ? F_IC[i] : i == B_CAL ? "lib_retro" : i == B_WALL ? "lib_wall" : i == B_DIARY ? "av_star" : "lib_sort", (rtl ? x + w - 21 - 34 : x + 21) + bxn, RAIL_Y + 21 + byn, 34, fg);
     float ok = L.lw[i] > 1 ? (w - 76) / L.lw[i] : 0; ok = ok < 0 ? 0 : ok > 1 ? 1 : ok; /* the name shows as far as the pill has opened: never ahead of it */
     float la = L.la[i].v < ok * ok ? L.la[i].v : ok * ok; if (la > 0.001f) { gfx_opacity_push(la); gfx_clip_push(x, RAIL_Y, w - 18, 76); /* the name shows as the pill widens */ float tx = (rtl ? x + w - 66 : x + 66) + bxn, ty = RAIL_Y + 38 - text_line_height(26) / 2.0f + byn;
@@ -374,6 +469,7 @@ static void draw(void) {
   #undef RX
   /* the grid: the focused row on top, the rows around it */
   if (melt > 0) gfx_opacity_pop();
+  if (rows_mode()) { if (melt > 0) gfx_opacity_push(1 - 0.81f * melt); rows_draw(melt); if (melt > 0) gfx_opacity_pop(); goto tips; } /* etapa-84: the Library's rows */
   gfx_clip_push(34, GRID_TOP, SB_W - 34, SB_H - GRID_TOP);
   if (!L.n) { float y = GRID_TOP + 14 + 30; int any = L.nall > 0;
     text_draw(any ? T("Nothing here yet") : T("Your library is empty."), hx, y, 30, 600, WHITE_A(217), 0, SB_W - 96, al);
@@ -401,6 +497,8 @@ static void draw(void) {
       lift_end(lk, x, y0, LW, LH, CARD_R); gfx_offset_pop();
       if (ia < 1) gfx_opacity_pop(); } }
   gfx_clip_pop();
+  tips:
+  if (tipOn) { float tw2 = text_width(L.lbl[tipI], 24, 700, 0) + 36; gfx_shadow(tipX - tw2 / 2, RAIL_Y + 94, tw2, 46, 23, 24, BLACK_A(120)); gfx_rrect(tipX - tw2 / 2, RAIL_Y + 90, tw2, 46, 23, WHITE_A(245)); text_draw(L.lbl[tipI], tipX, RAIL_Y + 113 - text_line_height(24) / 2, 24, 700, RGB(0x15, 0x13, 0x1c), 0, 0, ALIGN_CENTER); } /* etapa-83: over the cards, never under them */
 }
 static int origin(float *x, float *y) {
   if (L.zone != 1 || !L.n || topNav.active) return 0; int c = L.idx % COLS, r = L.idx / COLS;

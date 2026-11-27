@@ -298,8 +298,17 @@ static void roleta_tile(float x, float y, float w, float h) {
   text_draw_wrapped(T("Can't decide? Spin the roulette"), tx, y + h / 2 + 4, mw, 2, 20, 500, WHITE_A(190), 0, ALIGN_LEFT, 26);
   gfx_ring(x, y, w, h, CARD_R, 1, WHITE_A(30));
 }
+/* etapa-83: the Duo session's card beside the Roulette */
+static void duo_tile(float x, float y, float w, float h) {
+  gfx_rrect_v(x, y, w, h, CARD_R, RGB(120, 30, 80), RGB(30, 14, 36));
+  float d = h * 0.46f, cx = x + 30 + d / 2, cy = y + h / 2; gfx_circle(cx, cy, d / 2 + 7, WHITE_A(24)); gfx_circle(cx, cy, d / 2, RGB(0xe1, 0x1d, 0x74)); icon_draw("av_heart", cx - d * 0.3f, cy - d * 0.3f, d * 0.6f, WHITE_A(250));
+  float tx = x + 30 + d + 26, mw = x + w - 22 - tx;
+  text_draw(T("Duo session"), tx, y + h / 2 - 46, 40, 800, WHITE_A(255), -0.6f, mw, ALIGN_LEFT);
+  text_draw_wrapped(T("Choose a film together on your phones"), tx, y + h / 2 + 4, mw, 2, 20, 500, WHITE_A(190), 0, ALIGN_LEFT, 26);
+  gfx_ring(x, y, w, h, CARD_R, 1, WHITE_A(30)); }
 static int card_body(const Item *it, const CardPrep *cp, float x, float y, float w, float h, int wide, int label, int loadArt) {
   if (!strcmp(it->id, ROLETA_ID)) { roleta_tile(x, y, w, h); return 1; }
+  if (!strcmp(it->id, "__duo")) { duo_tile(x, y, w, h); return 1; }
   int shown; CardPrep own;
   if (!strcmp(it->id, LIVE_ALL_ID)) { allch_tile(x, y, w, h); return 1; }
   if (!cp) { card_prep(&own, it, wide, NULL); cp = &own; } /* a card without its own: resolved here, as before */

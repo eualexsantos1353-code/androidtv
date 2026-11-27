@@ -32,4 +32,7 @@ void httpd_set_deb_handler(int (*fn)(const char *svc, const char *key)); /* /deb
 /* the IPTV page's Save (the IPTV module): the list link and the guide link as typed; 1 = kept */
 void httpd_set_iptv_handler(int (*fn)(const char *m3u, const char *epg));
 void httpd_set_simkl_handler(int (*fn)(const char *key)); /* Simkl's Client ID pasted on the phone (server thread) */
+/* etapa-83: the Duo session: /duo, /duo/state, /duo/vote (server thread): a malloc'd body and its content type, NULL = 204 */
+void httpd_set_duo_handler(char *(*fn)(const char *path, const char *query, const char **ctype));
+int  httpd_qparam(const char *q, const char *name, char *out, size_t cap);
 #endif

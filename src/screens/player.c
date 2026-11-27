@@ -2495,7 +2495,11 @@ static void finish_close(void) { if (diaryWant) { diaryWant = 0; diary_ask(&diar
 static int closeNext, closeSim, closeArt; static double closeAt, closeT0; /* closeArt: closed on the loading screen (its line and words fade as the logo flies back) */
 static void close_player(int goNext, int goSim) {
   if (!P.open || P.closing) return; multi_stop(); if (bestTok) { best_choose_cancel(bestTok); bestTok = 0; } P.closing = 1; ps_hold(0); sp_verify_reset(); np_stop(); NP.vid[0] = 0; /* (the next episode's pictures made so far: kept) */ /* (a lighter copy not taken yet: it reads on freely, nothing plays) */ closeArt = !P.live && P.artA.v > 0.999f; closeT0 = now_(); sx_begin_quick(0); /* the player's logo moves back to the page */ closeNext = goNext; closeSim = goSim; P.ssOn = 0; P.nx.tok = 0; P.sk.tok = 0;
-  { double d = dur(), t = video_time(); if (!P.live && !P.isTrailer && !strcmp(P.type, "movie") && d > 1200 && (P.ended || t / d >= 0.85)) { Item it = lib_item(); diaryWant = 1; diaryIt = it; } } /* etapa-79: the diary asks, once the player has gone */
+  { double d = dur(), t = video_time(); int fin = d > 600 && (P.ended || t / d >= 0.85);
+    if (!P.live && !P.isTrailer && fin && !strcmp(P.type, "movie") && d > 1200) { Item it = lib_item(); diaryWant = 1; diaryIt = it; }
+    else if (!P.live && !P.isTrailer && fin && !strcmp(P.type, "series") && P.season > 0) { /* etapa-83: a season's last episode: the season's stars */
+      int last = 0; const cJSON *v; cJSON_ArrayForEach(v, js_arr(P.meta, "videos")) if ((int)js_num(v, "season", -1) == P.season) { int e = (int)js_num(v, "episode", js_num(v, "number", 0)); if (e > last) last = e; }
+      if (last > 1 && P.episode >= last) { Item it = lib_item(); it.ep = P.season; diaryWant = 1; diaryIt = it; } } } /* etapa-79: the diary asks, once the player has gone */
   scrobble_player_end(video_time(), dur(), 0); tracking_player_end(video_time(), dur()); save_progress(1); video_pause(); /* (Test playback: nothing told, nothing kept) */
   /* the title's own picture fades back over the paused frame, the video goes, then the cover fades onto the app */
   closeAt = now_() + (closeArt ? 0.01 : 0.26); /* the cover fades back over the paused frame (see css()); from the loading screen the art fades at once, under the logo on its way back */

@@ -1,30 +1,30 @@
 {
- "version": "82",
+ "version": "84",
  "items": [
   {
-   "icon": "wn_new",
-   "title": "Episódios novos com o Trakt",
-   "text": "Séries que você viu em qualquer lugar e que soltaram episódio novo aparecem no Início."
+   "icon": "lib_sort",
+   "title": "Biblioteca nova",
+   "text": "Em \"Tudo\": fileiras de Continuar assistindo, Adicionados, Minha lista, Não assistidos, Assistidos e seus gêneros, com o título em destaque no topo. ▶ assiste direto."
+  },
+  {
+   "icon": "av_heart",
+   "title": "Sessão a dois",
+   "text": "No Início, ao lado da Roleta: os dois votam pelo celular e a TV mostra os matches."
+  },
+  {
+   "icon": "av_star",
+   "title": "Diário com séries",
+   "text": "Terminou a última de uma temporada? Dê estrelas para a temporada."
   },
   {
    "icon": "later",
-   "title": "Biblioteca com o Trakt",
-   "text": "Sua watchlist do Trakt entra na Biblioteca, e o que você adiciona aqui vai para o Trakt."
-  },
-  {
-   "icon": "lib_cal",
-   "title": "Calendário mais limpo",
-   "text": "No lugar dos pontinhos, um número mostra quantos títulos saem no dia."
-  },
-  {
-   "icon": "lib_retro",
-   "title": "Retrospectiva",
-   "text": "Sem novelas nas estatísticas. O filme do ano é o que você deu a maior nota."
+   "title": "Notas no Trakt",
+   "text": "As estrelas do diário vão para o Trakt (cada estrela vale 2 pontos)."
   },
   {
    "icon": "wn_new",
-   "title": "Créditos, diário e fundo animado",
-   "text": "Cena pós-créditos avisada, estrelas no fim do filme e o fundo do Início vivo."
+   "title": "Episódios novos com o Trakt",
+   "text": "Séries que você viu em qualquer lugar e que soltaram episódio aparecem no Início."
   }
  ],
  "support": {

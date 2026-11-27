@@ -31,6 +31,7 @@ static char tok[17];
 static struct { int seq; char text[400]; } typed;
 static unsigned hits;
 static int (*simklFn)(const char *key);
+static char *(*duoFn)(const char *path, const char *query, const char **ctype); /* etapa-83: the Duo session */
 static int (*keyFn)(const char *key), (*traktFn)(const char *key), (*mdbFn)(const char *key), (*debFn)(const char *svc, const char *key);
 static int (*iptvFn)(const char *m3u, const char *epg);
 
@@ -206,6 +207,10 @@ static void handle(int fd) {
   if (!strncmp(target, "/t/", 3) && strlen(target) >= 19 && !strncmp(target + 3, tok, 16)) {
     rest = target + 19;
     if (*rest && strcmp(rest, "/q") && strcmp(rest, "/tmdb") && strcmp(rest, "/tmdb/set") && strcmp(rest, "/trakt") && strcmp(rest, "/trakt/set") && strcmp(rest, "/mdb") && strcmp(rest, "/mdb/set") && strcmp(rest, "/deb") && strcmp(rest, "/deb/set") && strcmp(rest, "/simkl") && strcmp(rest, "/simkl/set") && strcmp(rest, "/iptv") && strcmp(rest, "/iptv/set")) rest = NULL; }
+  if (!rest && !strncmp(target, "/t/", 3) && strlen(target) >= 23 && !strncmp(target + 3, tok, 16) && !strncmp(target + 19, "/duo", 4)) { /* etapa-83: the Duo session's page and its calls */
+    pthread_mutex_lock(&mu); char *(*fn)(const char *, const char *, const char **) = duoFn; if (!strcmp(target + 19, "/duo")) hits++; pthread_mutex_unlock(&mu);
+    const char *ct = "application/json"; char *body = fn ? fn(target + 19, q ? q : "", &ct) : NULL;
+    if (!body) { reply(fd, 204, NULL, NULL, 0); return; } char hd[96]; snprintf(hd, sizeof hd, "Content-Type: %s; charset=utf-8\r\nCache-Control: no-store\r\n", ct); reply(fd, 200, hd, body, strlen(body)); free(body); return; }
   if (!rest) { if (!strncmp(target, "/t/", 3) || !strcmp(target, "/")) { Buf b = { 0 }; pthread_mutex_lock(&mu); stale_page(&b); pthread_mutex_unlock(&mu); reply(fd, 404, "Content-Type: text/html; charset=utf-8\r\n", b.p, b.n); free(b.p); } else reply(fd, 404, NULL, NULL, 0); return; }
   if (strcmp(rest, "/q") && strcmp(rest, "/tmdb/set") && strcmp(rest, "/trakt/set") && strcmp(rest, "/mdb/set") && strcmp(rest, "/deb/set") && strcmp(rest, "/simkl/set") && strcmp(rest, "/iptv/set")) { pthread_mutex_lock(&mu); hits++; pthread_mutex_unlock(&mu); } /* a code was opened */
   if (!strcmp(rest, "/iptv/set")) {
@@ -326,6 +331,8 @@ int httpd_typed(int since, char *out, size_t cap) {
 unsigned httpd_hits(void) { pthread_mutex_lock(&mu); unsigned h = hits; pthread_mutex_unlock(&mu); return h; }
 void httpd_set_key_handler(int (*fn)(const char *key)) { pthread_mutex_lock(&mu); keyFn = fn; pthread_mutex_unlock(&mu); }
 void httpd_set_iptv_handler(int (*fn)(const char *m3u, const char *epg)) { pthread_mutex_lock(&mu); iptvFn = fn; pthread_mutex_unlock(&mu); }
+int httpd_qparam(const char *q, const char *name, char *out, size_t cap) { out[0] = 0; qparam(q, name, out, cap); return out[0] != 0; }
+void httpd_set_duo_handler(char *(*fn)(const char *, const char *, const char **)) { pthread_mutex_lock(&mu); duoFn = fn; pthread_mutex_unlock(&mu); }
 void httpd_set_simkl_handler(int (*fn)(const char *)) { pthread_mutex_lock(&mu); simklFn = fn; pthread_mutex_unlock(&mu); }
 void httpd_set_deb_handler(int (*fn)(const char *, const char *)) { pthread_mutex_lock(&mu); debFn = fn; pthread_mutex_unlock(&mu); }
 void httpd_set_mdb_handler(int (*fn)(const char *key)) { pthread_mutex_lock(&mu); mdbFn = fn; pthread_mutex_unlock(&mu); }

@@ -216,7 +216,7 @@ static Screen menu = { NULL, NULL, key, tick, draw, NULL, NULL, NULL };
    removed comes down from it, from the focused element */
 void cwmenu_fx_lib(int added, const Item *it) { app_overlay_keep(&menu); fx_start(added ? 1 : 2, added ? "plus" : "minus", T(added ? "Added to Library" : "Removed from Library")); if (it) sb_poster_of(it, FX.poster, sizeof FX.poster); }
 void cwmenu_show(const Item *it) {
-  if (it && !strcmp(it->id, ROLETA_ID)) { app_card_shake(); return; } /* the Roulette card has no menu: held, it shakes softly */
+  if (it && (!strcmp(it->id, ROLETA_ID) || !strcmp(it->id, "__duo"))) { app_card_shake(); return; } /* the Roulette card has no menu: held, it shakes softly */
   if (it && !strcmp(it->type, "collection")) { app_card_shake(); return; } /* a collection has no menu (OK opens it): held, the card shakes softly, nothing more */
   if (live_type(it->type) && strcmp(it->id, LIVE_ALL_ID) && hub_on()) { /* a channel held in All channels: its streams, to pick one (play and favourite have their keys there) */
     streams_show(it->type, it->id, it->id, it->name, NULL); return; } /* (the sheet alone, over the hub: no title page for a channel) */

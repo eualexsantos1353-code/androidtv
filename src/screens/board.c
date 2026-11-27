@@ -157,8 +157,10 @@ static void closing_row(Board *b, const KeptRow *kp, int nk, const char *title, 
   z->hidden = 0; z->closing = 1; z->closeAt = app_now(); z->hk = 1; z->round = round; row_ghosts(z, k, NULL); }
 /* Home's Roulette row: the Roulette, one wide card (OK opens it) */
 static void board_roleta_row(Board *b) {
-  ItemList l; memset(&l, 0, sizeof l); l.items = calloc(1, sizeof(Item)); if (!l.items) return;
-  Item *a = &l.items[l.n++]; snprintf(a->id, sizeof a->id, "%s", ROLETA_ID); snprintf(a->type, sizeof a->type, "movie"); snprintf(a->name, sizeof a->name, "%s", T("Roulette")); snprintf(a->description, sizeof a->description, "%s", T("Can't decide? Spin the roulette")); l.total = 1;
+  ItemList l; memset(&l, 0, sizeof l); l.items = calloc(2, sizeof(Item)); if (!l.items) return;
+  Item *a = &l.items[l.n++]; snprintf(a->id, sizeof a->id, "%s", ROLETA_ID); snprintf(a->type, sizeof a->type, "movie"); snprintf(a->name, sizeof a->name, "%s", T("Roulette")); snprintf(a->description, sizeof a->description, "%s", T("Can't decide? Spin the roulette"));
+  if (!prof_kid(-1)) { Item *d = &l.items[l.n++]; snprintf(d->id, sizeof d->id, "__duo"); snprintf(d->type, sizeof d->type, "movie"); snprintf(d->name, sizeof d->name, "%s", T("Duo session")); snprintf(d->description, sizeof d->description, "%s", T("Choose a film together on your phones")); } /* etapa-83 */
+  l.total = l.n;
   Row *r = row_add(b, "Roulette", 1, 0); if (r) { r->items = l; r->hidden = 0; } else itemlist_clear(&l);
 }
 static void board_cw_row(Board *b, const KeptRow *kp, int nk) {
